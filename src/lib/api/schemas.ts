@@ -40,7 +40,7 @@ export const roomOnlySchema = z.object({
 export const submitSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
-  prompt: z.string().trim().min(8).max(600),
+  prompt: z.string().trim().min(1).max(600),
 });
 
 export const roundSchema = z.object({

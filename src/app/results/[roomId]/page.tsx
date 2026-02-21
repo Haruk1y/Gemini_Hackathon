@@ -1,15 +1,12 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, Flag, LoaderCircle, LogOut } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Podium } from "@/components/game/podium";
-import { ResultShareCard } from "@/components/game/result-share-card";
-import { Scoreboard } from "@/components/game/scoreboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -72,6 +69,8 @@ export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromRound = searchParams.get("from") === "round";
 
   const { user, getIdToken } = useAuth();
 
@@ -81,6 +80,13 @@ export default function ResultsPage() {
   const [me, setMe] = useState<PlayerData | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allowStayDuringRound, setAllowStayDuringRound] = useState(fromRound);
+
+  useEffect(() => {
+    if (fromRound) {
+      setAllowStayDuringRound(true);
+    }
+  }, [fromRound]);
 
   useEffect(() => {
     if (!clientDb) {
@@ -137,14 +143,47 @@ export default function ResultsPage() {
   }, [room?.currentRoundId, roomId, user?.uid]);
 
   useEffect(() => {
+    if (room?.status === "RESULTS") {
+      setAllowStayDuringRound(false);
+    }
+  }, [room?.status]);
+
+  useEffect(() => {
     if (!room) return;
-    if (room.status === "IN_ROUND") {
+    if (room.status === "IN_ROUND" && !allowStayDuringRound) {
       router.replace(`/round/${roomId}`);
     }
     if (room.status === "LOBBY") {
       router.replace(`/lobby/${roomId}`);
     }
-  }, [room, roomId, router]);
+  }, [allowStayDuringRound, room, roomId, router]);
+
+  useEffect(() => {
+    if (!room || !round) return;
+    if (room.status !== "IN_ROUND" || !allowStayDuringRound) return;
+
+    const trigger = async () => {
+      try {
+        await apiPost<{ ok: true; status: "IN_ROUND" | "RESULTS" }>(
+          "/api/rounds/endIfNeeded",
+          {
+            roomId,
+            roundId: round.roundId,
+          },
+          getIdToken,
+        );
+      } catch (error) {
+        console.error("results wait endIfNeeded failed", error);
+      }
+    };
+
+    void trigger();
+    const intervalId = setInterval(() => {
+      void trigger();
+    }, 1_500);
+
+    return () => clearInterval(intervalId);
+  }, [allowStayDuringRound, room, round, roomId, getIdToken]);
 
   useRoomPresence({
     roomId,
@@ -183,7 +222,7 @@ export default function ResultsPage() {
         };
       });
   }, [round?.reveal?.targetCaption]);
-  const winner = sortedScores[0] ?? null;
+  const isResultsPhase = room?.status === "RESULTS";
 
   const onNext = async () => {
     if (!me?.isHost || !room) return;
@@ -242,35 +281,17 @@ export default function ResultsPage() {
 
       <Podium entries={sortedScores} />
 
+      {!isResultsPhase ? (
+        <Card className="bg-white">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+            集計中です。全員の採点完了後、約10秒でリザルトへ切り替わります。
+          </p>
+        </Card>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <div className="space-y-4">
-          <Scoreboard entries={sortedScores} myUid={user?.uid} />
-
-          <Card className="bg-white">
-            <h2 className="text-lg">みんなの生成画像</h2>
-            {sortedScores.length > 0 ? (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {sortedScores.map((entry) => (
-                  <div
-                    key={entry.uid}
-                    className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2"
-                  >
-                    <p className="mb-1 truncate text-xs font-bold">
-                      {entry.displayName} ({entry.bestScore} pts)
-                    </p>
-                    <img
-                      src={entry.bestImageUrl}
-                      alt={`${entry.displayName} best`}
-                      className="h-28 w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain"
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm font-semibold">まだ画像がありません。</p>
-            )}
-          </Card>
-
           {round.reveal?.targetCaption || round.reveal?.gmPromptPublic ? (
             <Card className="bg-white">
               <h2 className="text-lg">正解情報</h2>
@@ -285,9 +306,6 @@ export default function ResultsPage() {
               {targetCaptionParts.length > 0 ? (
                 <>
                   <p className="mt-3 text-xs font-bold">採点用の画像説明（AIが生成した内部表現）</p>
-                  <p className="mt-1 text-xs font-medium">
-                    正解プロンプトの上に表示される文字列は、採点のために画像を要素分解した説明です。
-                  </p>
                   <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2">
                     <ul className="space-y-1 text-xs">
                       {targetCaptionParts.map((part, index) => (
@@ -304,21 +322,13 @@ export default function ResultsPage() {
         </div>
 
         <div className="space-y-4">
-          {winner ? (
-            <ResultShareCard
-              roomId={roomId}
-              winnerName={winner.displayName}
-              winnerScore={winner.bestScore}
-            />
-          ) : null}
-
           <Card className="bg-white">
             <Button
               type="button"
               className="w-full"
               variant="accent"
               onClick={onNext}
-              disabled={!me?.isHost || busy}
+              disabled={!me?.isHost || busy || !isResultsPhase}
             >
               <ChevronRight className="mr-1 h-4 w-4" />
               {room.roundIndex >= room.settings.totalRounds

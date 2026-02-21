@@ -3,7 +3,9 @@ import { submitSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import {
   attemptPrivateRef,
+  playersRef,
   scoreRef,
+  scoresRef,
   playerRef,
   roundRef,
 } from "@/lib/api/paths";
@@ -21,7 +23,7 @@ import { cosineSimilarity, cosineToScore } from "@/lib/scoring/cosine";
 import { normalizeCaption } from "@/lib/scoring/normalize-caption";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
 import { AppError } from "@/lib/utils/errors";
-import { dateAfterHours } from "@/lib/utils/time";
+import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -207,12 +209,14 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
   const currentRoundRef = roundRef(body.roomId, body.roundId);
 
   const result = await getAdminDb().runTransaction(async (tx) => {
-    const [attemptSnapshot, scoreSnapshot, playerSnapshot, roundSnapshot] =
+    const [attemptSnapshot, scoreSnapshot, playerSnapshot, roundSnapshot, playersSnapshot, scoresSnapshot] =
       await Promise.all([
         tx.get(attemptRef),
         tx.get(scoreDocRef),
         tx.get(playerDocRef),
         tx.get(currentRoundRef),
+        tx.get(playersRef(body.roomId)),
+        tx.get(scoresRef(body.roomId, body.roundId)),
       ]);
 
     if (!attemptSnapshot.exists || !playerSnapshot.exists || !roundSnapshot.exists) {
@@ -299,6 +303,19 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
       "stats.submissions": (roundData.stats?.submissions ?? 0) + 1,
       "stats.topScore": Math.max(roundData.stats?.topScore ?? 0, score),
     });
+
+    const totalPlayers = playersSnapshot.size;
+    const scoredPlayersBefore = scoresSnapshot.size;
+    const scoredPlayersAfter = scoredPlayersBefore + (scoreSnapshot.exists ? 0 : 1);
+    if (totalPlayers > 0 && scoredPlayersAfter >= totalPlayers) {
+      const autoEndAt = new Date(createdAt.getTime() + 10_000);
+      const roundEndsAt = parseDate((roundSnapshot.data() as { endsAt?: unknown }).endsAt);
+      if (!roundEndsAt || roundEndsAt.getTime() > autoEndAt.getTime()) {
+        tx.update(currentRoundRef, {
+          endsAt: autoEndAt,
+        });
+      }
+    }
 
     if (!scoreSnapshot.exists) {
       tx.set(scoreDocRef, {

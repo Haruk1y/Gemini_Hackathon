@@ -220,6 +220,20 @@ export default function LobbyPage() {
 
       <section className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
+          <Card className="mb-2 bg-white px-3 py-2 shadow-[4px_4px_0_var(--pmb-ink)]">
+            <p className="text-xs font-bold">あなたの現在状態</p>
+            <div className="mt-1">
+              <Badge
+                className={
+                  me?.ready
+                    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
+                    : "bg-[var(--pmb-red)] text-white"
+                }
+              >
+                {me?.ready ? "READY" : "UNREADY"}
+              </Badge>
+            </div>
+          </Card>
           <Button
             type="button"
             className={[
@@ -232,6 +246,9 @@ export default function LobbyPage() {
           >
             {me?.ready ? "Unready" : "Ready"}
           </Button>
+          <p className="mt-1 text-xs font-semibold">
+            ボタンを押すと READY / UNREADY を切り替えます。
+          </p>
         </div>
 
         <div className="space-y-1">

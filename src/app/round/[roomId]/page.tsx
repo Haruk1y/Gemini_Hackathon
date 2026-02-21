@@ -84,6 +84,7 @@ export default function RoundPage() {
   const [round, setRound] = useState<RoundData | null>(null);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [attempts, setAttempts] = useState<AttemptData | null>(null);
+  const [playerCount, setPlayerCount] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
@@ -109,6 +110,19 @@ export default function RoundPage() {
     });
 
     return roomUnsubscribe;
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!clientDb) return;
+
+    const playersUnsubscribe = onSnapshot(
+      collection(clientDb, "rooms", roomId, "players"),
+      (snapshot) => {
+        setPlayerCount(snapshot.size);
+      },
+    );
+
+    return playersUnsubscribe;
   }, [roomId]);
 
   useEffect(() => {
@@ -223,6 +237,31 @@ export default function RoundPage() {
   const isBusy = submitPending;
   const otherBestImages = scores.filter((entry) => entry.uid !== user?.uid && entry.bestImageUrl);
   const latestAttemptScoring = Boolean(latestAttempt && (latestAttempt.status === "SCORING" || latestAttempt.score == null));
+  const everyoneScored = playerCount > 0 && scores.length >= playerCount;
+  const autoEndingSoon = everyoneScored && isRoundLive;
+  const imageFrameClass =
+    "relative aspect-square w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white";
+
+  useEffect(() => {
+    if (!room || !round) return;
+    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
+    if (!everyoneScored) return;
+
+    const timeoutId = setTimeout(() => {
+      void apiPost(
+        "/api/rounds/endIfNeeded",
+        {
+          roomId,
+          roundId: round.roundId,
+        },
+        getIdToken,
+      ).catch((err) => {
+        console.error("auto endIfNeeded failed", err);
+      });
+    }, 10_500);
+
+    return () => clearTimeout(timeoutId);
+  }, [everyoneScored, room, round, roomId, getIdToken]);
 
   useRoomPresence({
     roomId,
@@ -261,7 +300,7 @@ export default function RoundPage() {
   };
 
   const onBackToLobby = () => {
-    router.push(`/lobby/${roomId}`);
+    router.push(`/results/${roomId}?from=round`);
   };
 
   if (!room || !round) {
@@ -284,7 +323,7 @@ export default function RoundPage() {
             <CountdownTimer secondsLeft={secondsLeft} />
             <Button type="button" variant="ghost" onClick={onBackToLobby} disabled={isBusy}>
               <LogOut className="mr-2 h-4 w-4" />
-              ルームを退出
+              リザルト画面へ
             </Button>
           </div>
         </div>
@@ -297,51 +336,56 @@ export default function RoundPage() {
           maxLength={600}
           className="min-h-20"
         />
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[auto_1fr]">
+        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
           <Button
             type="button"
             onClick={submitPrompt}
-            disabled={isBusy || !isRoundLive || attemptsLeft <= 0 || prompt.trim().length < 8}
+            disabled={isBusy || !isRoundLive || attemptsLeft <= 0 || prompt.trim().length < 1}
           >
             {submitPending ? (
               <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
             ) : (
               <Send className="mr-1 h-4 w-4" />
             )}
-            {submitPending ? "判定中..." : "生成して送信"}
+            {submitPending ? "判定中..." : "画像を生成"}
           </Button>
           <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
             試行残り {attemptsLeft}
           </Card>
         </div>
         {feedback ? <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p> : null}
+        {autoEndingSoon ? (
+          <p className="mt-2 text-sm font-semibold">
+            全員の採点が完了しました。約10秒後にリザルトへ移動します。
+          </p>
+        ) : null}
         {!isRoundLive ? (
           <p className="mt-2 text-sm font-semibold">次ラウンド開始準備中です。お題生成が終わると送信できます。</p>
         ) : null}
       </Card>
 
       <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_0.95fr]">
-        <Card className="bg-white p-3 lg:flex lg:min-h-0 lg:flex-col">
+        <Card className="bg-white p-3">
           <h3 className="mb-2 text-base">お題画像</h3>
-          <div className="lg:min-h-0 lg:flex-1">
+          <div className={imageFrameClass}>
             <img
               src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
               alt="target"
-              className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+              className="h-full w-full object-cover"
               onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
             />
           </div>
         </Card>
 
-        <Card className="bg-white p-3 lg:flex lg:min-h-0 lg:flex-col">
+        <Card className="bg-white p-3">
           <h3 className="mb-2 text-base">あなたの生成画像</h3>
           {latestAttempt ? (
-            <div className="space-y-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-              <div className="relative lg:min-h-0 lg:flex-1">
+            <div className="space-y-2">
+              <div className={imageFrameClass}>
                 <img
                   src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
                   alt="latest attempt"
-                  className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+                  className="h-full w-full object-cover"
                   onError={(event) => applyImageFallback(event.currentTarget, latestAttempt.prompt)}
                 />
                 {latestAttemptScoring ? (
@@ -358,7 +402,7 @@ export default function RoundPage() {
                 ) : null}
               </div>
               {!latestAttemptScoring && latestAttempt ? (
-                <Card className="bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                <Card className="max-h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
                   <p>判断根拠</p>
                   {latestAttempt.matchedElements?.length ? (
                     <p className="mt-1">
@@ -401,7 +445,7 @@ export default function RoundPage() {
                     <img
                       src={entry.bestImageUrl || placeholderImageUrl(entry.displayName)}
                       alt={`${entry.displayName} best`}
-                      className="h-28 w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain"
+                      className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-cover"
                       onError={(event) => applyImageFallback(event.currentTarget, entry.displayName)}
                     />
                   </div>

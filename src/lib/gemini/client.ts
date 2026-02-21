@@ -118,51 +118,91 @@ function responseText(response: { text?: string; candidates?: Array<{ content?: 
 }
 
 function fallbackGmPrompt(): GmPromptSchema {
-  const candidates: GmPromptSchema[] = [
-    {
-      title: "Urban Fox Sticker",
-      difficulty: 3,
-      tags: ["fox", "night", "neon"],
-      prompt:
-        "A fox courier riding a small scooter through a neon-lit alley, neo-brutal sticker illustration, thick black outlines, saturated cyan and orange, centered framing, dramatic backlight, no text",
-      negativePrompt: "text, logo, watermark, famous characters",
-      mustInclude: ["thick black outlines", "high saturation"],
-      mustAvoid: ["brand logo", "copyrighted character"],
-    },
-    {
-      title: "Retro Robot Diner",
-      difficulty: 3,
-      tags: ["robot", "diner", "retro"],
-      prompt:
-        "A friendly retro robot serving pancakes in a vintage diner, bold neo-brutal sticker style, chunky shapes, warm red and yellow palette, clear foreground table and background booths, no text",
-      negativePrompt: "text, logo, watermark, famous characters",
-      mustInclude: ["sticker illustration", "bold outlines"],
-      mustAvoid: ["brand logo", "copyrighted character"],
-    },
-    {
-      title: "Sky Whale Harbor",
-      difficulty: 4,
-      tags: ["whale", "harbor", "fantasy"],
-      prompt:
-        "A giant sky whale floating above a busy harbor town at sunset, stylized neo-brutal illustration with crisp geometry, intense magenta and teal colors, layered depth, no text",
-      negativePrompt: "text, logo, watermark, famous characters",
-      mustInclude: ["strong color contrast", "clear composition"],
-      mustAvoid: ["brand logo", "copyrighted character"],
-    },
-    {
-      title: "Jungle DJ Booth",
-      difficulty: 2,
-      tags: ["jungle", "music", "party"],
-      prompt:
-        "A tiger DJ performing on a bamboo booth in a tropical jungle party, high-energy neo-brutal pop art, sticker look, thick outlines, punchy lime and pink lighting, no text",
-      negativePrompt: "text, logo, watermark, famous characters",
-      mustInclude: ["thick outlines", "playful subject"],
-      mustAvoid: ["brand logo", "copyrighted character"],
-    },
+  const subjects = [
+    "clockwork owl pilot",
+    "street-food robot chef",
+    "glass-armored knight",
+    "desert fox messenger",
+    "jungle biologist",
+    "floating whale mechanic",
+    "paper samurai",
+    "snowboard penguin racer",
+    "volcanic blacksmith",
+    "tiny astronaut gardener",
+    "festival drummer raccoon",
+    "lantern fish merchant",
+  ];
+  const locations = [
+    "inside an ancient observatory",
+    "at a floating island marketplace",
+    "in a misty bamboo canyon",
+    "on a sunset harbor bridge",
+    "inside a retro train station",
+    "at a crystal cave lake",
+    "in a stormy sky dock",
+    "inside a giant greenhouse",
+    "on a rooftop carnival",
+    "at a snowy mountain outpost",
+  ];
+  const actions = [
+    "repairing a glowing machine",
+    "serving food to travelers",
+    "guiding a small parade",
+    "preparing for a race",
+    "building a wind-powered device",
+    "trading luminous plants",
+    "reading a holographic map",
+    "forging tools with sparks",
+    "conducting a tiny orchestra",
+    "painting a large mural",
+  ];
+  const palettes = [
+    "teal and orange",
+    "magenta and cyan",
+    "lime and red",
+    "cobalt and yellow",
+    "emerald and coral",
+    "indigo and amber",
+  ];
+  const compositions = [
+    "centered medium shot",
+    "wide shot with layered depth",
+    "low-angle heroic framing",
+    "diagonal action composition",
+    "symmetrical front view",
   ];
 
-  const index = Math.floor(Math.random() * candidates.length);
-  return candidates[index] ?? candidates[0];
+  const pick = (values: string[]) => values[Math.floor(Math.random() * values.length)] ?? values[0];
+  const subject = pick(subjects);
+  const location = pick(locations);
+  const action = pick(actions);
+  const palette = pick(palettes);
+  const composition = pick(compositions);
+  const difficulty = 2 + Math.floor(Math.random() * 3);
+
+  const title = `${subject.split(" ")[0]} ${location.replace(/^in |^at /, "").split(" ")[0]}`.slice(0, 80);
+  const prompt = [
+    `A ${subject} ${action} ${location}`,
+    "neo-brutal pop sticker illustration",
+    "thick black outlines",
+    `high-saturation ${palette} color palette`,
+    composition,
+    "crisp texture details",
+    "no text",
+  ].join(", ");
+
+  return {
+    title,
+    difficulty,
+    tags: [subject.split(" ")[0], location.split(" ").slice(-1)[0], palette.split(" and ")[0]]
+      .map((tag) => tag.replace(/[^a-zA-Z0-9_-]/g, ""))
+      .filter(Boolean)
+      .slice(0, 6),
+    prompt,
+    negativePrompt: "text, logo, watermark, famous characters",
+    mustInclude: ["thick black outlines", "high saturation", "clear main subject"],
+    mustAvoid: ["brand logo", "copyrighted character"],
+  };
 }
 
 function fallbackCaption(fallbackPrompt: string): CaptionSchema {
@@ -314,16 +354,7 @@ export async function generateGmPrompt(settings: RoomSettings): Promise<GmPrompt
       schema: gmPromptSchema,
       system: gmSystemPrompt(settings),
       user: `${gmUserPrompt(settings.aspectRatio)}\nバリエーションID: ${variation}`,
-      mockValue: {
-        title: "Neon Sushi Cat",
-        difficulty: 3,
-        tags: ["cat", "neon", "sushi"],
-        prompt:
-          "A cool cat eating salmon sushi at a neon-lit night food stall, sticker illustration, bold black outlines, bright pop colors, centered composition, playful expression, dramatic rim light",
-        negativePrompt: "text, logo, watermark",
-        mustInclude: ["cat", "sushi", "neon sign glow"],
-        mustAvoid: ["brand logo", "famous characters"],
-      },
+      mockValue: fallbackGmPrompt(),
     });
   } catch (error) {
     console.warn("generateGmPrompt fallback", error);
