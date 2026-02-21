@@ -271,7 +271,7 @@ export default function ResultsPage() {
         </Card>
       ) : null}
 
-      <section className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
+      <section className="min-h-0 flex-1 overflow-y-auto overflow-x-visible pr-3 pb-3">
         <div className="space-y-4">
           <Card className="overflow-hidden bg-white p-4">
             <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
