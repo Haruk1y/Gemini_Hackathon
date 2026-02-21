@@ -225,7 +225,7 @@ export default function ResultsPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
         <div>
           <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
-          <h1 className="text-4xl leading-none md:text-5xl">ランキング発表 / Results</h1>
+          <h1 className="text-4xl leading-none md:text-5xl">ランキング発表</h1>
         </div>
         <div className="flex flex-col items-end gap-2">
           {room.roundIndex >= room.settings.totalRounds ? (
@@ -274,10 +274,10 @@ export default function ResultsPage() {
       <section className="min-h-0 flex-1 overflow-y-auto overflow-x-visible pr-3 pb-3">
         <div className="space-y-4">
           <Card className="overflow-hidden bg-white p-4">
-            <h2 className="text-2xl font-black md:text-3xl">ランキング発表 / Results</h2>
+            <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
             <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-stretch">
               <div className="lg:flex lg:h-full lg:flex-col">
-                <p className="h-6 text-sm font-bold">お題画像 / Target Image</p>
+                <p className="h-6 text-sm font-bold">お題画像</p>
                 <div className="mt-2 h-[260px] w-full sm:h-[300px]">
                   <img
                     src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
@@ -287,7 +287,7 @@ export default function ResultsPage() {
                 </div>
                 {round.reveal?.gmPromptPublic ? (
                   <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                    <p className="text-xs font-bold">正解プロンプト / Answer Prompt</p>
+                    <p className="text-xs font-bold">正解プロンプト</p>
                     <p className="mt-1 font-mono text-xs font-semibold">
                       {round.reveal.gmPromptPublic}
                     </p>
@@ -296,7 +296,7 @@ export default function ResultsPage() {
               </div>
 
               <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="h-6 text-sm font-bold">生成画像 / Generated Images</p>
+                <p className="h-6 text-sm font-bold">生成画像</p>
                 <div className="mt-2 flex-1">
                   <Podium entries={sortedScores} myUid={user?.uid} />
                 </div>
@@ -306,20 +306,18 @@ export default function ResultsPage() {
 
           {isResultsPhase ? (
             <Card className="bg-white p-4">
-              <h2 className="text-lg">あなたの採点根拠 / Why This Score</h2>
+              <h2 className="text-lg">あなたの採点根拠</h2>
               {myLatestAttempt ? (
                 <div className="mt-2 text-sm font-semibold">
                   {myLatestAttempt.matchedElements?.length ? (
-                    <p className="text-[var(--pmb-green)]">
-                      一致 / Match: {myLatestAttempt.matchedElements.join(" / ")}
-                    </p>
+                    <p className="text-[var(--pmb-green)]">一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
                   ) : null}
                   {myLatestAttempt.missingElements?.length ? (
                     <p className="mt-1 text-[var(--pmb-red)]">
-                      不足 / Missing: {myLatestAttempt.missingElements.join(" / ")}
+                      不足: {myLatestAttempt.missingElements.join(" / ")}
                     </p>
                   ) : (
-                    <p className="mt-1">不足 / Missing: なし</p>
+                    <p className="mt-1">不足: なし</p>
                   )}
                   {myLatestAttempt.judgeNote ? (
                     <p className="mt-1">{myLatestAttempt.judgeNote}</p>
