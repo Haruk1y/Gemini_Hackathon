@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost, ApiClientError } from "@/lib/client/api";
-import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
+import { useRoomPresence } from "@/lib/client/room-presence";
 import { clientDb } from "@/lib/firebase/client";
 
 interface RoomData {
@@ -169,21 +169,8 @@ export default function ResultsPage() {
     }
   };
 
-  const onLeave = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await leaveRoom({ roomId, getIdToken });
-      router.replace("/");
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message);
-      } else {
-        setError("退出に失敗しました");
-      }
-    } finally {
-      setBusy(false);
-    }
+  const onLeave = () => {
+    router.push(`/lobby/${roomId}`);
   };
 
   if (!room || !round) {
@@ -261,7 +248,7 @@ export default function ResultsPage() {
           <Card className="bg-white">
             <Button type="button" variant="ghost" className="w-full" onClick={onLeave} disabled={busy}>
               <LogOut className="mr-2 h-4 w-4" />
-              ルームを退出
+              ロビーに戻る
             </Button>
           </Card>
         </div>

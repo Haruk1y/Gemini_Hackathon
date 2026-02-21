@@ -1,23 +1,21 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Lightbulb, LoaderCircle, LogOut, Send, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Lightbulb, LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { CountdownTimer } from "@/components/game/countdown-timer";
 import { Scoreboard } from "@/components/game/scoreboard";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiPost, ApiClientError } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
-import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
+import { useRoomPresence } from "@/lib/client/room-presence";
 import { clientDb } from "@/lib/firebase/client";
-import { scoreBand } from "@/lib/scoring/cosine";
 import { millisecondsLeft } from "@/lib/utils/time";
 
 interface RoomData {
@@ -36,7 +34,6 @@ interface RoundData {
   status: "GENERATING" | "IN_ROUND" | "RESULTS";
   targetImageUrl: string;
   gmTitle: string;
-  gmTags: string[];
   reveal?: {
     gmPromptPublic?: string;
   };
@@ -61,8 +58,9 @@ interface AttemptData {
   attempts: Array<{
     attemptNo: number;
     imageUrl: string;
-    score: number;
+    score: number | null;
     prompt: string;
+    status?: "SCORING" | "DONE";
   }>;
 }
 
@@ -85,14 +83,10 @@ export default function RoundPage() {
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [attempts, setAttempts] = useState<AttemptData | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [hintChecklist, setHintChecklist] = useState<string[]>([]);
-  const [hintImageUrl, setHintImageUrl] = useState<string | null>(null);
-  const [hintPrompt, setHintPrompt] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [feedbackType, setFeedbackType] = useState<"info" | "success" | "error">("info");
+  const [feedbackType, setFeedbackType] = useState<"success" | "error">("success");
   const [submitPending, setSubmitPending] = useState(false);
   const [hintPending, setHintPending] = useState(false);
-  const [leavePending, setLeavePending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   const endCalled = useRef(false);
@@ -228,9 +222,9 @@ export default function RoundPage() {
   const attemptsLeft = Math.max(0, (room?.settings.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0));
   const hintsLeft = Math.max(0, (room?.settings.hintLimit ?? 0) - (attempts?.hintUsed ?? 0));
   const isRoundLive = room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
-  const isBusy = submitPending || hintPending || leavePending;
-  const tags = useMemo(() => round?.gmTags ?? [], [round?.gmTags]);
+  const isBusy = submitPending || hintPending;
   const otherBestImages = scores.filter((entry) => entry.uid !== user?.uid && entry.bestImageUrl);
+  const latestAttemptScoring = Boolean(latestAttempt && (latestAttempt.status === "SCORING" || latestAttempt.score == null));
 
   useRoomPresence({
     roomId,
@@ -242,8 +236,7 @@ export default function RoundPage() {
     if (!round || !prompt.trim()) return;
 
     setSubmitPending(true);
-    setFeedback("判定中...");
-    setFeedbackType("info");
+    setFeedback(null);
 
     try {
       const response = await apiPost<SubmitResponse>(
@@ -256,15 +249,8 @@ export default function RoundPage() {
         getIdToken,
       );
 
-      setHintImageUrl(null);
-      setHintChecklist([]);
-      setHintPrompt(null);
       setPrompt("");
-      setFeedback(
-        `スコア ${response.score} (${scoreBand(response.score)}) / ${
-          response.scoreSource === "visual" ? "画像比較判定" : "意味類似判定"
-        }`,
-      );
+      setFeedback(`スコア ${response.score} pts`);
       setFeedbackType("success");
     } catch (e) {
       if (e instanceof ApiClientError) {
@@ -282,8 +268,7 @@ export default function RoundPage() {
     if (!round) return;
 
     setHintPending(true);
-    setFeedback("ヒント生成中...");
-    setFeedbackType("info");
+    setFeedback(null);
 
     try {
       const response = await apiPost<{
@@ -299,10 +284,8 @@ export default function RoundPage() {
         getIdToken,
       );
 
-      setHintChecklist(response.hint.deltaChecklist);
-      setHintImageUrl(response.hintImageUrl);
-      setHintPrompt(response.hint.improvedPrompt);
-      setFeedback("ヒントを更新しました");
+      const firstTip = response.hint.deltaChecklist[0];
+      setFeedback(firstTip ? `ヒント: ${firstTip}` : "ヒントを更新しました");
       setFeedbackType("success");
     } catch (e) {
       if (e instanceof ApiClientError) {
@@ -316,20 +299,8 @@ export default function RoundPage() {
     }
   };
 
-  const onLeave = async () => {
-    setLeavePending(true);
-    try {
-      await leaveRoom({ roomId, getIdToken });
-      router.replace("/");
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setFeedback(e.message);
-      } else {
-        setFeedback("退出に失敗しました");
-      }
-      setFeedbackType("error");
-      setLeavePending(false);
-    }
+  const onBackToLobby = () => {
+    router.push(`/lobby/${roomId}`);
   };
 
   if (!room || !round) {
@@ -341,21 +312,20 @@ export default function RoundPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-3 px-4 py-4 md:px-6 lg:h-screen lg:overflow-hidden">
+    <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
       <Card className="bg-white p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase">Round {round.index}</p>
-            <h1 className="text-2xl">{round.gmTitle}</h1>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {tags.map((tag) => (
-                <Badge key={tag} className="bg-[var(--pmb-yellow)]">
-                  #{tag}
-                </Badge>
-              ))}
-            </div>
+            <h1 className="text-xl">プロンプトを入力して送信</h1>
           </div>
-          <CountdownTimer secondsLeft={secondsLeft} />
+          <div className="flex items-center gap-2">
+            <CountdownTimer secondsLeft={secondsLeft} />
+            <Button type="button" variant="ghost" onClick={onBackToLobby} disabled={isBusy}>
+              <LogOut className="mr-2 h-4 w-4" />
+              ルームを退出
+            </Button>
+          </div>
         </div>
 
         <h2 className="mt-3 mb-2 text-lg">プロンプト入力</h2>
@@ -392,7 +362,7 @@ export default function RoundPage() {
             )}
             {hintPending ? "ヒント生成中..." : "Hint"}
           </Button>
-          <div className="grid grid-cols-2 gap-2 text-sm font-semibold lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 text-sm font-semibold lg:grid-cols-3">
             <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
               試行残り {attemptsLeft}
             </Card>
@@ -402,103 +372,72 @@ export default function RoundPage() {
             <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
               投稿数 {round.stats.submissions}
             </Card>
-            <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
-              Top {round.stats.topScore}
-            </Card>
           </div>
         </div>
         {feedback ? (
           <p
             className={[
               "mt-2 text-sm font-semibold",
-              feedbackType === "error"
-                ? "text-[var(--pmb-red)]"
-                : feedbackType === "success"
-                  ? "text-[var(--pmb-green)]"
-                  : "text-[var(--pmb-ink)]",
+              feedbackType === "error" ? "text-[var(--pmb-red)]" : "text-[var(--pmb-green)]",
             ].join(" ")}
           >
             {feedback}
           </p>
         ) : null}
-        {!isRoundLive ? (
-          <p className="mt-2 text-sm font-semibold">お題を生成中です。完了後にタイマーが開始されます。</p>
-        ) : null}
       </Card>
 
-      <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_1.05fr]">
-        <Card className="bg-white p-4">
-          <h3 className="mb-2 text-lg">お題画像</h3>
-          <img
-            src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
-            alt="target"
-            className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
-            onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
-          />
+      <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_0.95fr]">
+        <Card className="bg-white p-3 lg:flex lg:min-h-0 lg:flex-col">
+          <h3 className="mb-2 text-base">お題画像</h3>
+          <div className="lg:min-h-0 lg:flex-1">
+            <img
+              src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
+              alt="target"
+              className="aspect-square h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover lg:aspect-auto"
+              onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
+            />
+          </div>
         </Card>
 
-        <Card className="bg-white p-4">
-          <h3 className="mb-2 text-lg">あなたの最新生成</h3>
+        <Card className="bg-white p-3 lg:flex lg:min-h-0 lg:flex-col">
+          <h3 className="mb-2 text-base">あなたの生成画像</h3>
           {latestAttempt ? (
-            <div className="space-y-2">
-              <img
-                src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
-                alt="latest attempt"
-                className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
-                onError={(event) => applyImageFallback(event.currentTarget, latestAttempt.prompt)}
-              />
-              <p className="font-mono text-base font-black">
-                {latestAttempt.score} pts ({scoreBand(latestAttempt.score)})
-              </p>
+            <div className="space-y-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+              <div className="relative lg:min-h-0 lg:flex-1">
+                <img
+                  src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
+                  alt="latest attempt"
+                  className="aspect-square h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover lg:aspect-auto"
+                  onError={(event) => applyImageFallback(event.currentTarget, latestAttempt.prompt)}
+                />
+                {latestAttemptScoring ? (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+                    <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
+                      <LoaderCircle className="h-4 w-4 animate-spin" /> 採点中...
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+              {!latestAttemptScoring && typeof latestAttempt.score === "number" ? (
+                <p className="font-mono text-base font-black">
+                  {latestAttempt.score} pts
+                </p>
+              ) : null}
             </div>
           ) : (
-            <div className="aspect-square rounded-lg border-4 border-dashed border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-4 text-sm font-semibold">
+            <div className="flex aspect-square items-center justify-center rounded-lg border-4 border-dashed border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-4 text-sm font-semibold lg:h-full lg:aspect-auto">
               まだ投稿がありません。
             </div>
           )}
         </Card>
 
         <div className="flex min-h-0 flex-col gap-3">
-          <div className="min-h-0 overflow-auto">
-            <Scoreboard entries={scores} myUid={user?.uid} />
-          </div>
-
-          <Card className="bg-[var(--pmb-blue)]/25 p-3">
-            <h3 className="mb-2 flex items-center gap-2 text-lg">
-              <Sparkles className="h-5 w-5" /> Hint
-            </h3>
-            {hintChecklist.length === 0 && !hintImageUrl ? (
-              <p className="text-sm font-semibold">投稿後に Hint を使うと改善ポイントが表示されます。</p>
-            ) : null}
-            {hintChecklist.length > 0 ? (
-              <ul className="space-y-1 text-sm font-semibold">
-                {hintChecklist.map((item) => (
-                  <li key={item}>- {item}</li>
-                ))}
-              </ul>
-            ) : null}
-            {hintPrompt ? (
-              <p className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 font-mono text-xs">
-                {hintPrompt}
-              </p>
-            ) : null}
-            {hintImageUrl ? (
-              <img
-                src={hintImageUrl || placeholderImageUrl("hint")}
-                alt="hint"
-                className="mt-2 aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
-                onError={(event) => applyImageFallback(event.currentTarget, "hint")}
-              />
-            ) : null}
-            <p className="mt-2 text-xs font-semibold">
-              答えのプロンプトはラウンド終了後に結果画面で公開されます。
-            </p>
-          </Card>
+          <Scoreboard entries={scores} myUid={user?.uid} />
 
           <Card className="min-h-0 bg-white p-3">
             <h3 className="mb-2 text-sm">みんなのベスト画像</h3>
             {otherBestImages.length > 0 ? (
-              <div className="grid max-h-44 gap-2 overflow-auto sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
                 {otherBestImages.map((entry) => (
                   <div
                     key={entry.uid}
@@ -510,7 +449,7 @@ export default function RoundPage() {
                     <img
                       src={entry.bestImageUrl || placeholderImageUrl(entry.displayName)}
                       alt={`${entry.displayName} best`}
-                      className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] object-cover"
+                      className="h-28 w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain"
                       onError={(event) => applyImageFallback(event.currentTarget, entry.displayName)}
                     />
                   </div>
@@ -520,11 +459,6 @@ export default function RoundPage() {
               <p className="text-sm font-semibold">他プレイヤーの投稿を待っています。</p>
             )}
           </Card>
-
-          <Button type="button" variant="ghost" onClick={onLeave} disabled={isBusy}>
-            <LogOut className="mr-2 h-4 w-4" />
-            ルームを退出
-          </Button>
         </div>
       </section>
     </main>

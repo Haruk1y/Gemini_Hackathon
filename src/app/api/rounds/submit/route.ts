@@ -123,6 +123,47 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     throw new AppError("GEMINI_ERROR", "Failed to resolve generated image URL", true, 502);
   }
 
+  const createdAt = new Date();
+
+  await getAdminDb().runTransaction(async (tx) => {
+    const snapshot = await tx.get(attemptRef);
+    if (!snapshot.exists) {
+      throw new AppError("INTERNAL_ERROR", "Attempt document missing", true, 500);
+    }
+
+    const data = snapshot.data() as {
+      attempts: Array<{
+        attemptNo: number;
+        prompt: string;
+        imageUrl: string;
+        score: number | null;
+        status?: "SCORING" | "DONE";
+        createdAt: Date;
+      }>;
+    };
+
+    const pendingAttempt = {
+      attemptNo: reservation.attemptNo,
+      prompt: body.prompt,
+      imageUrl,
+      score: null,
+      status: "SCORING" as const,
+      createdAt,
+    };
+
+    const attempts = data.attempts ?? [];
+    const existingIndex = attempts.findIndex((attempt) => attempt.attemptNo === reservation.attemptNo);
+    const nextAttempts =
+      existingIndex >= 0
+        ? attempts.map((attempt, index) => (index === existingIndex ? pendingAttempt : attempt))
+        : [...attempts, pendingAttempt];
+
+    tx.update(attemptRef, {
+      attempts: nextAttempts,
+      updatedAt: createdAt,
+    });
+  });
+
   const captionJson = await captionFromImage(generatedImage, body.prompt);
   const captionText = normalizeCaption(captionJson);
   const embedding = await embedText(captionText);
@@ -152,8 +193,6 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     }
   }
 
-  const createdAt = new Date();
-
   const scoreDocRef = scoreRef(body.roomId, body.roundId, auth.uid);
   const playerDocRef = playerRef(body.roomId, auth.uid);
   const currentRoundRef = roundRef(body.roomId, body.roundId);
@@ -180,8 +219,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         attemptNo: number;
         prompt: string;
         imageUrl: string;
-        captionText: string;
-        score: number;
+        captionText?: string;
+        score: number | null;
+        status?: "SCORING" | "DONE";
         createdAt: Date;
       }>;
     };
@@ -190,9 +230,28 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     const nextBest = Math.max(prevBest, score);
     const nextBestAttemptNo = score >= prevBest ? reservation.attemptNo : attemptData.bestAttemptNo;
 
-    const nextAttempts = [
-      ...(attemptData.attempts ?? []),
-      {
+    let finalized = false;
+    const nextAttempts = (attemptData.attempts ?? []).map((attempt) => {
+      if (attempt.attemptNo !== reservation.attemptNo) {
+        return attempt;
+      }
+      finalized = true;
+      return {
+        ...attempt,
+        prompt: body.prompt,
+        imageUrl,
+        captionText,
+        score,
+        semanticScore,
+        visualScore,
+        scoreSource,
+        status: "DONE" as const,
+        createdAt,
+      };
+    });
+
+    if (!finalized) {
+      nextAttempts.push({
         attemptNo: reservation.attemptNo,
         prompt: body.prompt,
         imageUrl,
@@ -201,9 +260,10 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         semanticScore,
         visualScore,
         scoreSource,
+        status: "DONE" as const,
         createdAt,
-      },
-    ];
+      });
+    }
 
     tx.update(attemptRef, {
       attempts: nextAttempts,

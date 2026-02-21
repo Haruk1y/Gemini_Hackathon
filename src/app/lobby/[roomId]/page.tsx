@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, LogOut, Play, Users } from "lucide-react";
+import { Copy, LoaderCircle, LogOut, Play, Users } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import {
   collection,
@@ -79,9 +79,6 @@ export default function LobbyPage() {
     if (room.status === "IN_ROUND") {
       router.replace(`/round/${roomId}`);
     }
-    if (room.status === "RESULTS") {
-      router.replace(`/results/${roomId}`);
-    }
     if (room.status === "FINISHED") {
       router.replace("/");
     }
@@ -91,8 +88,9 @@ export default function LobbyPage() {
     () => players.find((player) => player.uid === user?.uid) ?? null,
     [players, user?.uid],
   );
-
   const isGenerating = room?.status === "GENERATING_ROUND";
+  const everyoneReady = players.length > 0 && players.every((player) => player.ready);
+  const canStartRound = Boolean(me?.isHost) && players.length >= 2 && everyoneReady && !isGenerating && !busy;
 
   useRoomPresence({
     roomId,
@@ -223,9 +221,8 @@ export default function LobbyPage() {
       <section className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <Button type="button" className="w-full" onClick={onReadyToggle} disabled={!me || busy || isGenerating}>
-            {me?.ready ? "Ready解除" : "Readyにする"}
+            {me?.ready ? "Unready" : "Ready"}
           </Button>
-          <p className="text-xs font-semibold">WAITは赤、READYは緑で表示されます。</p>
         </div>
 
         <div className="space-y-1">
@@ -234,12 +231,11 @@ export default function LobbyPage() {
             className="w-full"
             variant="accent"
             onClick={onStart}
-            disabled={!me?.isHost || busy || isGenerating}
+            disabled={!canStartRound}
           >
             <Play className="mr-2 h-4 w-4" />
             {isGenerating ? "お題生成中..." : "ホストがラウンド開始"}
           </Button>
-          <p className="text-xs font-semibold">開始条件: 2人以上 + 全員READY</p>
         </div>
       </section>
 
@@ -251,7 +247,8 @@ export default function LobbyPage() {
       </section>
 
       {isGenerating ? (
-        <Card className="border-[var(--pmb-blue)] bg-white text-sm font-semibold">
+        <Card className="flex items-center gap-2 border-[var(--pmb-blue)] bg-white text-sm font-semibold">
+          <LoaderCircle className="h-4 w-4 animate-spin" />
           お題画像を生成中です。完了すると自動でラウンド画面へ遷移します。
         </Card>
       ) : null}
