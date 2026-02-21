@@ -42,11 +42,19 @@ async function resolveImageUrl(params: {
     return directUrl;
   }
 
-  return uploadImageToStorage({
-    path: `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
-    buffer,
-    mimeType: params.image.mimeType,
-  });
+  try {
+    return await uploadImageToStorage({
+      path: `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
+      buffer,
+      mimeType: params.image.mimeType,
+    });
+  } catch (error) {
+    console.warn("Image storage upload fallback", params.roomId, params.roundId, error);
+    if (!directUrl) {
+      throw new AppError("GEMINI_ERROR", "No fallback image URL available", true, 502);
+    }
+    return directUrl;
+  }
 }
 
 export async function startRound(params: {
