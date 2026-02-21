@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      match /players/{uid} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+
+      match /rounds/{roundId} {
+        allow read: if request.auth != null;
+        allow write: if false;
+
+        match /scores/{uid} {
+          allow read: if request.auth != null;
+          allow write: if false;
+        }
+
+        match /attempts_private/{uid} {
+          allow read: if request.auth != null && request.auth.uid == uid;
+          allow write: if false;
+        }
+      }
+
+      match /rounds_private/{roundId} {
+        allow read, write: if false;
+      }
+    }
+  }
+}
