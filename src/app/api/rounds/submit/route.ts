@@ -138,6 +138,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         imageUrl: string;
         score: number | null;
         status?: "SCORING" | "DONE";
+        matchedElements?: string[];
+        missingElements?: string[];
+        judgeNote?: string;
         createdAt: Date;
       }>;
     };
@@ -173,6 +176,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
   let score = semanticScore;
   let visualScore: number | null = null;
   let scoreSource: "semantic" | "visual" = "semantic";
+  let matchedElements: string[] = [];
+  let missingElements: string[] = [];
+  let judgeNote = "意味類似度をもとに採点";
 
   const [targetImageForJudge, attemptImageForJudge] = await Promise.all([
     imageForVisualScoring({ mimeType: "image/png", directUrl: round.targetImageUrl }, round.targetImageUrl),
@@ -190,6 +196,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
       visualScore = judged.score;
       score = judged.score;
       scoreSource = "visual";
+      matchedElements = judged.matchedElements ?? [];
+      missingElements = judged.missingElements ?? [];
+      judgeNote = judged.note || "画像の見た目比較で採点";
     }
   }
 
@@ -222,6 +231,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         captionText?: string;
         score: number | null;
         status?: "SCORING" | "DONE";
+        matchedElements?: string[];
+        missingElements?: string[];
+        judgeNote?: string;
         createdAt: Date;
       }>;
     };
@@ -245,6 +257,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         semanticScore,
         visualScore,
         scoreSource,
+        matchedElements,
+        missingElements,
+        judgeNote,
         status: "DONE" as const,
         createdAt,
       };
@@ -260,6 +275,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         semanticScore,
         visualScore,
         scoreSource,
+        matchedElements,
+        missingElements,
+        judgeNote,
         status: "DONE" as const,
         createdAt,
       });
@@ -329,5 +347,8 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     semanticScore,
     visualScore,
     scoreSource,
+    matchedElements,
+    missingElements,
+    judgeNote,
   });
 });

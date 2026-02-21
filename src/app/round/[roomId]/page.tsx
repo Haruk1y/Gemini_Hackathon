@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState } from "react";
-import { Lightbulb, LoaderCircle, LogOut, Send } from "lucide-react";
+import { LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
@@ -53,7 +53,6 @@ interface ScoreEntry {
 
 interface AttemptData {
   attemptsUsed: number;
-  hintUsed: number;
   bestScore: number;
   attempts: Array<{
     attemptNo: number;
@@ -61,6 +60,10 @@ interface AttemptData {
     score: number | null;
     prompt: string;
     status?: "SCORING" | "DONE";
+    scoreSource?: "semantic" | "visual";
+    matchedElements?: string[];
+    missingElements?: string[];
+    judgeNote?: string;
   }>;
 }
 
@@ -68,7 +71,6 @@ type SubmitResponse = Record<string, unknown> & {
   ok: true;
   score: number;
   imageUrl: string;
-  scoreSource?: "visual" | "semantic";
 };
 
 export default function RoundPage() {
@@ -84,9 +86,7 @@ export default function RoundPage() {
   const [attempts, setAttempts] = useState<AttemptData | null>(null);
   const [prompt, setPrompt] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [feedbackType, setFeedbackType] = useState<"success" | "error">("success");
   const [submitPending, setSubmitPending] = useState(false);
-  const [hintPending, setHintPending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   const endCalled = useRef(false);
@@ -100,7 +100,6 @@ export default function RoundPage() {
   useEffect(() => {
     if (!clientDb) {
       setFeedback("Firebase設定が見つかりません。環境変数を確認してください。");
-      setFeedbackType("error");
       return;
     }
 
@@ -220,9 +219,8 @@ export default function RoundPage() {
 
   const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(0, (room?.settings.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0));
-  const hintsLeft = Math.max(0, (room?.settings.hintLimit ?? 0) - (attempts?.hintUsed ?? 0));
   const isRoundLive = room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
-  const isBusy = submitPending || hintPending;
+  const isBusy = submitPending;
   const otherBestImages = scores.filter((entry) => entry.uid !== user?.uid && entry.bestImageUrl);
   const latestAttemptScoring = Boolean(latestAttempt && (latestAttempt.status === "SCORING" || latestAttempt.score == null));
 
@@ -239,7 +237,7 @@ export default function RoundPage() {
     setFeedback(null);
 
     try {
-      const response = await apiPost<SubmitResponse>(
+      await apiPost<SubmitResponse>(
         "/api/rounds/submit",
         {
           roomId,
@@ -250,52 +248,15 @@ export default function RoundPage() {
       );
 
       setPrompt("");
-      setFeedback(`スコア ${response.score} pts`);
-      setFeedbackType("success");
+      setFeedback(null);
     } catch (e) {
       if (e instanceof ApiClientError) {
         setFeedback(e.message);
       } else {
         setFeedback("投稿に失敗しました");
       }
-      setFeedbackType("error");
     } finally {
       setSubmitPending(false);
-    }
-  };
-
-  const requestHint = async () => {
-    if (!round) return;
-
-    setHintPending(true);
-    setFeedback(null);
-
-    try {
-      const response = await apiPost<{
-        ok: true;
-        hint: { deltaChecklist: string[]; improvedPrompt: string };
-        hintImageUrl: string;
-      }>(
-        "/api/rounds/hint",
-        {
-          roomId,
-          roundId: round.roundId,
-        },
-        getIdToken,
-      );
-
-      const firstTip = response.hint.deltaChecklist[0];
-      setFeedback(firstTip ? `ヒント: ${firstTip}` : "ヒントを更新しました");
-      setFeedbackType("success");
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setFeedback(e.message);
-      } else {
-        setFeedback("Hint取得に失敗しました");
-      }
-      setFeedbackType("error");
-    } finally {
-      setHintPending(false);
     }
   };
 
@@ -336,7 +297,7 @@ export default function RoundPage() {
           maxLength={600}
           className="min-h-20"
         />
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[auto_auto_1fr]">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[auto_1fr]">
           <Button
             type="button"
             onClick={submitPrompt}
@@ -349,40 +310,13 @@ export default function RoundPage() {
             )}
             {submitPending ? "判定中..." : "生成して送信"}
           </Button>
-          <Button
-            type="button"
-            variant="accent"
-            onClick={requestHint}
-            disabled={isBusy || !isRoundLive || hintsLeft <= 0 || !attempts?.attempts.length}
-          >
-            {hintPending ? (
-              <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Lightbulb className="mr-1 h-4 w-4" />
-            )}
-            {hintPending ? "ヒント生成中..." : "Hint"}
-          </Button>
-          <div className="grid grid-cols-2 gap-2 text-sm font-semibold lg:grid-cols-3">
-            <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
-              試行残り {attemptsLeft}
-            </Card>
-            <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
-              Hint残り {hintsLeft}
-            </Card>
-            <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
-              投稿数 {round.stats.submissions}
-            </Card>
-          </div>
+          <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
+            試行残り {attemptsLeft}
+          </Card>
         </div>
-        {feedback ? (
-          <p
-            className={[
-              "mt-2 text-sm font-semibold",
-              feedbackType === "error" ? "text-[var(--pmb-red)]" : "text-[var(--pmb-green)]",
-            ].join(" ")}
-          >
-            {feedback}
-          </p>
+        {feedback ? <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p> : null}
+        {!isRoundLive ? (
+          <p className="mt-2 text-sm font-semibold">次ラウンド開始準備中です。お題生成が終わると送信できます。</p>
         ) : null}
       </Card>
 
@@ -393,7 +327,7 @@ export default function RoundPage() {
             <img
               src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
               alt="target"
-              className="aspect-square h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover lg:aspect-auto"
+              className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
               onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
             />
           </div>
@@ -407,7 +341,7 @@ export default function RoundPage() {
                 <img
                   src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
                   alt="latest attempt"
-                  className="aspect-square h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover lg:aspect-auto"
+                  className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
                   onError={(event) => applyImageFallback(event.currentTarget, latestAttempt.prompt)}
                 />
                 {latestAttemptScoring ? (
@@ -417,11 +351,29 @@ export default function RoundPage() {
                     </p>
                   </div>
                 ) : null}
+                {!latestAttemptScoring && typeof latestAttempt.score === "number" ? (
+                  <p className="absolute right-2 top-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
+                    {latestAttempt.score} pts
+                  </p>
+                ) : null}
               </div>
-              {!latestAttemptScoring && typeof latestAttempt.score === "number" ? (
-                <p className="font-mono text-base font-black">
-                  {latestAttempt.score} pts
-                </p>
+              {!latestAttemptScoring && latestAttempt ? (
+                <Card className="bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                  <p>判断根拠</p>
+                  {latestAttempt.matchedElements?.length ? (
+                    <p className="mt-1">
+                      一致: {latestAttempt.matchedElements.join(" / ")}
+                    </p>
+                  ) : null}
+                  {latestAttempt.missingElements?.length ? (
+                    <p className="mt-1 text-[var(--pmb-red)]">
+                      不足: {latestAttempt.missingElements.join(" / ")}
+                    </p>
+                  ) : null}
+                  {latestAttempt.judgeNote ? (
+                    <p className="mt-1">{latestAttempt.judgeNote}</p>
+                  ) : null}
+                </Card>
               ) : null}
             </div>
           ) : (

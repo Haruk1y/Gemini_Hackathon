@@ -210,7 +210,7 @@ export default function LobbyPage() {
                   {player.isHost && <Badge>HOST</Badge>}
                 </p>
                 <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
-                  {player.ready ? "READY" : "WAIT"}
+                  {player.ready ? "READY" : "UNREADY"}
                 </Badge>
               </div>
             ))}
@@ -220,7 +220,16 @@ export default function LobbyPage() {
 
       <section className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <Button type="button" className="w-full" onClick={onReadyToggle} disabled={!me || busy || isGenerating}>
+          <Button
+            type="button"
+            className={[
+              "w-full",
+              me?.ready ? "" : "bg-[var(--pmb-green)] text-[var(--pmb-ink)]",
+            ].join(" ")}
+            variant={me?.ready ? "danger" : "ghost"}
+            onClick={onReadyToggle}
+            disabled={!me || busy || isGenerating}
+          >
             {me?.ready ? "Unready" : "Ready"}
           </Button>
         </div>
@@ -234,7 +243,7 @@ export default function LobbyPage() {
             disabled={!canStartRound}
           >
             <Play className="mr-2 h-4 w-4" />
-            {isGenerating ? "お題生成中..." : "ホストがラウンド開始"}
+            {isGenerating ? "お題生成中..." : "ラウンド開始"}
           </Button>
         </div>
       </section>

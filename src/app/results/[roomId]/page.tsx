@@ -1,7 +1,8 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Flag, LogOut } from "lucide-react";
+import { ChevronRight, Flag, LoaderCircle, LogOut } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
@@ -44,6 +45,27 @@ interface ScoreEntry {
 interface PlayerData {
   uid: string;
   isHost: boolean;
+}
+
+function captionKeyLabel(key: string): string {
+  switch (key) {
+    case "scene":
+      return "シーン";
+    case "subjects":
+      return "主題";
+    case "objects":
+      return "小物";
+    case "colors":
+      return "色";
+    case "style":
+      return "スタイル";
+    case "composition":
+      return "構図";
+    case "text":
+      return "画像内テキスト";
+    default:
+      return key;
+  }
 }
 
 export default function ResultsPage() {
@@ -134,6 +156,33 @@ export default function ResultsPage() {
     () => [...scores].sort((a, b) => b.bestScore - a.bestScore),
     [scores],
   );
+  const targetCaptionParts = useMemo(() => {
+    const source = round?.reveal?.targetCaption?.trim();
+    if (!source) return [];
+
+    return source
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const separator = part.indexOf(":");
+        if (separator < 0) {
+          return {
+            key: "raw",
+            label: "採点文字列",
+            value: part,
+          };
+        }
+
+        const key = part.slice(0, separator).trim();
+        const value = part.slice(separator + 1).trim().replaceAll("|", " / ");
+        return {
+          key,
+          label: captionKeyLabel(key),
+          value,
+        };
+      });
+  }, [round?.reveal?.targetCaption]);
   const winner = sortedScores[0] ?? null;
 
   const onNext = async () => {
@@ -143,7 +192,7 @@ export default function ResultsPage() {
     setError(null);
 
     try {
-      const response = await apiPost<{
+      await apiPost<{
         ok: true;
         finished: boolean;
         nextRoundId: string | null;
@@ -152,12 +201,6 @@ export default function ResultsPage() {
         { roomId },
         getIdToken,
       );
-
-      if (response.finished) {
-        router.push(`/lobby/${roomId}`);
-      } else {
-        router.push(`/round/${roomId}`);
-      }
     } catch (e) {
       if (e instanceof ApiClientError) {
         setError(e.message);
@@ -203,16 +246,58 @@ export default function ResultsPage() {
         <div className="space-y-4">
           <Scoreboard entries={sortedScores} myUid={user?.uid} />
 
+          <Card className="bg-white">
+            <h2 className="text-lg">みんなの生成画像</h2>
+            {sortedScores.length > 0 ? (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {sortedScores.map((entry) => (
+                  <div
+                    key={entry.uid}
+                    className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2"
+                  >
+                    <p className="mb-1 truncate text-xs font-bold">
+                      {entry.displayName} ({entry.bestScore} pts)
+                    </p>
+                    <img
+                      src={entry.bestImageUrl}
+                      alt={`${entry.displayName} best`}
+                      className="h-28 w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm font-semibold">まだ画像がありません。</p>
+            )}
+          </Card>
+
           {round.reveal?.targetCaption || round.reveal?.gmPromptPublic ? (
             <Card className="bg-white">
               <h2 className="text-lg">正解情報</h2>
-              {round.reveal?.targetCaption ? (
-                <p className="mt-2 text-sm font-medium">{round.reveal.targetCaption}</p>
-              ) : null}
               {round.reveal?.gmPromptPublic ? (
-                <p className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3 font-mono text-xs">
-                  {round.reveal.gmPromptPublic}
-                </p>
+                <>
+                  <p className="mt-3 text-xs font-bold">正解プロンプト（お題生成に使われた元プロンプト）</p>
+                  <p className="mt-1 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3 font-mono text-xs">
+                    {round.reveal.gmPromptPublic}
+                  </p>
+                </>
+              ) : null}
+              {targetCaptionParts.length > 0 ? (
+                <>
+                  <p className="mt-3 text-xs font-bold">採点用の画像説明（AIが生成した内部表現）</p>
+                  <p className="mt-1 text-xs font-medium">
+                    正解プロンプトの上に表示される文字列は、採点のために画像を要素分解した説明です。
+                  </p>
+                  <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2">
+                    <ul className="space-y-1 text-xs">
+                      {targetCaptionParts.map((part, index) => (
+                        <li key={`${part.key}-${index}`}>
+                          <span className="font-bold">{part.label}:</span> {part.value || "-"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
               ) : null}
             </Card>
           ) : null}
@@ -242,6 +327,12 @@ export default function ResultsPage() {
             </Button>
             {!me?.isHost ? (
               <p className="mt-2 text-xs font-semibold">次の進行はホストのみ実行できます。</p>
+            ) : null}
+            {room.status === "GENERATING_ROUND" || busy ? (
+              <p className="mt-2 flex items-center gap-2 text-xs font-semibold">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                次ラウンド開始中...
+              </p>
             ) : null}
           </Card>
 
