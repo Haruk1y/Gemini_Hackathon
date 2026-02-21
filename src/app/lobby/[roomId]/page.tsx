@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, LoaderCircle, LogOut, Play, Users } from "lucide-react";
+import { Check, Copy, LoaderCircle, LogOut, Play, Users } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import {
   collection,
@@ -44,6 +44,7 @@ export default function LobbyPage() {
   const [players, setPlayers] = useState<PlayerData[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">("idle");
 
   useEffect(() => {
     if (!clientDb) {
@@ -150,7 +151,14 @@ export default function LobbyPage() {
 
   const copyCode = async () => {
     if (!room?.code) return;
-    await navigator.clipboard.writeText(room.code);
+    try {
+      await navigator.clipboard.writeText(room.code);
+      setCopyStatus("done");
+      setTimeout(() => setCopyStatus("idle"), 1500);
+    } catch {
+      setCopyStatus("error");
+      setTimeout(() => setCopyStatus("idle"), 1800);
+    }
   };
 
   const onLeave = async () => {
@@ -182,13 +190,34 @@ export default function LobbyPage() {
     <main className="page-enter mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-5 px-4 py-7 md:px-8">
       <section className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <Card className="bg-[var(--pmb-yellow)] p-6">
-          <p className="text-xs font-bold">ROOM CODE</p>
+          <p className="text-xs font-bold">ルームコード</p>
           <div className="mt-2 flex items-center gap-3">
             <h1 className="font-mono text-4xl font-black tracking-widest">{room.code}</h1>
-            <Button onClick={copyCode} type="button" variant="ghost">
-              <Copy className="h-4 w-4" />
+            <Button
+              onClick={copyCode}
+              type="button"
+              variant="ghost"
+              aria-label={copyStatus === "done" ? "コピー済み" : "ルームコードをコピー"}
+              className={[
+                "h-11 w-11 p-0",
+                "hover:translate-x-0 hover:-translate-y-0 hover:shadow-[6px_6px_0_var(--pmb-ink)]",
+                "active:translate-x-0.5 active:translate-y-0.5 active:shadow-[4px_4px_0_var(--pmb-ink)]",
+                copyStatus === "done" ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "",
+              ].join(" ")}
+            >
+              {copyStatus === "done" ? (
+                <Check className="h-5 w-5" />
+              ) : (
+                <Copy className="h-5 w-5" />
+              )}
             </Button>
           </div>
+          {copyStatus === "done" ? (
+            <p className="mt-2 text-xs font-semibold">コピーしました</p>
+          ) : null}
+          {copyStatus === "error" ? (
+            <p className="mt-2 text-xs font-semibold text-[var(--pmb-red)]">コピーに失敗しました</p>
+          ) : null}
           <ul className="mt-4 space-y-1 text-sm font-semibold">
             <li>・1ラウンド60秒 / 1人2試行</li>
             <li>・Hintは1ラウンド1回まで</li>
@@ -210,31 +239,32 @@ export default function LobbyPage() {
                   {player.uid === user?.uid && <Badge className="bg-white">YOU</Badge>}
                   {player.isHost && <Badge>HOST</Badge>}
                 </p>
-                {player.uid === user?.uid ? (
-                  <Button
-                    type="button"
-                    className="bg-[var(--pmb-green)] text-[var(--pmb-ink)] disabled:opacity-100"
-                    variant="ghost"
-                    onClick={onReady}
-                    disabled={!me || busy || isGenerating || player.ready}
-                  >
-                    {player.ready ? "Ready済み" : "Ready"}
-                  </Button>
-                ) : (
-                  <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
-                    {player.ready ? "READY" : "UNREADY"}
-                  </Badge>
-                )}
+                <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
+                  {player.ready ? "READY" : "UNREADY"}
+                </Badge>
               </div>
             ))}
           </div>
         </Card>
       </section>
 
-      <section className="grid gap-3">
+      <section className="grid gap-3 md:grid-cols-2">
         <Button
           type="button"
-          className="w-full"
+          className="w-full bg-[var(--pmb-green)] text-[var(--pmb-ink)] disabled:opacity-100"
+          variant="ghost"
+          onClick={onReady}
+          disabled={!me || busy || isGenerating || Boolean(me?.ready)}
+        >
+          {me?.ready ? "READY済み" : "READYにする"}
+        </Button>
+
+        <Button
+          type="button"
+          className={[
+            "w-full",
+            !canStartRound ? "bg-zinc-300 text-zinc-600 disabled:opacity-100" : "",
+          ].join(" ")}
           variant="accent"
           onClick={onStart}
           disabled={!canStartRound}
