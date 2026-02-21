@@ -59,44 +59,6 @@ interface AttemptData {
   }>;
 }
 
-function captionKeyLabel(key: string): string {
-  switch (key) {
-    case "scene":
-      return "シーン";
-    case "subjects":
-      return "主題";
-    case "objects":
-      return "小物";
-    case "colors":
-      return "色";
-    case "style":
-      return "スタイル";
-    case "composition":
-      return "構図";
-    case "text":
-      return "画像内テキスト";
-    default:
-      return key;
-  }
-}
-
-function sanitizeCaptionValue(raw: string): string {
-  const normalizedRaw = raw
-    .trim()
-    .toLowerCase()
-    .replace(/\b(a|an|the)\b(?=\s*$)/, "")
-    .trim();
-
-  const tokens = normalizedRaw
-    .split("/")
-    .map((token) => token.trim().replace(/^(a|an|the)\s+/, "").trim())
-    .filter(Boolean)
-    .filter((token) => !["a", "an", "the"].includes(token))
-    .filter((token) => token.length > 1);
-
-  return tokens.join(" / ");
-}
-
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -225,33 +187,6 @@ export default function ResultsPage() {
     () => [...scores].sort((a, b) => b.bestScore - a.bestScore),
     [scores],
   );
-  const targetCaptionParts = useMemo(() => {
-    const source = round?.reveal?.targetCaption?.trim();
-    if (!source) return [];
-
-    return source
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separator = part.indexOf(":");
-        if (separator < 0) {
-          return {
-            key: "raw",
-            label: "採点文字列",
-            value: part,
-          };
-        }
-
-        const key = part.slice(0, separator).trim();
-        const value = sanitizeCaptionValue(part.slice(separator + 1).trim().replaceAll("|", " / "));
-        return {
-          key,
-          label: captionKeyLabel(key),
-          value,
-        };
-      });
-  }, [round?.reveal?.targetCaption]);
   const isResultsPhase = room?.status === "RESULTS";
   const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const waitingMessage = useMemo(() => {
@@ -337,50 +272,28 @@ export default function ResultsPage() {
           <Card className="bg-white p-4">
             <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
             <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-start">
-              <div className="space-y-3">
-                <div>
-                  <p className="h-6 text-sm font-bold">お題画像</p>
-                  <div className="mt-2 h-[260px] w-full sm:h-[300px]">
-                    <img
-                      src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
-                      alt="target"
-                      className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
-                    />
-                  </div>
+              <div>
+                <p className="h-6 text-sm font-bold">お題画像</p>
+                <div className="mt-2 h-[260px] w-full sm:h-[300px]">
+                  <img
+                    src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
+                    alt="target"
+                    className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                  />
                 </div>
-
-                {round.reveal?.targetCaption || round.reveal?.gmPromptPublic ? (
-                  <Card className="max-h-[240px] overflow-y-auto bg-[var(--pmb-base)] p-3">
-                    <h3 className="text-sm font-black">正解情報</h3>
-                    {round.reveal?.gmPromptPublic ? (
-                      <>
-                        <p className="mt-2 text-xs font-bold">正解プロンプト</p>
-                        <p className="mt-1 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 font-mono text-xs">
-                          {round.reveal.gmPromptPublic}
-                        </p>
-                      </>
-                    ) : null}
-                    {targetCaptionParts.length > 0 ? (
-                      <>
-                        <p className="mt-2 text-xs font-bold">採点用の画像説明</p>
-                        <div className="mt-1 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2">
-                          <ul className="space-y-1 text-xs">
-                            {targetCaptionParts.map((part, index) => (
-                              <li key={`${part.key}-${index}`}>
-                                <span className="font-bold">{part.label}:</span> {part.value || "-"}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </>
-                    ) : null}
-                  </Card>
-                ) : null}
               </div>
 
               <div className="lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
                 <p className="h-6 text-sm font-bold">生成画像</p>
-                <div className="mt-2">
+                {round.reveal?.gmPromptPublic ? (
+                  <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                    <p className="text-xs font-bold">正解プロンプト</p>
+                    <p className="mt-1 font-mono text-xs font-semibold">
+                      {round.reveal.gmPromptPublic}
+                    </p>
+                  </div>
+                ) : null}
+                <div className={round.reveal?.gmPromptPublic ? "mt-3" : "mt-2"}>
                   <Podium entries={sortedScores} myUid={user?.uid} />
                 </div>
               </div>
