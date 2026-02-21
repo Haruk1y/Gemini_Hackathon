@@ -142,6 +142,10 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!room) return;
+    if (room.status === "GENERATING_ROUND") {
+      router.replace(`/transition/${roomId}`);
+      return;
+    }
     if (room.status === "IN_ROUND" && !allowStayDuringRound) {
       router.replace(`/round/${roomId}`);
     }
@@ -267,12 +271,12 @@ export default function ResultsPage() {
         </Card>
       ) : null}
 
-      <section className="min-h-0 flex-1 overflow-y-auto pr-1">
+      <section className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
         <div className="space-y-4">
-          <Card className="bg-white p-4">
+          <Card className="overflow-hidden bg-white p-4">
             <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
-            <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-start">
-              <div>
+            <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-stretch">
+              <div className="lg:flex lg:h-full lg:flex-col">
                 <p className="h-6 text-sm font-bold">お題画像</p>
                 <div className="mt-2 h-[260px] w-full sm:h-[300px]">
                   <img
@@ -283,7 +287,7 @@ export default function ResultsPage() {
                 </div>
               </div>
 
-              <div className="lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+              <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
                 <p className="h-6 text-sm font-bold">生成画像</p>
                 {round.reveal?.gmPromptPublic ? (
                   <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
@@ -293,7 +297,7 @@ export default function ResultsPage() {
                     </p>
                   </div>
                 ) : null}
-                <div className={round.reveal?.gmPromptPublic ? "mt-3" : "mt-2"}>
+                <div className={round.reveal?.gmPromptPublic ? "mt-3 flex-1" : "mt-2 flex-1"}>
                   <Podium entries={sortedScores} myUid={user?.uid} />
                 </div>
               </div>
