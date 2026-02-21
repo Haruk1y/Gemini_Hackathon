@@ -10,6 +10,7 @@ interface Entry {
   displayName: string;
   bestScore: number;
   bestImageUrl?: string;
+  bestPromptPublic?: string;
 }
 
 interface PodiumProps {
@@ -31,7 +32,7 @@ export function Podium({ entries, myUid }: PodiumProps) {
           <div
             key={entry.uid}
             className={[
-              "relative w-56 shrink-0 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
+              "relative w-64 shrink-0 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
               entry.uid === myUid ? "bg-[var(--pmb-blue)]" : "",
             ].join(" ")}
           >
@@ -51,6 +52,12 @@ export function Podium({ entries, myUid }: PodiumProps) {
               {entry.uid === myUid ? <Badge className="bg-white">YOU</Badge> : null}
             </p>
             <p className="font-mono text-3xl font-black">{entry.bestScore}</p>
+            <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 text-left">
+              <p className="text-[10px] font-black uppercase tracking-wide">Prompt</p>
+              <p className="mt-1 max-h-16 overflow-y-auto font-mono text-[11px] font-semibold leading-tight">
+                {entry.bestPromptPublic || "未記録"}
+              </p>
+            </div>
           </div>
         ))}
       </div>

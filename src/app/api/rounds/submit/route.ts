@@ -323,6 +323,7 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         displayName: player.displayName,
         bestScore: score,
         bestImageUrl: imageUrl,
+        bestPromptPublic: body.prompt,
         updatedAt: createdAt,
         expiresAt: dateAfterHours(24),
       });

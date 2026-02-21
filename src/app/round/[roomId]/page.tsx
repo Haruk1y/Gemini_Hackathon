@@ -341,7 +341,7 @@ export default function RoundPage() {
       <Card className="bg-white p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase">Round {round.index}</p>
+            <p className="text-2xl font-black uppercase leading-none md:text-3xl">Round {round.index}</p>
           </div>
           <div className="flex items-center gap-2">
             <CountdownTimer secondsLeft={secondsLeft} />
@@ -449,7 +449,7 @@ export default function RoundPage() {
           ) : (
             <div className="space-y-2">
               <div className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}>
-                まだ投稿がありません。
+                まだ画像がありません。
               </div>
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
                 <p>判断根拠</p>
