@@ -81,9 +81,15 @@ function captionKeyLabel(key: string): string {
 }
 
 function sanitizeCaptionValue(raw: string): string {
-  const tokens = raw
+  const normalizedRaw = raw
+    .trim()
+    .toLowerCase()
+    .replace(/\b(a|an|the)\b(?=\s*$)/, "")
+    .trim();
+
+  const tokens = normalizedRaw
     .split("/")
-    .map((token) => token.trim().toLowerCase().replace(/^(a|an|the)\s+/, "").trim())
+    .map((token) => token.trim().replace(/^(a|an|the)\s+/, "").trim())
     .filter(Boolean)
     .filter((token) => !["a", "an", "the"].includes(token))
     .filter((token) => token.length > 1);
@@ -291,6 +297,7 @@ export default function ResultsPage() {
         { roomId },
         getIdToken,
       );
+      router.push(`/transition/${roomId}`);
     } catch (e) {
       if (e instanceof ApiClientError) {
         setError(e.message);
@@ -315,11 +322,11 @@ export default function ResultsPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-8">
+    <main className="page-enter mx-auto flex h-screen max-h-screen w-full max-w-[1400px] flex-col gap-4 overflow-hidden px-4 py-5 md:px-7">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
         <div>
-          <p className="text-xs font-bold uppercase">Round {round.index} Result</p>
-          <h1 className="text-2xl">ランキング発表</h1>
+          <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
+          <h1 className="text-4xl leading-none md:text-5xl">ランキング発表</h1>
         </div>
         {room.roundIndex >= room.settings.totalRounds ? (
           <Badge className="bg-[var(--pmb-red)] text-white">
@@ -330,8 +337,6 @@ export default function ResultsPage() {
         )}
       </header>
 
-      <Podium entries={sortedScores} myUid={user?.uid} />
-
       {!isResultsPhase && waitingMessage ? (
         <Card className="bg-white">
           <p className="flex items-center gap-2 text-sm font-semibold">
@@ -341,21 +346,91 @@ export default function ResultsPage() {
         </Card>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <div className="space-y-4">
-          <Card className="bg-white">
-            <h2 className="text-lg">お題画像</h2>
-            <div className="mt-2">
-              <img
-                src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
-                alt="target"
-                className="h-64 w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover sm:h-72 lg:h-[min(36vh,340px)]"
-              />
+      <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[360px_1fr]">
+        <Card className="bg-white p-4 lg:h-full">
+          <h2 className="text-xl font-black">お題画像</h2>
+          <div className="mt-3 h-[320px] w-full sm:h-[360px]">
+            <img
+              src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
+              alt="target"
+              className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+            />
+          </div>
+        </Card>
+
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+          <Card className="bg-white p-4">
+            <h2 className="text-2xl font-black md:text-3xl">ランキング</h2>
+            <p className="mt-1 text-xs font-semibold">右方向にスクロールして全順位を確認できます。</p>
+            <div className="mt-3">
+              <Podium entries={sortedScores} myUid={user?.uid} />
             </div>
           </Card>
 
+          <div className="grid min-h-0 gap-4 xl:grid-cols-[1.25fr_1fr]">
+            {isResultsPhase ? (
+              <Card className="bg-white p-4">
+                <h2 className="text-lg">あなたの採点根拠</h2>
+                {myLatestAttempt ? (
+                  <div className="mt-2 text-sm font-semibold">
+                {myLatestAttempt.matchedElements?.length ? (
+                  <p className="text-[var(--pmb-green)]">一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
+                ) : null}
+                    {myLatestAttempt.missingElements?.length ? (
+                      <p className="mt-1 text-[var(--pmb-red)]">
+                        不足: {myLatestAttempt.missingElements.join(" / ")}
+                      </p>
+                    ) : (
+                      <p className="mt-1">不足: なし</p>
+                    )}
+                    {myLatestAttempt.judgeNote ? (
+                      <p className="mt-1">{myLatestAttempt.judgeNote}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm font-semibold">
+                    このラウンドの採点根拠はまだありません。
+                  </p>
+                )}
+              </Card>
+            ) : null}
+
+            <div className="space-y-4">
+              <Card className="bg-white">
+                <Button
+                  type="button"
+                  className="w-full"
+                  variant="accent"
+                  onClick={onNext}
+                  disabled={!me?.isHost || busy || !isResultsPhase}
+                >
+                  <ChevronRight className="mr-1 h-4 w-4" />
+                  {room.roundIndex >= room.settings.totalRounds
+                    ? "ロビーに戻る"
+                    : "次ラウンドへ"}
+                </Button>
+                {!me?.isHost ? (
+                  <p className="mt-2 text-xs font-semibold">次の進行はホストのみ実行できます。</p>
+                ) : null}
+                {room.status === "GENERATING_ROUND" || busy ? (
+                  <p className="mt-2 flex items-center gap-2 text-xs font-semibold">
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    次ラウンド開始中...
+                  </p>
+                ) : null}
+              </Card>
+
+              <Card className="bg-white">
+                <Button type="button" variant="ghost" className="w-full" onClick={onLeave} disabled={busy}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  ロビーに戻る
+                </Button>
+              </Card>
+            </div>
+          </div>
+
           {round.reveal?.targetCaption || round.reveal?.gmPromptPublic ? (
-            <Card className="bg-white">
+            <Card className="max-h-44 overflow-y-auto bg-white p-4">
               <h2 className="text-lg">正解情報</h2>
               {round.reveal?.gmPromptPublic ? (
                 <>
@@ -381,64 +456,6 @@ export default function ResultsPage() {
               ) : null}
             </Card>
           ) : null}
-        </div>
-
-        <div className="space-y-4">
-          <Card className="bg-white">
-            <h2 className="text-lg">あなたの採点根拠</h2>
-            {myLatestAttempt ? (
-              <div className="mt-2 text-sm font-semibold">
-                {myLatestAttempt.matchedElements?.length ? (
-                  <p>一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
-                ) : null}
-                {myLatestAttempt.missingElements?.length ? (
-                  <p className="mt-1 text-[var(--pmb-red)]">
-                    不足: {myLatestAttempt.missingElements.join(" / ")}
-                  </p>
-                ) : (
-                  <p className="mt-1">不足: なし</p>
-                )}
-                {myLatestAttempt.judgeNote ? (
-                  <p className="mt-1">{myLatestAttempt.judgeNote}</p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm font-semibold">
-                このラウンドの採点根拠はまだありません。
-              </p>
-            )}
-          </Card>
-
-          <Card className="bg-white">
-            <Button
-              type="button"
-              className="w-full"
-              variant="accent"
-              onClick={onNext}
-              disabled={!me?.isHost || busy || !isResultsPhase}
-            >
-              <ChevronRight className="mr-1 h-4 w-4" />
-              {room.roundIndex >= room.settings.totalRounds
-                ? "ロビーに戻る"
-                : "次ラウンドへ"}
-            </Button>
-            {!me?.isHost ? (
-              <p className="mt-2 text-xs font-semibold">次の進行はホストのみ実行できます。</p>
-            ) : null}
-            {room.status === "GENERATING_ROUND" || busy ? (
-              <p className="mt-2 flex items-center gap-2 text-xs font-semibold">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                次ラウンド開始中...
-              </p>
-            ) : null}
-          </Card>
-
-          <Card className="bg-white">
-            <Button type="button" variant="ghost" className="w-full" onClick={onLeave} disabled={busy}>
-              <LogOut className="mr-2 h-4 w-4" />
-              ロビーに戻る
-            </Button>
-          </Card>
         </div>
       </section>
 

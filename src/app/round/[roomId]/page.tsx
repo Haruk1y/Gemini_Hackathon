@@ -320,14 +320,17 @@ export default function RoundPage() {
           </div>
           <div className="flex items-center gap-2">
             <CountdownTimer secondsLeft={secondsLeft} />
-            {autoEndingSoon ? (
-              <Card className="bg-[var(--pmb-base)] px-3 py-2 text-xs font-bold shadow-[4px_4px_0_var(--pmb-ink)]">
-                残り {Math.max(0, secondsLeft)} 秒で遷移
-              </Card>
-            ) : null}
-            <Button type="button" variant="ghost" onClick={onBackToLobby} disabled={isBusy}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onBackToLobby}
+              disabled={isBusy || isRoundLive}
+              className={autoEndingSoon ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black" : ""}
+            >
               <LogOut className="mr-2 h-4 w-4" />
-              リザルト画面へ
+              {autoEndingSoon
+                ? `リザルト画面へ（残り${Math.max(0, secondsLeft)}秒）`
+                : "リザルト画面へ"}
             </Button>
           </div>
         </div>

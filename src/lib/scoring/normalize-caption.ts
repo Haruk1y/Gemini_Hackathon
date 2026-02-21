@@ -6,6 +6,13 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function normalizeScene(text: string): string {
+  const cleaned = normalizeText(text)
+    .replace(/\b(a|an|the)\b(?=\s*$)/g, "")
+    .trim();
+  return cleaned || "scene";
+}
+
 function normalizePhrase(text: string): string {
   const lowered = normalizeText(text);
   const withoutArticle = lowered.replace(/^(a|an|the)\s+/i, "").trim();
@@ -22,7 +29,7 @@ function normalizeArray(values: string[]): string[] {
 
 export function normalizeCaption(caption: CaptionSchema): string {
   const chunks = [
-    `scene:${normalizeText(caption.scene)}`,
+    `scene:${normalizeScene(caption.scene)}`,
     `subjects:${normalizeArray(caption.mainSubjects).join("|")}`,
     `objects:${normalizeArray(caption.keyObjects).join("|")}`,
     `colors:${normalizeArray(caption.colors).join("|")}`,

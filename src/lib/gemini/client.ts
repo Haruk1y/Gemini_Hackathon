@@ -24,7 +24,8 @@ const ai = process.env.GEMINI_API_KEY
   : null;
 
 const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
-const STRUCTURED_PARSE_ATTEMPTS = 1;
+const STRUCTURED_PARSE_ATTEMPTS = 2;
+const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -210,15 +211,19 @@ function fallbackCaption(fallbackPrompt: string): CaptionSchema {
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
-    .slice(0, 4);
+    .filter((token) => !TOKEN_STOPWORDS.has(token))
+    .filter((token) => token.length > 1)
+    .slice(0, 8);
 
-  const primary = tokens[0] ?? "subject";
-  const scene = `Prompt-guided scene featuring ${primary}`.slice(0, 240);
+  const mainSubjects = tokens.slice(0, 2);
+  const keyObjects = tokens.slice(2, 6);
+  const sceneKeywords = mainSubjects.length > 0 ? mainSubjects.join(" and ") : "subject";
+  const scene = `Prompt-guided scene featuring ${sceneKeywords}`.slice(0, 240);
 
   return {
     scene,
-    mainSubjects: [primary],
-    keyObjects: tokens.slice(1, 4),
+    mainSubjects: mainSubjects.length > 0 ? mainSubjects : ["subject"],
+    keyObjects,
     colors: ["vivid", "high-contrast"],
     style: "neo-brutal sticker illustration",
     composition: "centered composition",
