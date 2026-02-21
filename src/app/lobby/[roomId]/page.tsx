@@ -251,12 +251,17 @@ export default function LobbyPage() {
       <section className="grid gap-3 md:grid-cols-2">
         <Button
           type="button"
-          className="w-full bg-[var(--pmb-green)] text-[var(--pmb-ink)] disabled:opacity-100"
+          className={[
+            "w-full disabled:opacity-100",
+            me?.ready
+              ? "bg-zinc-300 text-zinc-600"
+              : "bg-[var(--pmb-green)] text-[var(--pmb-ink)]",
+          ].join(" ")}
           variant="ghost"
           onClick={onReady}
           disabled={!me || busy || isGenerating || Boolean(me?.ready)}
         >
-          {me?.ready ? "READY済み" : "READYにする"}
+          READY！
         </Button>
 
         <Button

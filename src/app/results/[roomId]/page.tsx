@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, Flag, LoaderCircle, LogOut } from "lucide-react";
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost, ApiClientError } from "@/lib/client/api";
+import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
 import { clientDb } from "@/lib/firebase/client";
 
@@ -26,6 +28,8 @@ interface RoomData {
 interface RoundData {
   roundId: string;
   index: number;
+  targetImageUrl?: string;
+  gmTitle?: string;
   reveal?: {
     targetCaption?: string;
     gmPromptPublic?: string;
@@ -42,6 +46,17 @@ interface ScoreEntry {
 interface PlayerData {
   uid: string;
   isHost: boolean;
+}
+
+interface AttemptData {
+  attempts: Array<{
+    attemptNo: number;
+    score: number | null;
+    status?: "SCORING" | "DONE";
+    matchedElements?: string[];
+    missingElements?: string[];
+    judgeNote?: string;
+  }>;
 }
 
 function captionKeyLabel(key: string): string {
@@ -65,6 +80,17 @@ function captionKeyLabel(key: string): string {
   }
 }
 
+function sanitizeCaptionValue(raw: string): string {
+  const tokens = raw
+    .split("/")
+    .map((token) => token.trim().toLowerCase().replace(/^(a|an|the)\s+/, "").trim())
+    .filter(Boolean)
+    .filter((token) => !["a", "an", "the"].includes(token))
+    .filter((token) => token.length > 1);
+
+  return tokens.join(" / ");
+}
+
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -78,6 +104,7 @@ export default function ResultsPage() {
   const [round, setRound] = useState<RoundData | null>(null);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [me, setMe] = useState<PlayerData | null>(null);
+  const [myAttempts, setMyAttempts] = useState<AttemptData | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allowStayDuringRound, setAllowStayDuringRound] = useState(fromRound);
@@ -128,17 +155,31 @@ export default function ResultsPage() {
     let unsubMe = () => {
       // noop
     };
+    let unsubAttempts = () => {
+      // noop
+    };
     if (user?.uid) {
       unsubMe = onSnapshot(doc(clientDb, "rooms", roomId, "players", user.uid), (snapshot) => {
         if (!snapshot.exists()) return;
         setMe(snapshot.data() as PlayerData);
       });
+      unsubAttempts = onSnapshot(
+        doc(clientDb, "rooms", roomId, "rounds", roundId, "attempts_private", user.uid),
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            setMyAttempts(null);
+            return;
+          }
+          setMyAttempts(snapshot.data() as AttemptData);
+        },
+      );
     }
 
     return () => {
       unsubRound();
       unsubScores();
       unsubMe();
+      unsubAttempts();
     };
   }, [room?.currentRoundId, roomId, user?.uid]);
 
@@ -214,7 +255,7 @@ export default function ResultsPage() {
         }
 
         const key = part.slice(0, separator).trim();
-        const value = part.slice(separator + 1).trim().replaceAll("|", " / ");
+        const value = sanitizeCaptionValue(part.slice(separator + 1).trim().replaceAll("|", " / "));
         return {
           key,
           label: captionKeyLabel(key),
@@ -223,6 +264,16 @@ export default function ResultsPage() {
       });
   }, [round?.reveal?.targetCaption]);
   const isResultsPhase = room?.status === "RESULTS";
+  const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
+  const waitingMessage = useMemo(() => {
+    if (room?.status === "GENERATING_ROUND") {
+      return "次ラウンド開始中です。お題画像の準備が完了すると自動でラウンド画面へ移動します。";
+    }
+    if (room?.status === "IN_ROUND") {
+      return "集計中です。全員の採点完了後、約10秒でリザルトへ切り替わります。";
+    }
+    return null;
+  }, [room?.status]);
 
   const onNext = async () => {
     if (!me?.isHost || !room) return;
@@ -279,19 +330,30 @@ export default function ResultsPage() {
         )}
       </header>
 
-      <Podium entries={sortedScores} />
+      <Podium entries={sortedScores} myUid={user?.uid} />
 
-      {!isResultsPhase ? (
+      {!isResultsPhase && waitingMessage ? (
         <Card className="bg-white">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <LoaderCircle className="h-4 w-4 animate-spin" />
-            集計中です。全員の採点完了後、約10秒でリザルトへ切り替わります。
+            {waitingMessage}
           </p>
         </Card>
       ) : null}
 
       <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <div className="space-y-4">
+          <Card className="bg-white">
+            <h2 className="text-lg">お題画像</h2>
+            <div className="mt-2">
+              <img
+                src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
+                alt="target"
+                className="h-64 w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover sm:h-72 lg:h-[min(36vh,340px)]"
+              />
+            </div>
+          </Card>
+
           {round.reveal?.targetCaption || round.reveal?.gmPromptPublic ? (
             <Card className="bg-white">
               <h2 className="text-lg">正解情報</h2>
@@ -322,6 +384,31 @@ export default function ResultsPage() {
         </div>
 
         <div className="space-y-4">
+          <Card className="bg-white">
+            <h2 className="text-lg">あなたの採点根拠</h2>
+            {myLatestAttempt ? (
+              <div className="mt-2 text-sm font-semibold">
+                {myLatestAttempt.matchedElements?.length ? (
+                  <p>一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
+                ) : null}
+                {myLatestAttempt.missingElements?.length ? (
+                  <p className="mt-1 text-[var(--pmb-red)]">
+                    不足: {myLatestAttempt.missingElements.join(" / ")}
+                  </p>
+                ) : (
+                  <p className="mt-1">不足: なし</p>
+                )}
+                {myLatestAttempt.judgeNote ? (
+                  <p className="mt-1">{myLatestAttempt.judgeNote}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm font-semibold">
+                このラウンドの採点根拠はまだありません。
+              </p>
+            )}
+          </Card>
+
           <Card className="bg-white">
             <Button
               type="button"

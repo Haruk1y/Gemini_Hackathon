@@ -240,7 +240,7 @@ export default function RoundPage() {
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
   const autoEndingSoon = everyoneScored && isRoundLive;
   const imageFrameClass =
-    "relative aspect-square w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white";
+    "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
 
   useEffect(() => {
     if (!room || !round) return;
@@ -317,10 +317,14 @@ export default function RoundPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase">Round {round.index}</p>
-            <h1 className="text-xl">プロンプトを入力して送信</h1>
           </div>
           <div className="flex items-center gap-2">
             <CountdownTimer secondsLeft={secondsLeft} />
+            {autoEndingSoon ? (
+              <Card className="bg-[var(--pmb-base)] px-3 py-2 text-xs font-bold shadow-[4px_4px_0_var(--pmb-ink)]">
+                残り {Math.max(0, secondsLeft)} 秒で遷移
+              </Card>
+            ) : null}
             <Button type="button" variant="ghost" onClick={onBackToLobby} disabled={isBusy}>
               <LogOut className="mr-2 h-4 w-4" />
               リザルト画面へ
@@ -328,7 +332,7 @@ export default function RoundPage() {
           </div>
         </div>
 
-        <h2 className="mt-3 mb-2 text-lg">プロンプト入力</h2>
+        <h2 className="mt-3 mb-2 text-lg">プロンプトを入力しよう！</h2>
         <Textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
@@ -354,11 +358,6 @@ export default function RoundPage() {
           </Card>
         </div>
         {feedback ? <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p> : null}
-        {autoEndingSoon ? (
-          <p className="mt-2 text-sm font-semibold">
-            全員の採点が完了しました。約10秒後にリザルトへ移動します。
-          </p>
-        ) : null}
         {!isRoundLive ? (
           <p className="mt-2 text-sm font-semibold">次ラウンド開始準備中です。お題生成が終わると送信できます。</p>
         ) : null}
@@ -401,28 +400,33 @@ export default function RoundPage() {
                   </p>
                 ) : null}
               </div>
-              {!latestAttemptScoring && latestAttempt ? (
-                <Card className="max-h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
-                  <p>判断根拠</p>
-                  {latestAttempt.matchedElements?.length ? (
-                    <p className="mt-1">
-                      一致: {latestAttempt.matchedElements.join(" / ")}
-                    </p>
-                  ) : null}
-                  {latestAttempt.missingElements?.length ? (
-                    <p className="mt-1 text-[var(--pmb-red)]">
-                      不足: {latestAttempt.missingElements.join(" / ")}
-                    </p>
-                  ) : null}
-                  {latestAttempt.judgeNote ? (
-                    <p className="mt-1">{latestAttempt.judgeNote}</p>
-                  ) : null}
-                </Card>
-              ) : null}
+              <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                <p>判断根拠</p>
+                {!latestAttemptScoring && latestAttempt.matchedElements?.length ? (
+                  <p className="mt-1">
+                    一致: {latestAttempt.matchedElements.join(" / ")}
+                  </p>
+                ) : null}
+                {!latestAttemptScoring && latestAttempt.missingElements?.length ? (
+                  <p className="mt-1 text-[var(--pmb-red)]">
+                    不足: {latestAttempt.missingElements.join(" / ")}
+                  </p>
+                ) : null}
+                {!latestAttemptScoring && latestAttempt.judgeNote ? (
+                  <p className="mt-1">{latestAttempt.judgeNote}</p>
+                ) : null}
+                {latestAttemptScoring ? <p className="mt-1">採点完了後に根拠を表示します。</p> : null}
+              </Card>
             </div>
           ) : (
-            <div className="flex aspect-square items-center justify-center rounded-lg border-4 border-dashed border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-4 text-sm font-semibold lg:h-full lg:aspect-auto">
-              まだ投稿がありません。
+            <div className="space-y-2">
+              <div className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}>
+                まだ投稿がありません。
+              </div>
+              <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                <p>判断根拠</p>
+                <p className="mt-1">画像生成後に採点根拠を表示します。</p>
+              </Card>
             </div>
           )}
         </Card>
