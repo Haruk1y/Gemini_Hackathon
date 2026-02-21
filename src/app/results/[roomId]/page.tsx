@@ -285,19 +285,19 @@ export default function ResultsPage() {
                     className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
                   />
                 </div>
-              </div>
-
-              <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="h-6 text-sm font-bold">生成画像</p>
                 {round.reveal?.gmPromptPublic ? (
-                  <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                  <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
                     <p className="text-xs font-bold">正解プロンプト</p>
                     <p className="mt-1 font-mono text-xs font-semibold">
                       {round.reveal.gmPromptPublic}
                     </p>
                   </div>
                 ) : null}
-                <div className={round.reveal?.gmPromptPublic ? "mt-3 flex-1" : "mt-2 flex-1"}>
+              </div>
+
+              <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                <p className="h-6 text-sm font-bold">生成画像</p>
+                <div className="mt-2 flex-1">
                   <Podium entries={sortedScores} myUid={user?.uid} />
                 </div>
               </div>
