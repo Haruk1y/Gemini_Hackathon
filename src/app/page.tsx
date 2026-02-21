@@ -87,7 +87,7 @@ export default function HomePage() {
       <header className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <Card className="bg-[var(--pmb-yellow)] p-6 md:p-8">
           <h1 className="text-3xl leading-tight md:text-5xl">PrompDojo</h1>
-          <p className="mt-3 max-w-xl text-sm font-medium md:text-base">
+          <p className="mt-3 max-w-xl text-base font-semibold leading-relaxed md:text-xl">
             お題画像を見てプロンプトを推理しよう！
             <br />
             最も近い画像を生成したプレイヤーが勝利！
@@ -96,18 +96,24 @@ export default function HomePage() {
 
         <Card className="space-y-4 bg-white p-6">
           <h2 className="text-xl">プレイヤー情報</h2>
-          <Input
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="表示名（1文字以上）"
-            maxLength={24}
-          />
-          <Input
-            value={joinCode}
-            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-            placeholder="参加コード（6文字）"
-            maxLength={6}
-          />
+          <div className="space-y-1">
+            <p className="text-xs font-bold">表示名</p>
+            <Input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="表示名（1文字以上）"
+              maxLength={24}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-bold">ルームコード</p>
+            <Input
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="ルームコード（6文字）"
+              maxLength={6}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={createRoom} disabled={!canSubmit}>
               ルーム作成

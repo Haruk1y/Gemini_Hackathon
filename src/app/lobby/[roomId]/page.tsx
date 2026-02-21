@@ -98,8 +98,8 @@ export default function LobbyPage() {
     enabled: Boolean(room && user),
   });
 
-  const onReadyToggle = async () => {
-    if (!me) return;
+  const onReady = async () => {
+    if (!me || me.ready) return;
 
     setBusy(true);
     setError(null);
@@ -108,7 +108,7 @@ export default function LobbyPage() {
         "/api/rooms/ready",
         {
           roomId,
-          ready: !me.ready,
+          ready: true,
         },
         getIdToken,
       );
@@ -207,62 +207,41 @@ export default function LobbyPage() {
               >
                 <p className="flex items-center gap-2 text-sm font-semibold">
                   {player.displayName}
+                  {player.uid === user?.uid && <Badge className="bg-white">YOU</Badge>}
                   {player.isHost && <Badge>HOST</Badge>}
                 </p>
-                <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
-                  {player.ready ? "READY" : "UNREADY"}
-                </Badge>
+                {player.uid === user?.uid ? (
+                  <Button
+                    type="button"
+                    className="bg-[var(--pmb-green)] text-[var(--pmb-ink)] disabled:opacity-100"
+                    variant="ghost"
+                    onClick={onReady}
+                    disabled={!me || busy || isGenerating || player.ready}
+                  >
+                    {player.ready ? "Ready済み" : "Ready"}
+                  </Button>
+                ) : (
+                  <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
+                    {player.ready ? "READY" : "UNREADY"}
+                  </Badge>
+                )}
               </div>
             ))}
           </div>
         </Card>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1">
-          <Card className="mb-2 bg-white px-3 py-2 shadow-[4px_4px_0_var(--pmb-ink)]">
-            <p className="text-xs font-bold">あなたの現在状態</p>
-            <div className="mt-1">
-              <Badge
-                className={
-                  me?.ready
-                    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-                    : "bg-[var(--pmb-red)] text-white"
-                }
-              >
-                {me?.ready ? "READY" : "UNREADY"}
-              </Badge>
-            </div>
-          </Card>
-          <Button
-            type="button"
-            className={[
-              "w-full",
-              me?.ready ? "" : "bg-[var(--pmb-green)] text-[var(--pmb-ink)]",
-            ].join(" ")}
-            variant={me?.ready ? "danger" : "ghost"}
-            onClick={onReadyToggle}
-            disabled={!me || busy || isGenerating}
-          >
-            {me?.ready ? "Unready" : "Ready"}
-          </Button>
-          <p className="mt-1 text-xs font-semibold">
-            ボタンを押すと READY / UNREADY を切り替えます。
-          </p>
-        </div>
-
-        <div className="space-y-1">
-          <Button
-            type="button"
-            className="w-full"
-            variant="accent"
-            onClick={onStart}
-            disabled={!canStartRound}
-          >
-            <Play className="mr-2 h-4 w-4" />
-            {isGenerating ? "お題生成中..." : "ラウンド開始"}
-          </Button>
-        </div>
+      <section className="grid gap-3">
+        <Button
+          type="button"
+          className="w-full"
+          variant="accent"
+          onClick={onStart}
+          disabled={!canStartRound}
+        >
+          <Play className="mr-2 h-4 w-4" />
+          {isGenerating ? "お題生成中..." : "ラウンド開始"}
+        </Button>
       </section>
 
       <section>
