@@ -1,5 +1,4 @@
 import { GoogleGenAI } from "@google/genai";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 
 import { AppError } from "@/lib/utils/errors";
@@ -23,6 +22,7 @@ const ai = process.env.GEMINI_API_KEY
   : null;
 
 const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
+const STRUCTURED_PARSE_ATTEMPTS = 3;
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -49,6 +49,57 @@ async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
   }
 
   throw lastError;
+}
+
+function buildStructuredCandidates(parsed: unknown): unknown[] {
+  const candidates: unknown[] = [];
+  const queue: unknown[] = [parsed];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) continue;
+    seen.add(current);
+    candidates.push(current);
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    if (typeof current !== "object") {
+      continue;
+    }
+
+    const objectValue = current as Record<string, unknown>;
+    const wrappedKeys = ["data", "result", "output", "response", "value", "candidate", "content"];
+    for (const key of wrappedKeys) {
+      const nested = objectValue[key];
+      if (nested) {
+        queue.push(nested);
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function parseStructuredText<T>(schema: z.ZodType<T>, text: string): T | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  for (const candidate of buildStructuredCandidates(parsed)) {
+    const result = schema.safeParse(candidate);
+    if (result.success) {
+      return result.data;
+    }
+  }
+
+  return null;
 }
 
 function hashText(text: string): number {
@@ -97,42 +148,50 @@ async function generateStructured<T>(params: {
     throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
   }
 
-  const responseSchema = zodToJsonSchema(
-    params.schema as unknown as Parameters<typeof zodToJsonSchema>[0],
-  ) as unknown as Record<string, unknown>;
+  const responseSchema = z.toJSONSchema(params.schema) as unknown as Record<string, unknown>;
 
-  const response = await withRetries(() =>
-    ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            ...(params.system ? [{ text: params.system }] : []),
-            { text: params.user },
-          ],
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
+    const response = await withRetries(() =>
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              ...(params.system ? [{ text: params.system }] : []),
+              { text: params.user },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema,
         },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema,
-      },
-    }),
-  );
+      }),
+    );
 
-  const text = response.text;
-  if (!text) {
-    throw new AppError("GEMINI_ERROR", "Gemini returned empty structured response", true, 502);
+    const text = response.text?.trim();
+    if (!text) {
+      lastError = new AppError("GEMINI_ERROR", "Gemini returned empty structured response", true, 502);
+      continue;
+    }
+
+    const parsed = parseStructuredText(params.schema, text);
+    if (parsed) {
+      return parsed;
+    }
+
+    lastError = new AppError(
+      "GEMINI_ERROR",
+      "Gemini returned schema-incompatible structured response",
+      true,
+      502,
+    );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new AppError("GEMINI_ERROR", "Gemini returned non-JSON response", true, 502);
-  }
-
-  return params.schema.parse(parsed);
+  throw lastError ?? new AppError("GEMINI_ERROR", "Gemini structured generation failed", true, 502);
 }
 
 export async function generateGmPrompt(settings: RoomSettings): Promise<GmPromptSchema> {
@@ -228,44 +287,50 @@ export async function captionFromImage(
     throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
   }
 
-  const responseSchema = zodToJsonSchema(
-    captionSchema as unknown as Parameters<typeof zodToJsonSchema>[0],
-  ) as unknown as Record<string, unknown>;
+  const responseSchema = z.toJSONSchema(captionSchema) as unknown as Record<string, unknown>;
 
-  const response = await withRetries(() =>
-    ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                data: image.base64Data,
-                mimeType: image.mimeType,
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
+    const response = await withRetries(() =>
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  data: image.base64Data,
+                  mimeType: image.mimeType,
+                },
               },
-            },
-            { text: captionPrompt },
-          ],
+              { text: captionPrompt },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema,
         },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema,
-      },
-    }),
-  );
+      }),
+    );
 
-  const text = response.text;
-  if (!text) {
-    throw new AppError("GEMINI_ERROR", "Gemini returned empty caption", true, 502);
+    const text = response.text?.trim();
+    if (!text) {
+      lastError = new AppError("GEMINI_ERROR", "Gemini returned empty caption", true, 502);
+      continue;
+    }
+
+    const parsed = parseStructuredText(captionSchema, text);
+    if (parsed) {
+      return parsed;
+    }
+
+    lastError = new AppError("GEMINI_ERROR", "Caption schema validation failed", true, 502);
   }
 
-  try {
-    return captionSchema.parse(JSON.parse(text));
-  } catch {
-    throw new AppError("GEMINI_ERROR", "Caption schema validation failed", true, 502);
-  }
+  throw lastError ?? new AppError("GEMINI_ERROR", "Caption generation failed", true, 502);
 }
 
 export async function generateHint(params: {

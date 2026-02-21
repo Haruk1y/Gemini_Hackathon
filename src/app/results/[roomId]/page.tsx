@@ -116,7 +116,7 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!room) return;
-    if (room.status === "IN_ROUND" || room.status === "GENERATING_ROUND") {
+    if (room.status === "IN_ROUND") {
       router.replace(`/round/${roomId}`);
     }
     if (room.status === "LOBBY") {

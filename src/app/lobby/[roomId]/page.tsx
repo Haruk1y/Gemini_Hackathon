@@ -76,7 +76,7 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (!room) return;
-    if (room.status === "IN_ROUND" || room.status === "GENERATING_ROUND") {
+    if (room.status === "IN_ROUND") {
       router.replace(`/round/${roomId}`);
     }
     if (room.status === "RESULTS") {
@@ -92,6 +92,7 @@ export default function LobbyPage() {
     [players, user?.uid],
   );
 
+  const isGenerating = room?.status === "GENERATING_ROUND";
   const everyoneReady = players.length >= 2 && players.every((player) => player.ready);
 
   useRoomPresence({
@@ -220,7 +221,7 @@ export default function LobbyPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2">
-        <Button type="button" onClick={onReadyToggle} disabled={!me || busy}>
+        <Button type="button" onClick={onReadyToggle} disabled={!me || busy || isGenerating}>
           {me?.ready ? "Ready解除" : "Readyにする"}
         </Button>
 
@@ -228,10 +229,10 @@ export default function LobbyPage() {
           type="button"
           variant="accent"
           onClick={onStart}
-          disabled={!me?.isHost || !everyoneReady || busy}
+          disabled={!me?.isHost || !everyoneReady || busy || isGenerating}
         >
           <Play className="mr-2 h-4 w-4" />
-          ホストがラウンド開始
+          {isGenerating ? "お題生成中..." : "ホストがラウンド開始"}
         </Button>
       </section>
 
@@ -242,7 +243,11 @@ export default function LobbyPage() {
         </Button>
       </section>
 
-      {everyoneReady ? (
+      {isGenerating ? (
+        <Card className="border-[var(--pmb-blue)] bg-white text-sm font-semibold">
+          お題画像を生成中です。完了すると自動でラウンド画面へ遷移します。
+        </Card>
+      ) : everyoneReady ? (
         <Card className="border-[var(--pmb-green)] bg-white text-sm font-semibold">
           全員Readyです。ホストが開始できます。
         </Card>

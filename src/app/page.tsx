@@ -21,7 +21,7 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
 
   const canSubmit =
-    hasFirebaseClientConfig && !loading && !busy && displayName.trim().length >= 2;
+    hasFirebaseClientConfig && !loading && !busy && displayName.trim().length >= 1;
 
   const createRoom = async () => {
     if (!canSubmit) return;
@@ -91,9 +91,7 @@ export default function HomePage() {
             Multiplayer Prompt Quiz
           </p>
           <h1 className="text-3xl leading-tight md:text-5xl">
-            Prompt Mirror
-            <br />
-            Battle
+            PrompDojo
           </h1>
           <p className="mt-3 max-w-xl text-sm font-medium md:text-base">
             お題画像を見てプロンプトを推理し、最も近い画像を生成したプレイヤーが勝利。
@@ -105,7 +103,7 @@ export default function HomePage() {
           <Input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="表示名（2文字以上）"
+            placeholder="表示名（1文字以上）"
             maxLength={24}
           />
           <div className="grid grid-cols-2 gap-2">

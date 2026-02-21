@@ -22,7 +22,7 @@ const monoFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Prompt Mirror Battle",
+  title: "PrompDojo",
   description: "マルチプレイ画像生成プロンプトクイズ",
 };
 

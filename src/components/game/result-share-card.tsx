@@ -30,7 +30,7 @@ export function ResultShareCard({
         pixelRatio: 2,
       });
       const link = document.createElement("a");
-      link.download = `prompt-mirror-${roomId}.png`;
+      link.download = `prompdojo-${roomId}.png`;
       link.href = dataUrl;
       link.click();
     } finally {
@@ -44,7 +44,7 @@ export function ResultShareCard({
         ref={cardRef}
         className="rounded-2xl bg-[linear-gradient(135deg,var(--pmb-yellow),var(--pmb-blue))] p-6"
       >
-        <p className="text-xs font-bold">Prompt Mirror Battle</p>
+        <p className="text-xs font-bold">PrompDojo</p>
         <h3 className="mt-2 text-2xl font-black">WINNER: {winnerName}</h3>
         <p className="font-mono text-3xl font-black">{winnerScore} pts</p>
         <p className="mt-4 text-sm font-semibold">Room: {roomId}</p>

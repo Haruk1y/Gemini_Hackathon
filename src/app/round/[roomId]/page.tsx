@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiPost, ApiClientError } from "@/lib/client/api";
+import { placeholderImageUrl } from "@/lib/client/image";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
 import { clientDb } from "@/lib/firebase/client";
 import { scoreBand } from "@/lib/scoring/cosine";
@@ -29,6 +30,7 @@ interface RoomData {
   status: "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
   currentRoundId: string | null;
   settings: {
+    roundSeconds: number;
     maxAttempts: number;
     hintLimit: number;
   };
@@ -86,6 +88,12 @@ export default function RoundPage() {
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   const endCalled = useRef(false);
+
+  const applyImageFallback = (element: HTMLImageElement, label: string) => {
+    if (element.dataset.fallbackApplied === "true") return;
+    element.dataset.fallbackApplied = "true";
+    element.src = placeholderImageUrl(label);
+  };
 
   useEffect(() => {
     if (!clientDb) {
@@ -149,8 +157,13 @@ export default function RoundPage() {
   }, [room?.currentRoundId, roomId, user?.uid]);
 
   useEffect(() => {
-    if (!round?.endsAt) {
+    if (!round || !room) {
       setSecondsLeft(0);
+      return;
+    }
+
+    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND" || !round.endsAt) {
+      setSecondsLeft(room.settings.roundSeconds);
       return;
     }
 
@@ -163,7 +176,11 @@ export default function RoundPage() {
     update();
     const id = setInterval(update, 250);
     return () => clearInterval(id);
-  }, [round?.endsAt]);
+  }, [round, room]);
+
+  useEffect(() => {
+    endCalled.current = false;
+  }, [round?.roundId, room?.status]);
 
   useEffect(() => {
     if (!room || !round) return;
@@ -183,6 +200,7 @@ export default function RoundPage() {
       return;
     }
 
+    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
     if (secondsLeft > 0 || endCalled.current) return;
 
     endCalled.current = true;
@@ -202,6 +220,7 @@ export default function RoundPage() {
   const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(0, (room?.settings.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0));
   const hintsLeft = Math.max(0, (room?.settings.hintLimit ?? 0) - (attempts?.hintUsed ?? 0));
+  const isRoundLive = room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
 
   const submitPrompt = async () => {
     if (!round || !prompt.trim()) return;
@@ -324,10 +343,16 @@ export default function RoundPage() {
         <Card className="bg-white">
           <h2 className="mb-3 text-lg">お題画像</h2>
           <img
-            src={round.targetImageUrl}
+            src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
             alt="target"
             className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+            onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
           />
+          {!isRoundLive ? (
+            <p className="mt-3 text-sm font-semibold">
+              お題を生成中です。完了後にタイマーが開始されます。
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-semibold md:grid-cols-4">
             <Card className="bg-[var(--pmb-base)] p-2 text-center shadow-[4px_4px_0_var(--pmb-ink)]">
               試行残り {attemptsLeft}
@@ -357,7 +382,7 @@ export default function RoundPage() {
               <Button
                 type="button"
                 onClick={submitPrompt}
-                disabled={busy || attemptsLeft <= 0 || prompt.trim().length < 8}
+                disabled={busy || !isRoundLive || attemptsLeft <= 0 || prompt.trim().length < 8}
               >
                 <Send className="mr-1 h-4 w-4" /> 生成して送信
               </Button>
@@ -365,7 +390,7 @@ export default function RoundPage() {
                 type="button"
                 variant="accent"
                 onClick={requestHint}
-                disabled={busy || hintsLeft <= 0 || !attempts?.attempts.length}
+                disabled={busy || !isRoundLive || hintsLeft <= 0 || !attempts?.attempts.length}
               >
                 <Lightbulb className="mr-1 h-4 w-4" /> Hint
               </Button>
@@ -377,9 +402,12 @@ export default function RoundPage() {
             {latestAttempt ? (
               <div className="space-y-2">
                 <img
-                  src={latestAttempt.imageUrl}
+                  src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
                   alt="latest attempt"
                   className="aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+                  onError={(event) =>
+                    applyImageFallback(event.currentTarget, latestAttempt.prompt)
+                  }
                 />
                 <p className="font-mono text-lg font-black">
                   {latestAttempt.score} pts ({scoreBand(latestAttempt.score)})
@@ -402,9 +430,10 @@ export default function RoundPage() {
               </ul>
               {hintImageUrl && (
                 <img
-                  src={hintImageUrl}
+                  src={hintImageUrl || placeholderImageUrl("hint")}
                   alt="hint"
                   className="mt-3 aspect-square w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
+                  onError={(event) => applyImageFallback(event.currentTarget, "hint")}
                 />
               )}
             </Card>

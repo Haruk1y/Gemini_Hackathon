@@ -3,7 +3,7 @@ import { z } from "zod";
 const safeDisplayName = z
   .string()
   .trim()
-  .min(2)
+  .min(1)
   .max(24)
   .regex(/^[\p{L}\p{N}_\-\s]+$/u, "Display name includes invalid characters");
 

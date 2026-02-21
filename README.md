@@ -1,4 +1,4 @@
-# Prompt Mirror Battle
+# PrompDojo
 
 Gemini API と Firebase を使った、マルチプレイ画像生成プロンプトクイズです。
 
