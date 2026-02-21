@@ -43,7 +43,7 @@ export function Podium({ entries, myUid }: PodiumProps) {
             <img
               src={entry.bestImageUrl || placeholderImageUrl(entry.displayName)}
               alt={`${entry.displayName} best`}
-              className="mb-2 aspect-square w-full rounded-lg border-2 border-[var(--pmb-ink)] bg-white object-cover"
+              className="mb-2 aspect-square w-full rounded-lg border-2 border-[var(--pmb-ink)] bg-white object-contain p-1"
             />
             <p className="text-2xl font-black">#{index + 1}</p>
             <p className="mt-1 flex items-center justify-center gap-1 text-xl font-extrabold">

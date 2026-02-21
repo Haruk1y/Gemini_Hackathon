@@ -16,7 +16,7 @@ import { apiPost, ApiClientError } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
 import { clientDb } from "@/lib/firebase/client";
-import { millisecondsLeft } from "@/lib/utils/time";
+import { millisecondsLeft, parseDate } from "@/lib/utils/time";
 
 interface RoomData {
   status: "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
@@ -89,6 +89,7 @@ export default function RoundPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [resultCountdownSeconds, setResultCountdownSeconds] = useState<number | null>(null);
 
   const endCalled = useRef(false);
 
@@ -243,6 +244,30 @@ export default function RoundPage() {
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
 
   useEffect(() => {
+    if (!autoEndingSoon) {
+      setResultCountdownSeconds(null);
+      return;
+    }
+
+    const parsedEndsAt = parseDate(round?.endsAt);
+    const fallbackEndsAt = new Date(Date.now() + 10_000);
+    const countdownTarget =
+      parsedEndsAt && parsedEndsAt.getTime() > Date.now() ? parsedEndsAt : fallbackEndsAt;
+
+    const update = () => {
+      const leftSeconds = Math.max(
+        0,
+        Math.ceil((countdownTarget.getTime() - Date.now()) / 1000),
+      );
+      setResultCountdownSeconds(leftSeconds);
+    };
+
+    update();
+    const intervalId = setInterval(update, 250);
+    return () => clearInterval(intervalId);
+  }, [autoEndingSoon, round?.endsAt]);
+
+  useEffect(() => {
     if (!room || !round) return;
     if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
     if (!everyoneScored) return;
@@ -324,12 +349,12 @@ export default function RoundPage() {
               type="button"
               variant="ghost"
               onClick={onBackToLobby}
-              disabled={isBusy || isRoundLive}
+              disabled={isBusy || (isRoundLive && !autoEndingSoon)}
               className={autoEndingSoon ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black" : ""}
             >
               <LogOut className="mr-2 h-4 w-4" />
               {autoEndingSoon
-                ? `リザルト画面へ（残り${Math.max(0, secondsLeft)}秒）`
+                ? `リザルト画面へ（残り${resultCountdownSeconds ?? 10}秒）`
                 : "リザルト画面へ"}
             </Button>
           </div>
@@ -373,7 +398,7 @@ export default function RoundPage() {
             <img
               src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
               alt="target"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain p-1"
               onError={(event) => applyImageFallback(event.currentTarget, round.gmTitle || "target")}
             />
           </div>
@@ -387,7 +412,7 @@ export default function RoundPage() {
                 <img
                   src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
                   alt="latest attempt"
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain p-1"
                   onError={(event) => applyImageFallback(event.currentTarget, latestAttempt.prompt)}
                 />
                 {latestAttemptScoring ? (
@@ -406,7 +431,7 @@ export default function RoundPage() {
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
                 <p>判断根拠</p>
                 {!latestAttemptScoring && latestAttempt.matchedElements?.length ? (
-                  <p className="mt-1">
+                  <p className="mt-1 text-[var(--pmb-green)]">
                     一致: {latestAttempt.matchedElements.join(" / ")}
                   </p>
                 ) : null}
@@ -452,7 +477,7 @@ export default function RoundPage() {
                     <img
                       src={entry.bestImageUrl || placeholderImageUrl(entry.displayName)}
                       alt={`${entry.displayName} best`}
-                      className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-cover"
+                      className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain p-1"
                       onError={(event) => applyImageFallback(event.currentTarget, entry.displayName)}
                     />
                   </div>

@@ -346,24 +346,28 @@ export default function ResultsPage() {
         </Card>
       ) : null}
 
-      <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[360px_1fr]">
-        <Card className="bg-white p-4 lg:h-full">
-          <h2 className="text-xl font-black">お題画像</h2>
-          <div className="mt-3 h-[320px] w-full sm:h-[360px]">
-            <img
-              src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
-              alt="target"
-              className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] object-cover"
-            />
-          </div>
-        </Card>
-
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+      <section className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="space-y-4">
           <Card className="bg-white p-4">
             <h2 className="text-2xl font-black md:text-3xl">ランキング</h2>
-            <p className="mt-1 text-xs font-semibold">右方向にスクロールして全順位を確認できます。</p>
-            <div className="mt-3">
-              <Podium entries={sortedScores} myUid={user?.uid} />
+            <div className="mt-3 grid gap-4 lg:grid-cols-[320px_1fr] lg:items-start">
+              <div>
+                <p className="text-sm font-bold">お題画像</p>
+                <div className="mt-2 h-[280px] w-full sm:h-[320px]">
+                  <img
+                    src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
+                    alt="target"
+                    className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-bold">ランキング順の生成画像</p>
+                <p className="mt-1 text-xs font-semibold">右方向にスクロールして全順位を確認できます。</p>
+                <div className="mt-2">
+                  <Podium entries={sortedScores} myUid={user?.uid} />
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -373,9 +377,9 @@ export default function ResultsPage() {
                 <h2 className="text-lg">あなたの採点根拠</h2>
                 {myLatestAttempt ? (
                   <div className="mt-2 text-sm font-semibold">
-                {myLatestAttempt.matchedElements?.length ? (
-                  <p className="text-[var(--pmb-green)]">一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
-                ) : null}
+                    {myLatestAttempt.matchedElements?.length ? (
+                      <p className="text-[var(--pmb-green)]">一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
+                    ) : null}
                     {myLatestAttempt.missingElements?.length ? (
                       <p className="mt-1 text-[var(--pmb-red)]">
                         不足: {myLatestAttempt.missingElements.join(" / ")}
