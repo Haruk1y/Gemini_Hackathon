@@ -1,7 +1,7 @@
 import { roomOnlySchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { roomRef, playerRef } from "@/lib/api/paths";
-import { startRound, endGame } from "@/lib/game/round-service";
+import { startRound, resetRoomForReplay } from "@/lib/game/round-service";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import { AppError } from "@/lib/utils/errors";
 
@@ -19,7 +19,7 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
   }
 
   if (room.roundIndex >= room.settings.totalRounds) {
-    await endGame(body.roomId);
+    await resetRoomForReplay(body.roomId);
     return ok({ finished: true, nextRoundId: null });
   }
 

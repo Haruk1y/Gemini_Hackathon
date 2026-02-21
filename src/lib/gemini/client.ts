@@ -7,9 +7,11 @@ import {
   captionSchema,
   gmPromptSchema,
   hintSchema,
+  visualScoreSchema,
   type CaptionSchema,
   type GmPromptSchema,
   type HintSchema,
+  type VisualScoreSchema,
 } from "@/lib/gemini/schemas";
 import type { AspectRatio, RoomSettings } from "@/lib/types/game";
 
@@ -116,16 +118,51 @@ function responseText(response: { text?: string; candidates?: Array<{ content?: 
 }
 
 function fallbackGmPrompt(): GmPromptSchema {
-  return {
-    title: "Pop Neon Scene",
-    difficulty: 3,
-    tags: ["pop", "neon", "sticker"],
-    prompt:
-      "A colorful neo-brutal sticker-style illustration, bold black outline, high saturation palette, playful subject, clear foreground and background separation, centered composition, dramatic lighting, no text",
-    negativePrompt: "text, logo, watermark, famous characters",
-    mustInclude: ["bold black outline", "high saturation colors"],
-    mustAvoid: ["brand logo", "copyrighted character"],
-  };
+  const candidates: GmPromptSchema[] = [
+    {
+      title: "Urban Fox Sticker",
+      difficulty: 3,
+      tags: ["fox", "night", "neon"],
+      prompt:
+        "A fox courier riding a small scooter through a neon-lit alley, neo-brutal sticker illustration, thick black outlines, saturated cyan and orange, centered framing, dramatic backlight, no text",
+      negativePrompt: "text, logo, watermark, famous characters",
+      mustInclude: ["thick black outlines", "high saturation"],
+      mustAvoid: ["brand logo", "copyrighted character"],
+    },
+    {
+      title: "Retro Robot Diner",
+      difficulty: 3,
+      tags: ["robot", "diner", "retro"],
+      prompt:
+        "A friendly retro robot serving pancakes in a vintage diner, bold neo-brutal sticker style, chunky shapes, warm red and yellow palette, clear foreground table and background booths, no text",
+      negativePrompt: "text, logo, watermark, famous characters",
+      mustInclude: ["sticker illustration", "bold outlines"],
+      mustAvoid: ["brand logo", "copyrighted character"],
+    },
+    {
+      title: "Sky Whale Harbor",
+      difficulty: 4,
+      tags: ["whale", "harbor", "fantasy"],
+      prompt:
+        "A giant sky whale floating above a busy harbor town at sunset, stylized neo-brutal illustration with crisp geometry, intense magenta and teal colors, layered depth, no text",
+      negativePrompt: "text, logo, watermark, famous characters",
+      mustInclude: ["strong color contrast", "clear composition"],
+      mustAvoid: ["brand logo", "copyrighted character"],
+    },
+    {
+      title: "Jungle DJ Booth",
+      difficulty: 2,
+      tags: ["jungle", "music", "party"],
+      prompt:
+        "A tiger DJ performing on a bamboo booth in a tropical jungle party, high-energy neo-brutal pop art, sticker look, thick outlines, punchy lime and pink lighting, no text",
+      negativePrompt: "text, logo, watermark, famous characters",
+      mustInclude: ["thick outlines", "playful subject"],
+      mustAvoid: ["brand logo", "copyrighted character"],
+    },
+  ];
+
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index] ?? candidates[0];
 }
 
 function fallbackCaption(fallbackPrompt: string): CaptionSchema {
@@ -165,6 +202,15 @@ function fallbackHint(latestPrompt: string): HintSchema {
       improvedPrompt.length >= 20
         ? improvedPrompt
         : "A vivid neo-brutal sticker illustration with clear subject, concrete background details, and strong contrast lighting",
+  };
+}
+
+function fallbackVisualScore(): VisualScoreSchema {
+  return {
+    score: 50,
+    matchedElements: [],
+    missingElements: [],
+    note: "visual scoring fallback",
   };
 }
 
@@ -261,11 +307,13 @@ async function generateStructured<T>(params: {
 }
 
 export async function generateGmPrompt(settings: RoomSettings): Promise<GmPromptSchema> {
+  const variation = Math.floor(Math.random() * 1_000_000);
+
   try {
     return await generateStructured({
       schema: gmPromptSchema,
       system: gmSystemPrompt(settings),
-      user: gmUserPrompt(settings.aspectRatio),
+      user: `${gmUserPrompt(settings.aspectRatio)}\nバリエーションID: ${variation}`,
       mockValue: {
         title: "Neon Sushi Cat",
         difficulty: 3,
@@ -446,6 +494,80 @@ export async function generateHint(params: {
   } catch (error) {
     console.warn("generateHint fallback", error);
     return fallbackHint(params.latestPrompt);
+  }
+}
+
+export async function scoreImageSimilarity(params: {
+  targetImage: GeneratedImage;
+  attemptImage: GeneratedImage;
+  promptHint?: string;
+}): Promise<VisualScoreSchema> {
+  if (mockMode) {
+    return fallbackVisualScore();
+  }
+
+  if (!ai) {
+    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
+  }
+
+  if (!params.targetImage.base64Data || !params.attemptImage.base64Data) {
+    return fallbackVisualScore();
+  }
+
+  const responseSchema = z.toJSONSchema(visualScoreSchema) as unknown as Record<string, unknown>;
+
+  try {
+    const response = await withRetries(() =>
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: "以下の2枚を比較し、見た目の類似度を0-100で採点してください。" },
+              { text: "1枚目がターゲット画像です。" },
+              {
+                inlineData: {
+                  data: params.targetImage.base64Data,
+                  mimeType: params.targetImage.mimeType,
+                },
+              },
+              { text: "2枚目がプレイヤー回答画像です。" },
+              {
+                inlineData: {
+                  data: params.attemptImage.base64Data,
+                  mimeType: params.attemptImage.mimeType,
+                },
+              },
+              {
+                text: [
+                  "配点観点: 主題35, 構図20, 色調15, 背景/小物20, スタイル10。",
+                  "JSONのみ返し、scoreは整数。",
+                  params.promptHint ? `補足: ${params.promptHint}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema,
+        },
+      }),
+    );
+
+    const text = responseText(response);
+    if (!text) {
+      return fallbackVisualScore();
+    }
+
+    const parsed = parseStructuredText(visualScoreSchema, text);
+    return parsed ?? fallbackVisualScore();
+  } catch (error) {
+    console.warn("scoreImageSimilarity fallback", error);
+    return fallbackVisualScore();
   }
 }
 

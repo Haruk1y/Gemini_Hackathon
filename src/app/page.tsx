@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Users, WandSparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -87,14 +86,11 @@ export default function HomePage() {
     <main className="page-enter mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
       <header className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <Card className="bg-[var(--pmb-yellow)] p-6 md:p-8">
-          <p className="mb-2 inline-flex rounded-full border-2 border-[var(--pmb-ink)] bg-white px-3 py-1 text-xs font-bold">
-            Multiplayer Prompt Quiz
-          </p>
-          <h1 className="text-3xl leading-tight md:text-5xl">
-            PrompDojo
-          </h1>
+          <h1 className="text-3xl leading-tight md:text-5xl">PrompDojo</h1>
           <p className="mt-3 max-w-xl text-sm font-medium md:text-base">
-            お題画像を見てプロンプトを推理し、最も近い画像を生成したプレイヤーが勝利。
+            お題画像を見てプロンプトを推理しよう！
+            <br />
+            最も近い画像を生成したプレイヤーが勝利！
           </p>
         </Card>
 
@@ -106,6 +102,12 @@ export default function HomePage() {
             placeholder="表示名（1文字以上）"
             maxLength={24}
           />
+          <Input
+            value={joinCode}
+            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+            placeholder="参加コード（6文字）"
+            maxLength={6}
+          />
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={createRoom} disabled={!canSubmit}>
               ルーム作成
@@ -114,12 +116,6 @@ export default function HomePage() {
               ルーム参加
             </Button>
           </div>
-          <Input
-            value={joinCode}
-            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-            placeholder="参加コード（6文字）"
-            maxLength={6}
-          />
           {error ? <p className="text-sm font-semibold text-[var(--pmb-red)]">{error}</p> : null}
           {!hasFirebaseClientConfig ? (
             <p className="text-sm font-semibold text-[var(--pmb-red)]">
@@ -128,30 +124,6 @@ export default function HomePage() {
           ) : null}
         </Card>
       </header>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <Card className="stagger-in bg-white" style={{ animationDelay: "60ms" }}>
-          <p className="mb-2 inline-flex rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-xs font-bold">
-            <Users className="mr-1 h-3.5 w-3.5" /> STEP 1
-          </p>
-          <h3 className="text-lg">Lobby</h3>
-          <p className="text-sm">Ready を揃えてゲーム開始。ホストがラウンドを進行します。</p>
-        </Card>
-        <Card className="stagger-in bg-white" style={{ animationDelay: "120ms" }}>
-          <p className="mb-2 inline-flex rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-xs font-bold">
-            <WandSparkles className="mr-1 h-3.5 w-3.5" /> STEP 2
-          </p>
-          <h3 className="text-lg">Round</h3>
-          <p className="text-sm">60秒で2回挑戦。必要ならHintで改善案と参考画像を取得。</p>
-        </Card>
-        <Card className="stagger-in bg-white" style={{ animationDelay: "180ms" }}>
-          <p className="mb-2 inline-flex rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-xs font-bold">
-            <Sparkles className="mr-1 h-3.5 w-3.5" /> STEP 3
-          </p>
-          <h3 className="text-lg">Results</h3>
-          <p className="text-sm">ランキング確定。勝者の共有カードを書き出してSNSに投稿できます。</p>
-        </Card>
-      </section>
     </main>
   );
 }

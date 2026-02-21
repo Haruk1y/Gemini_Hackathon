@@ -93,7 +93,6 @@ export default function LobbyPage() {
   );
 
   const isGenerating = room?.status === "GENERATING_ROUND";
-  const everyoneReady = players.length >= 2 && players.every((player) => player.ready);
 
   useRoomPresence({
     roomId,
@@ -192,9 +191,10 @@ export default function LobbyPage() {
               <Copy className="h-4 w-4" />
             </Button>
           </div>
-          <p className="mt-4 text-sm font-semibold">
-            全員Readyで開始可能。ラウンドは60秒 x 2試行、全3ラウンドです。
-          </p>
+          <ul className="mt-4 space-y-1 text-sm font-semibold">
+            <li>・1ラウンド60秒 / 1人2試行</li>
+            <li>・Hintは1ラウンド1回まで</li>
+          </ul>
         </Card>
 
         <Card className="bg-white p-6">
@@ -211,7 +211,7 @@ export default function LobbyPage() {
                   {player.displayName}
                   {player.isHost && <Badge>HOST</Badge>}
                 </p>
-                <Badge className={player.ready ? "bg-[var(--pmb-green)]" : "bg-white"}>
+                <Badge className={player.ready ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "bg-[var(--pmb-red)] text-white"}>
                   {player.ready ? "READY" : "WAIT"}
                 </Badge>
               </div>
@@ -221,19 +221,26 @@ export default function LobbyPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2">
-        <Button type="button" onClick={onReadyToggle} disabled={!me || busy || isGenerating}>
-          {me?.ready ? "Ready解除" : "Readyにする"}
-        </Button>
+        <div className="space-y-1">
+          <Button type="button" className="w-full" onClick={onReadyToggle} disabled={!me || busy || isGenerating}>
+            {me?.ready ? "Ready解除" : "Readyにする"}
+          </Button>
+          <p className="text-xs font-semibold">WAITは赤、READYは緑で表示されます。</p>
+        </div>
 
-        <Button
-          type="button"
-          variant="accent"
-          onClick={onStart}
-          disabled={!me?.isHost || !everyoneReady || busy || isGenerating}
-        >
-          <Play className="mr-2 h-4 w-4" />
-          {isGenerating ? "お題生成中..." : "ホストがラウンド開始"}
-        </Button>
+        <div className="space-y-1">
+          <Button
+            type="button"
+            className="w-full"
+            variant="accent"
+            onClick={onStart}
+            disabled={!me?.isHost || busy || isGenerating}
+          >
+            <Play className="mr-2 h-4 w-4" />
+            {isGenerating ? "お題生成中..." : "ホストがラウンド開始"}
+          </Button>
+          <p className="text-xs font-semibold">開始条件: 2人以上 + 全員READY</p>
+        </div>
       </section>
 
       <section>
@@ -247,13 +254,7 @@ export default function LobbyPage() {
         <Card className="border-[var(--pmb-blue)] bg-white text-sm font-semibold">
           お題画像を生成中です。完了すると自動でラウンド画面へ遷移します。
         </Card>
-      ) : everyoneReady ? (
-        <Card className="border-[var(--pmb-green)] bg-white text-sm font-semibold">
-          全員Readyです。ホストが開始できます。
-        </Card>
-      ) : (
-        <Card className="bg-white text-sm font-semibold">2人以上かつ全員Readyで開始可能です。</Card>
-      )}
+      ) : null}
 
       {error ? <p className="text-sm font-semibold text-[var(--pmb-red)]">{error}</p> : null}
     </main>

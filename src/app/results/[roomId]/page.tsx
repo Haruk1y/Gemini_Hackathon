@@ -154,7 +154,7 @@ export default function ResultsPage() {
       );
 
       if (response.finished) {
-        setError("全ラウンド終了です。ホームに戻って新しいゲームを開始してください。");
+        router.push(`/lobby/${roomId}`);
       } else {
         router.push(`/round/${roomId}`);
       }
@@ -250,7 +250,7 @@ export default function ResultsPage() {
             >
               <ChevronRight className="mr-1 h-4 w-4" />
               {room.roundIndex >= room.settings.totalRounds
-                ? "ゲームを終了"
+                ? "ロビーに戻る"
                 : "次ラウンドへ"}
             </Button>
             {!me?.isHost ? (

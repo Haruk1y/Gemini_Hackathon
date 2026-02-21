@@ -1,5 +1,6 @@
 import { Timestamp } from "firebase-admin/firestore";
 
+import { getAdminDb } from "@/lib/firebase/admin";
 import {
   roundPrivateRef,
   roundRef,
@@ -81,8 +82,19 @@ export async function startRound(params: {
   }
 
   const playersSnapshot = await playersRef(params.roomId).get();
-  const players = playersSnapshot.docs.map((snapshot) => snapshot.data() as { ready: boolean });
-  assertCanStartRound(players);
+  const players = playersSnapshot.docs.map((snapshot) => {
+    const data = snapshot.data() as { ready?: boolean; lastSeenAt?: unknown };
+    return {
+      ready: Boolean(data.ready),
+      lastSeenAt: parseDate(data.lastSeenAt),
+    };
+  });
+
+  const nowMs = Date.now();
+  const activePlayers = players.filter(
+    (player) => !player.lastSeenAt || nowMs - player.lastSeenAt.getTime() <= 90_000,
+  );
+  assertCanStartRound(activePlayers.length > 0 ? activePlayers : players);
 
   const nextIndex = room.roundIndex + 1;
   if (nextIndex > room.settings.totalRounds) {
@@ -247,6 +259,31 @@ export async function endGame(roomId: string): Promise<void> {
   await roomRef(roomId).update({
     status: "FINISHED",
   });
+}
+
+export async function resetRoomForReplay(roomId: string): Promise<void> {
+  const playersSnapshot = await playersRef(roomId).get();
+  if (playersSnapshot.empty) {
+    await endGame(roomId);
+    return;
+  }
+
+  const batch = getAdminDb().batch();
+  batch.update(roomRef(roomId), {
+    status: "LOBBY",
+    currentRoundId: null,
+    roundIndex: 0,
+  });
+
+  for (const playerDoc of playersSnapshot.docs) {
+    batch.update(playerDoc.ref, {
+      ready: false,
+      totalScore: 0,
+      lastSeenAt: new Date(),
+    });
+  }
+
+  await batch.commit();
 }
 
 export function computeTotalScoreDelta(

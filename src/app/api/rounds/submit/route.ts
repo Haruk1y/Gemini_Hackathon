@@ -14,6 +14,8 @@ import {
   generateImage,
   imageToBuffer,
   imageToPublicUrl,
+  scoreImageSimilarity,
+  type GeneratedImage,
 } from "@/lib/gemini/client";
 import { cosineSimilarity, cosineToScore } from "@/lib/scoring/cosine";
 import { normalizeCaption } from "@/lib/scoring/normalize-caption";
@@ -24,8 +26,39 @@ import { dateAfterHours } from "@/lib/utils/time";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+async function fetchImageBytes(url: string): Promise<GeneratedImage | null> {
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? "image/png";
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString("base64");
+    return {
+      mimeType,
+      base64Data,
+      directUrl: url,
+    };
+  } catch (error) {
+    console.warn("fetchImageBytes failed", url, error);
+    return null;
+  }
+}
+
+async function imageForVisualScoring(
+  image: GeneratedImage,
+  fallbackUrl?: string,
+): Promise<GeneratedImage | null> {
+  if (image.base64Data) {
+    return image;
+  }
+
+  const url = fallbackUrl ?? image.directUrl;
+  if (!url) return null;
+  return fetchImageBytes(url);
+}
+
 export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
-  const { room, player, roundPrivate } = await assertRoundOpen({
+  const { room, round, player, roundPrivate } = await assertRoundOpen({
     roomId: body.roomId,
     roundId: body.roundId,
     uid: auth.uid,
@@ -95,7 +128,30 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
   const embedding = await embedText(captionText);
 
   const similarity = cosineSimilarity(roundPrivate.targetEmbedding, embedding);
-  const score = cosineToScore(similarity);
+  const semanticScore = cosineToScore(similarity);
+  let score = semanticScore;
+  let visualScore: number | null = null;
+  let scoreSource: "semantic" | "visual" = "semantic";
+
+  const [targetImageForJudge, attemptImageForJudge] = await Promise.all([
+    imageForVisualScoring({ mimeType: "image/png", directUrl: round.targetImageUrl }, round.targetImageUrl),
+    imageForVisualScoring(generatedImage, imageUrl),
+  ]);
+
+  if (targetImageForJudge?.base64Data && attemptImageForJudge?.base64Data) {
+    const judged = await scoreImageSimilarity({
+      targetImage: targetImageForJudge,
+      attemptImage: attemptImageForJudge,
+      promptHint: body.prompt,
+    });
+
+    if (judged.note !== "visual scoring fallback") {
+      visualScore = judged.score;
+      score = judged.score;
+      scoreSource = "visual";
+    }
+  }
+
   const createdAt = new Date();
 
   const scoreDocRef = scoreRef(body.roomId, body.roundId, auth.uid);
@@ -142,6 +198,9 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
         imageUrl,
         captionText,
         score,
+        semanticScore,
+        visualScore,
+        scoreSource,
         createdAt,
       },
     ];
@@ -150,6 +209,7 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
       attempts: nextAttempts,
       bestScore: nextBest,
       bestAttemptNo: nextBestAttemptNo,
+      scoreSource,
       updatedAt: createdAt,
     });
 
@@ -206,5 +266,8 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     score,
     imageUrl,
     bestScore: result.bestScore,
+    semanticScore,
+    visualScore,
+    scoreSource,
   });
 });
