@@ -43,9 +43,23 @@ describe("api contracts", () => {
 
     expect(
       roomSettingsSchema.parse({
-        totalRounds: 5,
+        totalRounds: 3,
       }).totalRounds,
-    ).toBe(5);
+    ).toBe(3);
+  });
+
+  it("accepts supported roundSeconds values", () => {
+    expect(
+      roomSettingsSchema.parse({
+        roundSeconds: 30,
+      }).roundSeconds,
+    ).toBe(30);
+
+    expect(
+      roomSettingsSchema.parse({
+        roundSeconds: 60,
+      }).roundSeconds,
+    ).toBe(60);
   });
 
   it("rejects invalid attempt settings", () => {
@@ -74,6 +88,20 @@ describe("api contracts", () => {
     expect(() =>
       roomSettingsSchema.parse({
         totalRounds: 6,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects roundSeconds outside the supported range", () => {
+    expect(() =>
+      roomSettingsSchema.parse({
+        roundSeconds: 29,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      roomSettingsSchema.parse({
+        roundSeconds: 61,
       }),
     ).toThrow();
   });

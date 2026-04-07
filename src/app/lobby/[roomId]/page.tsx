@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import {
   Brain,
   Check,
+  ChevronsUpDown,
   Copy,
   Eye,
   LoaderCircle,
@@ -21,11 +29,269 @@ import { Card } from "@/components/ui/card";
 import { apiPost, ApiClientError } from "@/lib/client/api";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
 import { useRoomSync } from "@/lib/client/room-sync";
-import {
-  GAME_MODE_OPTIONS,
-  getGameModeDefinition,
-} from "@/lib/game/modes";
+import { GAME_MODE_OPTIONS, getGameModeDefinition } from "@/lib/game/modes";
 import type { GameMode } from "@/lib/types/game";
+
+type ActionBusy = "ready" | "start" | "leave" | null;
+type SettingsStatus = "idle" | "saving" | "saved" | "error";
+
+interface PickerOption {
+  value: number;
+  label: string;
+  unitLabel: string;
+}
+
+interface SwipeValuePickerProps {
+  label: string;
+  options: readonly PickerOption[];
+  value: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}
+
+interface PlayerReadyChipProps {
+  ready: boolean;
+  isSelf: boolean;
+  pending: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+const SWIPE_THRESHOLD = 28;
+
+const ROUND_OPTIONS: readonly PickerOption[] = [
+  {
+    value: 1,
+    label: "1",
+    unitLabel: "ROUND",
+  },
+  {
+    value: 2,
+    label: "2",
+    unitLabel: "ROUNDS",
+  },
+  {
+    value: 3,
+    label: "3",
+    unitLabel: "ROUNDS",
+  },
+];
+
+const ROUND_TIME_OPTIONS: readonly PickerOption[] = [
+  {
+    value: 30,
+    label: "30",
+    unitLabel: "SEC",
+  },
+  {
+    value: 45,
+    label: "45",
+    unitLabel: "SEC",
+  },
+  {
+    value: 60,
+    label: "60",
+    unitLabel: "SEC",
+  },
+];
+
+function formatSettingsKey(gameMode: GameMode, totalRounds: number, roundSeconds: number) {
+  return `${gameMode}:${totalRounds}:${roundSeconds}`;
+}
+
+function SwipeValuePicker({
+  label,
+  options,
+  value,
+  onChange,
+  disabled = false,
+}: SwipeValuePickerProps) {
+  const currentIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+  const selectedOption = options[currentIndex] ?? options[0];
+  const previousOption = options[currentIndex - 1] ?? null;
+  const nextOption = options[currentIndex + 1] ?? null;
+  const currentIndexRef = useRef(currentIndex);
+  const dragStartYRef = useRef<number | null>(null);
+  const dragOffsetRef = useRef(0);
+  const movedRef = useRef(false);
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  const shiftIndex = (delta: number) => {
+    if (disabled || delta === 0) return;
+    const nextIndex = Math.max(
+      0,
+      Math.min(options.length - 1, currentIndexRef.current + delta),
+    );
+    if (nextIndex === currentIndexRef.current) return;
+    currentIndexRef.current = nextIndex;
+    onChange(options[nextIndex]!.value);
+  };
+
+  const finishDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    activateClickStep: boolean,
+  ) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    dragStartYRef.current = null;
+    dragOffsetRef.current = 0;
+
+    if (activateClickStep && !movedRef.current) {
+      shiftIndex(1);
+    }
+
+    movedRef.current = false;
+  };
+
+  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    dragStartYRef.current = event.clientY;
+    dragOffsetRef.current = 0;
+    movedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    if (disabled || dragStartYRef.current == null) return;
+
+    dragOffsetRef.current += event.clientY - dragStartYRef.current;
+    dragStartYRef.current = event.clientY;
+
+    while (dragOffsetRef.current <= -SWIPE_THRESHOLD) {
+      movedRef.current = true;
+      dragOffsetRef.current += SWIPE_THRESHOLD;
+      shiftIndex(-1);
+    }
+
+    while (dragOffsetRef.current >= SWIPE_THRESHOLD) {
+      movedRef.current = true;
+      dragOffsetRef.current -= SWIPE_THRESHOLD;
+      shiftIndex(1);
+    }
+  };
+
+  const onWheel = (event: WheelEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    event.preventDefault();
+    shiftIndex(event.deltaY > 0 ? 1 : -1);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      shiftIndex(-1);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      shiftIndex(1);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      onChange(options[0]!.value);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      onChange(options[options.length - 1]!.value);
+    }
+  };
+
+  return (
+    <div className="rounded-[16px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2.5">
+      <p className="text-[11px] font-black uppercase tracking-[0.2em]">{label}</p>
+
+      <button
+        type="button"
+        disabled={disabled}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(event) => finishDrag(event, true)}
+        onPointerCancel={(event) => finishDrag(event, false)}
+        onWheel={onWheel}
+        onKeyDown={onKeyDown}
+        className={[
+          "relative mt-2 h-[74px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
+          "touch-none cursor-ns-resize shadow-[4px_4px_0_var(--pmb-ink)]",
+          "hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)]",
+          "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
+        ].join(" ")}
+        aria-label={`${label} を変更`}
+        aria-valuemin={options[0]!.value}
+        aria-valuemax={options[options.length - 1]!.value}
+        aria-valuenow={selectedOption.value}
+        aria-valuetext={`${selectedOption.label} ${selectedOption.unitLabel}`}
+        role="spinbutton"
+      >
+        <span className="pointer-events-none absolute inset-x-0 top-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
+          {previousOption ? `${previousOption.label} ${previousOption.unitLabel}` : ""}
+        </span>
+
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5">
+          <ChevronsUpDown className="h-4 w-4" />
+          <span className="text-3xl font-black leading-none">{selectedOption.label}</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.18em]">
+            {selectedOption.unitLabel}
+          </span>
+        </span>
+
+        <span className="pointer-events-none absolute inset-x-0 bottom-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
+          {nextOption ? `${nextOption.label} ${nextOption.unitLabel}` : ""}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function PlayerReadyChip({
+  ready,
+  isSelf,
+  pending,
+  disabled = false,
+  onClick,
+}: PlayerReadyChipProps) {
+  const toneClass = ready
+    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
+    : "bg-[var(--pmb-red)] text-white";
+  const baseClass =
+    "inline-flex min-w-[92px] items-center justify-center rounded-full border-2 border-[var(--pmb-ink)] px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em]";
+
+  if (isSelf) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={pending || disabled}
+        className={[
+          baseClass,
+          toneClass,
+          "shadow-[4px_4px_0_var(--pmb-ink)] transition-transform duration-150",
+          "hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:shadow-[2px_2px_0_var(--pmb-ink)] disabled:opacity-80",
+        ].join(" ")}
+      >
+        {pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : ready ? "READY" : "WAIT"}
+      </button>
+    );
+  }
+
+  return <span className={[baseClass, toneClass].join(" ")}>{ready ? "READY" : "WAIT"}</span>;
+}
 
 export default function LobbyPage() {
   const params = useParams<{ roomId: string }>();
@@ -38,151 +304,261 @@ export default function LobbyPage() {
     enabled: Boolean(user) && !loading,
   });
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>("idle");
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">("idle");
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
   const [draftTotalRounds, setDraftTotalRounds] = useState(3);
+  const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
+  const [draftsReady, setDraftsReady] = useState(false);
+  const saveSequenceRef = useRef(0);
 
   const room = snapshot.room;
   const players = snapshot.players;
-
-  useEffect(() => {
-    if (!room) return;
-    if (room.status === "IN_ROUND") {
-      router.replace(`/round/${roomId}`);
-    }
-    if (room.status === "FINISHED") {
-      router.replace("/");
-    }
-  }, [room, roomId, router]);
-
-  const me = useMemo(
-    () => players.find((player) => player.uid === user?.uid) ?? null,
-    [players, user?.uid],
-  );
-
+  const me = players.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
   const currentTotalRounds = room?.settings?.totalRounds ?? 3;
+  const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentMode = getGameModeDefinition(currentGameMode);
-
-  useEffect(() => {
-    setDraftGameMode(currentGameMode);
-  }, [currentGameMode]);
-
-  useEffect(() => {
-    setDraftTotalRounds(currentTotalRounds);
-  }, [currentTotalRounds]);
-
-  const isGenerating = room?.status === "GENERATING_ROUND";
-  const showGeneratingBanner = isGenerating && !error;
-  const everyoneReady = players.length > 0 && players.every((player) => player.ready);
+  const readyCount = players.filter((player) => player.ready).length;
+  const everyoneReady = players.length > 0 && readyCount === players.length;
+  const roomStatus = room?.status ?? null;
+  const isGenerating = roomStatus === "GENERATING_ROUND";
+  const hostCanEdit = Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
+  const currentSettingsKey = formatSettingsKey(
+    currentGameMode,
+    currentTotalRounds,
+    currentRoundSeconds,
+  );
+  const draftSettingsKey = formatSettingsKey(
+    draftGameMode,
+    draftTotalRounds,
+    draftRoundSeconds,
+  );
+  const settingsDirty = currentSettingsKey !== draftSettingsKey;
+  const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
-    Boolean(me?.isHost) && players.length >= 1 && everyoneReady && !isGenerating && !busy;
-  const settingsChanged =
-    draftGameMode !== currentGameMode || draftTotalRounds !== currentTotalRounds;
-  const canSaveSettings =
-    Boolean(me?.isHost) && !busy && !isGenerating && Boolean(room) && settingsChanged;
+    Boolean(me?.isHost) &&
+    players.length >= 1 &&
+    everyoneReady &&
+    !isGenerating &&
+    actionBusy === null &&
+    !settingsPending;
+
+  useEffect(() => {
+    if (!roomStatus) return;
+
+    if (roomStatus === "IN_ROUND") {
+      router.replace(`/round/${roomId}`);
+      return;
+    }
+
+    if (roomStatus === "RESULTS") {
+      router.replace(`/results/${roomId}`);
+      return;
+    }
+
+    if (roomStatus === "FINISHED") {
+      router.replace("/");
+    }
+  }, [roomId, roomStatus, router]);
+
+  useEffect(() => {
+    if (!roomStatus) return;
+    if (!draftsReady) {
+      setDraftGameMode(currentGameMode);
+      setDraftTotalRounds(currentTotalRounds);
+      setDraftRoundSeconds(currentRoundSeconds);
+      setDraftsReady(true);
+      return;
+    }
+
+    if (me?.isHost && settingsDirty) {
+      return;
+    }
+
+    setDraftGameMode(currentGameMode);
+    setDraftTotalRounds(currentTotalRounds);
+    setDraftRoundSeconds(currentRoundSeconds);
+  }, [
+    currentGameMode,
+    currentRoundSeconds,
+    currentTotalRounds,
+    draftsReady,
+    me?.isHost,
+    roomStatus,
+    settingsDirty,
+  ]);
+
+  useEffect(() => {
+    if (!draftsReady || !hostCanEdit || !roomStatus || !settingsDirty) return;
+
+    setSettingsStatus("saving");
+    setSettingsError(null);
+    const sequence = ++saveSequenceRef.current;
+    const timerId = window.setTimeout(() => {
+      void apiPost("/api/rooms/settings", {
+        roomId,
+        settings: {
+          gameMode: draftGameMode,
+          totalRounds: draftTotalRounds,
+          roundSeconds: draftRoundSeconds,
+        },
+      })
+        .then(() => {
+          if (saveSequenceRef.current !== sequence) return;
+          setSettingsStatus("saved");
+        })
+        .catch((error) => {
+          if (saveSequenceRef.current !== sequence) return;
+          setSettingsStatus("error");
+          if (error instanceof ApiClientError) {
+            setSettingsError(error.message);
+            return;
+          }
+          setSettingsError("ルール更新に失敗しました");
+        });
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    draftGameMode,
+    draftRoundSeconds,
+    draftTotalRounds,
+    draftsReady,
+    hostCanEdit,
+    roomId,
+    roomStatus,
+    settingsDirty,
+  ]);
+
+  useEffect(() => {
+    if (settingsDirty) return;
+    setSettingsError(null);
+    if (settingsStatus === "error") {
+      setSettingsStatus("idle");
+    }
+  }, [settingsDirty, settingsStatus]);
+
+  useEffect(() => {
+    if (settingsStatus !== "saved") return;
+    const timerId = window.setTimeout(() => {
+      setSettingsStatus("idle");
+    }, 900);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [settingsStatus]);
 
   useRoomPresence({
     roomId,
     enabled: Boolean(room && user),
   });
 
-  const onReady = async () => {
-    if (!me || me.ready) return;
+  const onToggleReady = async () => {
+    if (!me || isGenerating) return;
 
-    setBusy(true);
-    setError(null);
+    setActionBusy("ready");
+    setActionError(null);
     try {
       await apiPost("/api/rooms/ready", {
         roomId,
-        ready: true,
+        ready: !me.ready,
       });
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message);
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setActionError(error.message);
       } else {
-        setError("Ready更新に失敗しました");
+        setActionError("READY 更新に失敗しました");
       }
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const onSaveSettings = async () => {
-    if (!canSaveSettings) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      await apiPost("/api/rooms/settings", {
-        roomId,
-        settings: {
-          gameMode: draftGameMode,
-          totalRounds: draftTotalRounds,
-        },
-      });
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message);
-      } else {
-        setError("ルール更新に失敗しました");
-      }
-    } finally {
-      setBusy(false);
+      setActionBusy(null);
     }
   };
 
   const onStart = async () => {
-    if (!me?.isHost) return;
+    if (!me?.isHost || !canStartRound) return;
 
-    setBusy(true);
-    setError(null);
+    setActionBusy("start");
+    setActionError(null);
     try {
       await apiPost("/api/rounds/start", {
         roomId,
       });
       router.push(`/round/${roomId}`);
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message);
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setActionError(error.message);
       } else {
-        setError("ラウンド開始に失敗しました");
+        setActionError("ラウンド開始に失敗しました");
       }
     } finally {
-      setBusy(false);
+      setActionBusy(null);
+    }
+  };
+
+  const onLeave = async () => {
+    setActionBusy("leave");
+    setActionError(null);
+    try {
+      await leaveRoom({ roomId });
+      router.replace("/");
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setActionError(error.message);
+      } else {
+        setActionError("退出に失敗しました");
+      }
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const copyCode = async () => {
     if (!room?.code) return;
+
     try {
       await navigator.clipboard.writeText(room.code);
       setCopyStatus("done");
-      setTimeout(() => setCopyStatus("idle"), 1500);
+      window.setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
       setCopyStatus("error");
-      setTimeout(() => setCopyStatus("idle"), 1800);
+      window.setTimeout(() => setCopyStatus("idle"), 1800);
     }
   };
 
-  const onLeave = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await leaveRoom({ roomId });
-      router.replace("/");
-    } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message);
-      } else {
-        setError("退出に失敗しました");
-      }
-    } finally {
-      setBusy(false);
+  const settingsStatusMessage = (() => {
+    if (settingsError) {
+      return settingsError;
     }
-  };
+
+    return null;
+  })();
+
+  const lobbyStatusMessage = (() => {
+    if (actionError) {
+      return actionError;
+    }
+
+    if (isGenerating) {
+      return "お題画像を生成中です。完了すると自動でラウンドへ移動します。";
+    }
+
+    if (me?.isHost && settingsPending) {
+      return "ルール反映が終わると開始できます。";
+    }
+
+    if (!me?.isHost) {
+      return "ホストの開始を待っています。";
+    }
+
+    return null;
+  })();
 
   if (loading || !room) {
     return (
@@ -193,92 +569,178 @@ export default function LobbyPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex h-screen max-h-screen w-full max-w-7xl flex-col gap-4 overflow-hidden px-4 py-4 md:px-6 md:py-5">
+    <main className="page-enter mx-auto flex h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-hidden px-3 py-3 md:px-4 md:py-3">
       <Card className="overflow-hidden bg-white p-0">
-        <section>
-          <div className="bg-[var(--pmb-yellow)] p-5 md:p-6">
-            <p className="text-xs font-black uppercase tracking-[0.22em]">Room Lobby</p>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-end gap-3">
-                <h1 className="font-mono text-4xl font-black tracking-[0.28em] md:text-5xl">
-                  {room.code}
-                </h1>
-                <Button
-                  onClick={copyCode}
-                  type="button"
-                  variant="ghost"
-                  aria-label={copyStatus === "done" ? "コピー済み" : "ルームコードをコピー"}
-                  className={[
-                    "h-11 w-11 p-0",
-                    "hover:translate-x-0 hover:-translate-y-0 hover:shadow-[6px_6px_0_var(--pmb-ink)]",
-                    "active:translate-x-0.5 active:translate-y-0.5 active:shadow-[4px_4px_0_var(--pmb-ink)]",
-                    copyStatus === "done" ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "",
-                  ].join(" ")}
-                >
-                  {copyStatus === "done" ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge className="bg-white">{currentMode.label}</Badge>
-                <Badge className="bg-[var(--pmb-blue)]">{currentTotalRounds} ROUNDS</Badge>
-                <Badge className="bg-[var(--pmb-base)] text-[var(--pmb-ink)]">
-                  {players.length} PLAYERS
-                </Badge>
-              </div>
+        <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em]">Room Code</p>
+            <div className="mt-1 flex items-center gap-2">
+              <h1 className="font-mono text-[1.75rem] font-black tracking-[0.28em] md:text-[2.15rem]">
+                {room.code}
+              </h1>
+
+              <Button
+                onClick={copyCode}
+                type="button"
+                variant="ghost"
+                aria-label={copyStatus === "done" ? "コピー済み" : "ルームコードをコピー"}
+                className={[
+                  "h-10 w-10 p-0",
+                  "hover:translate-x-0 hover:-translate-y-0 hover:shadow-[6px_6px_0_var(--pmb-ink)]",
+                  "active:translate-x-0.5 active:translate-y-0.5 active:shadow-[4px_4px_0_var(--pmb-ink)]",
+                  copyStatus === "done" ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "",
+                  copyStatus === "error" ? "bg-[var(--pmb-red)] text-white" : "",
+                ].join(" ")}
+              >
+                {copyStatus === "done" ? (
+                  <Check className="h-5 w-5" />
+                ) : (
+                  <Copy className="h-5 w-5" />
+                )}
+              </Button>
             </div>
-            {copyStatus === "done" ? (
-              <p className="mt-2 text-xs font-semibold">ルームコードをコピーしました。</p>
-            ) : null}
-            {copyStatus === "error" ? (
-              <p className="mt-2 text-xs font-semibold text-[var(--pmb-red)]">
-                コピーに失敗しました。
-              </p>
-            ) : null}
           </div>
-        </section>
+
+          <div className="flex items-start gap-2">
+            <div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onLeave}
+                disabled={actionBusy !== null}
+                className="h-12 px-4 text-sm"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                退出
+              </Button>
+            </div>
+          </div>
+        </div>
       </Card>
 
-      <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-        <Card className="flex min-h-0 flex-col bg-white p-5">
-          <h2 className="flex items-center gap-2 text-xl">
-            <Users className="h-5 w-5" /> プレイヤー ({players.length})
-          </h2>
-          <div className="mt-3 min-h-0 space-y-2 overflow-y-auto pr-1">
-            {players.map((player) => (
-              <div
-                key={player.uid}
-                className="flex items-center justify-between rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-4 py-2.5"
-              >
-                <div className="flex items-center gap-2 text-sm font-semibold md:text-base">
-                  <span>{player.displayName}</span>
-                  {player.uid === user?.uid ? <Badge className="bg-white">YOU</Badge> : null}
-                  {player.isHost ? <Badge>HOST</Badge> : null}
-                </div>
-                <Badge
-                  className={
-                    player.ready
-                      ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-                      : "bg-[var(--pmb-red)] text-white"
-                  }
-                >
-                  {player.ready ? "READY" : "WAITING"}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="flex min-h-0 flex-col bg-white p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-xl">
-              <Settings2 className="h-5 w-5" /> ゲーム設定
+      <section className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)]">
+        <Card className="relative flex min-h-0 flex-col bg-white p-3 md:p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
+              <Users className="h-5 w-5" /> プレイヤー
             </h2>
-            <Badge className={me?.isHost ? "bg-[var(--pmb-blue)]" : "bg-[var(--pmb-base)]"}>
-              {me?.isHost ? "HOST CONTROL" : "READ ONLY"}
+            <Badge
+              className={
+                everyoneReady
+                  ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
+                  : "bg-[var(--pmb-base)] text-[var(--pmb-ink)]"
+              }
+            >
+              {players.length > 0 ? `${readyCount}/${players.length} READY` : "0 READY"}
             </Badge>
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+            {players.map((player) => (
+              <div
+                key={player.uid}
+                className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
+              >
+                <div className="min-w-0 flex items-center gap-2">
+                  <span className="truncate text-sm font-black md:text-[15px]">
+                    {player.displayName}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {player.uid === user?.uid ? (
+                      <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
+                    ) : null}
+                    {player.isHost ? (
+                      <Badge className="px-2 py-0 text-[10px]">HOST</Badge>
+                    ) : null}
+                  </div>
+                </div>
+
+                <PlayerReadyChip
+                  ready={player.ready}
+                  isSelf={player.uid === user?.uid}
+                  pending={player.uid === user?.uid && actionBusy === "ready"}
+                  disabled={isGenerating}
+                  onClick={onToggleReady}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 border-t-4 border-[var(--pmb-ink)] pt-3">
+            {me?.isHost ? (
+              <Button
+                type="button"
+                variant="accent"
+                onClick={onStart}
+                disabled={!canStartRound}
+                className={[
+                  "w-full",
+                  !canStartRound ? "bg-zinc-300 text-zinc-600 disabled:opacity-100" : "",
+                ].join(" ")}
+              >
+                {isGenerating || actionBusy === "start" ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="mr-2 h-4 w-4" />
+                )}
+                {isGenerating ? "お題生成中..." : "ラウンド開始"}
+              </Button>
+            ) : (
+              <p className="flex items-center rounded-[12px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 text-sm font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_70%,white)]">
+                ホストの開始を待っています。
+              </p>
+            )}
+
+            {lobbyStatusMessage ? (
+              <p
+                className={[
+                  "mt-2 text-xs font-semibold",
+                  actionError
+                    ? "text-[var(--pmb-red)]"
+                    : "text-[color:color-mix(in_srgb,var(--pmb-ink)_74%,white)]",
+                ].join(" ")}
+              >
+                {lobbyStatusMessage}
+              </p>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card className="flex min-h-0 flex-col bg-white p-3 md:p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
+              <Settings2 className="h-5 w-5" /> ゲーム設定
+            </h2>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">{currentMode.label}</Badge>
+              <Badge className="bg-[var(--pmb-blue)] px-2.5 py-0.5 text-[11px]">
+                {currentTotalRounds} ROUNDS
+              </Badge>
+              <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
+                {currentRoundSeconds} SEC
+              </Badge>
+              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
+                {players.length} PLAYERS
+              </Badge>
+            </div>
+          </div>
+
+          {settingsStatusMessage ? (
+            <div
+              className={[
+                "mt-2 flex items-center gap-1.5 text-[11px] font-semibold",
+                "text-[var(--pmb-red)]",
+              ].join(" ")}
+            >
+              <span>{settingsStatusMessage}</span>
+            </div>
+          ) : null}
+
+          <div className="mt-3">
+            <h3 className="text-lg leading-none md:text-xl">ゲームモード</h3>
+          </div>
+
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
             {GAME_MODE_OPTIONS.map((mode) => {
               const selected = draftGameMode === mode.mode;
               const Icon = mode.mode === "classic" ? Eye : Brain;
@@ -288,117 +750,63 @@ export default function LobbyPage() {
                   key={mode.mode}
                   type="button"
                   onClick={() => setDraftGameMode(mode.mode)}
-                  disabled={!me?.isHost || busy || isGenerating}
+                  disabled={!hostCanEdit}
                   className={[
-                    "rounded-[18px] border-4 p-4 text-left transition-transform duration-150",
+                    "rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150",
                     "disabled:cursor-not-allowed disabled:opacity-70",
                     selected
-                      ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[7px_7px_0_var(--pmb-ink)]"
-                      : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[5px_5px_0_var(--pmb-ink)]",
+                      ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
+                      : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
                   ].join(" ")}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.18em]">
+                      <p className="text-[11px] font-black uppercase tracking-[0.18em]">
                         {mode.mode === "classic" ? "Classic" : "Memory"}
                       </p>
-                      <h3 className="mt-1 text-xl font-black">{mode.label}</h3>
+                      <h3 className="mt-1 text-lg font-black">{mode.label}</h3>
                     </div>
-                    <div className="rounded-full border-2 border-[var(--pmb-ink)] bg-white p-2">
-                      <Icon className="h-5 w-5" />
+                    <div className="rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
+                      <Icon className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="mt-3 text-sm font-semibold leading-relaxed">{mode.description}</p>
+                  <p className="mt-2 text-[13px] font-semibold leading-[1.35]">
+                    {mode.description}
+                  </p>
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-4">
-            <p className="text-xs font-black uppercase tracking-[0.18em]">Rounds</p>
-            <div className="mt-2 grid grid-cols-5 gap-2">
-              {[1, 2, 3, 4, 5].map((roundCount) => (
-                <button
-                  key={roundCount}
-                  type="button"
-                  onClick={() => setDraftTotalRounds(roundCount)}
-                  disabled={!me?.isHost || busy || isGenerating}
-                  className={[
-                    "rounded-[14px] border-4 px-2 py-3 text-center font-black transition-transform duration-150",
-                    "disabled:cursor-not-allowed disabled:opacity-70",
-                    draftTotalRounds === roundCount
-                      ? "border-[var(--pmb-ink)] bg-[var(--pmb-blue)] shadow-[6px_6px_0_var(--pmb-ink)]"
-                      : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[4px_4px_0_var(--pmb-ink)]",
-                  ].join(" ")}
-                >
-                  <span className="block text-2xl leading-none">{roundCount}</span>
-                  <span className="mt-1 block text-xs">ROUND</span>
-                </button>
-              ))}
+          <div className="mt-3">
+            <h3 className="text-lg leading-none md:text-xl">詳細な設定</h3>
+          </div>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <SwipeValuePicker
+              label="Rounds"
+              options={ROUND_OPTIONS}
+              value={draftTotalRounds}
+              onChange={setDraftTotalRounds}
+              disabled={!hostCanEdit}
+            />
+
+            <SwipeValuePicker
+              label="Time"
+              options={ROUND_TIME_OPTIONS}
+              value={draftRoundSeconds}
+              onChange={setDraftRoundSeconds}
+              disabled={!hostCanEdit}
+            />
+          </div>
+
+          {settingsStatus === "saving" ? (
+            <div className="pointer-events-none absolute bottom-3 right-3 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
             </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-            <Button
-              type="button"
-              className={[
-                "w-full disabled:opacity-100",
-                me?.ready ? "bg-zinc-300 text-zinc-600" : "bg-white text-[var(--pmb-ink)]",
-              ].join(" ")}
-              variant="ghost"
-              onClick={onReady}
-              disabled={!me || busy || isGenerating || Boolean(me?.ready)}
-            >
-              READY！
-            </Button>
-
-            <Button
-              type="button"
-              className={[
-                "w-full",
-                !canStartRound ? "bg-zinc-300 text-zinc-600 disabled:opacity-100" : "",
-              ].join(" ")}
-              variant="accent"
-              onClick={onStart}
-              disabled={!canStartRound}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              {isGenerating ? "お題生成中..." : "ラウンド開始"}
-            </Button>
-
-            <Button type="button" variant="ghost" onClick={onLeave} disabled={busy}>
-              <LogOut className="mr-2 h-4 w-4" />
-              退出
-            </Button>
-          </div>
-
-          <div className="mt-3 flex flex-col gap-3">
-            <Button
-              type="button"
-              variant="accent"
-              onClick={onSaveSettings}
-              disabled={!canSaveSettings}
-              className={!canSaveSettings ? "bg-zinc-300 text-zinc-600 disabled:opacity-100" : ""}
-            >
-              ルールを更新
-            </Button>
-            <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
-              {me?.isHost
-                ? "設定変更後も READY 状態はそのまま維持されます。"
-                : "ホストがロビー中にだけルールを変更できます。"}
-            </p>
-          </div>
+          ) : null}
         </Card>
       </section>
-
-      {showGeneratingBanner ? (
-        <Card className="flex items-center gap-2 border-[var(--pmb-blue)] bg-white text-sm font-semibold">
-          <LoaderCircle className="h-4 w-4 animate-spin" />
-          お題画像を生成中です。完了すると自動でラウンド画面へ遷移します。
-        </Card>
-      ) : null}
-
-      {error ? <p className="text-sm font-semibold text-[var(--pmb-red)]">{error}</p> : null}
     </main>
   );
 }

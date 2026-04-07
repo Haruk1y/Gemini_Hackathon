@@ -72,20 +72,23 @@ describe("updateRoomSettings", () => {
       uid: "host",
       settings: {
         gameMode: "memory",
-        totalRounds: 5,
+        totalRounds: 3,
+        roundSeconds: 45,
       },
     });
 
     expect(roomUpdate).toHaveBeenCalledWith({
       settings: expect.objectContaining({
         gameMode: "memory",
-        totalRounds: 5,
+        totalRounds: 3,
+        roundSeconds: 45,
         maxAttempts: 1,
         hintLimit: 0,
       }),
     });
     expect(settings.gameMode).toBe("memory");
-    expect(settings.totalRounds).toBe(5);
+    expect(settings.totalRounds).toBe(3);
+    expect(settings.roundSeconds).toBe(45);
   });
 
   it("rejects non-host players", async () => {
@@ -110,7 +113,8 @@ describe("updateRoomSettings", () => {
         uid: "guest",
         settings: {
           gameMode: "memory",
-          totalRounds: 4,
+          totalRounds: 2,
+          roundSeconds: 30,
         },
       }),
     ).rejects.toMatchObject({
@@ -142,6 +146,7 @@ describe("updateRoomSettings", () => {
         settings: {
           gameMode: "memory",
           totalRounds: 2,
+          roundSeconds: 30,
         },
       }),
     ).rejects.toMatchObject({

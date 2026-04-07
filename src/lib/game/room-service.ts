@@ -40,7 +40,7 @@ export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): v
 export async function updateRoomSettings(params: {
   roomId: string;
   uid: string;
-  settings: Pick<RoomSettings, "gameMode" | "totalRounds">;
+  settings: Pick<RoomSettings, "gameMode" | "totalRounds" | "roundSeconds">;
 }): Promise<RoomSettings> {
   const [roomSnapshot, playerSnapshot] = await Promise.all([
     roomRef(params.roomId).get(),

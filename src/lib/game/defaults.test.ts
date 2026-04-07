@@ -14,12 +14,12 @@ describe("game defaults", () => {
       gameMode: "memory",
       maxAttempts: 3,
       hintLimit: 2,
-      totalRounds: 5,
+      totalRounds: 3,
     });
 
     expect(merged.gameMode).toBe("memory");
     expect(merged.maxAttempts).toBe(1);
     expect(merged.hintLimit).toBe(0);
-    expect(merged.totalRounds).toBe(5);
+    expect(merged.totalRounds).toBe(3);
   });
 });
