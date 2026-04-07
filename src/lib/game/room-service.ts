@@ -1,9 +1,14 @@
-import { getAdminDb } from "@/lib/google-cloud/admin";
-import { playerRef, playersRef, roomRef } from "@/lib/api/paths";
-import { assertHost, requirePlayer, requireRoom } from "@/lib/game/guards";
+import { requirePlayer, requireRoom, assertHost } from "@/lib/game/guards";
 import { mergeRoomSettings } from "@/lib/game/defaults";
+import {
+  bumpRoomVersion,
+  loadRoomState,
+  saveRoomState,
+  withRoomLock,
+} from "@/lib/server/room-state";
 import type { PlayerDoc, RoomSettings } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
+import { parseDate } from "@/lib/utils/time";
 
 interface HostCandidate {
   uid: string;
@@ -18,8 +23,8 @@ export function selectNextHost(candidates: HostCandidate[]): string | null {
   if (existingHost) return existingHost.uid;
 
   const sorted = [...candidates].sort((a, b) => {
-    const at = a.joinedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const bt = b.joinedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const at = parseDate(a.joinedAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const bt = parseDate(b.joinedAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     return at - bt;
   });
 
@@ -27,12 +32,11 @@ export function selectNextHost(candidates: HostCandidate[]): string | null {
 }
 
 export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): void {
-  if (players.length < 1) {
+  if (!players.length) {
     throw new AppError("VALIDATION_ERROR", "At least 1 player is required", false, 409);
   }
 
-  const everyoneReady = players.every((player) => player.ready);
-  if (!everyoneReady) {
+  if (!players.every((player) => player.ready)) {
     throw new AppError("VALIDATION_ERROR", "All players must be ready", false, 409);
   }
 }
@@ -42,89 +46,78 @@ export async function updateRoomSettings(params: {
   uid: string;
   settings: Pick<RoomSettings, "gameMode" | "totalRounds" | "roundSeconds">;
 }): Promise<RoomSettings> {
-  const [roomSnapshot, playerSnapshot] = await Promise.all([
-    roomRef(params.roomId).get(),
-    playerRef(params.roomId, params.uid).get(),
-  ]);
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const player = requirePlayer(state?.players[params.uid]);
+    assertHost(player);
 
-  const room = requireRoom(roomSnapshot);
-  const player = requirePlayer(playerSnapshot);
-  assertHost(player);
+    if (room.status !== "LOBBY") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "ルーム設定を変更できるのはロビー中だけです。",
+        false,
+        409,
+      );
+    }
 
-  if (room.status !== "LOBBY") {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      "ルーム設定を変更できるのはロビー中だけです。",
-      false,
-      409,
-    );
-  }
+    room.settings = mergeRoomSettings({
+      ...room.settings,
+      ...params.settings,
+    });
 
-  const settings = mergeRoomSettings({
-    ...room.settings,
-    ...params.settings,
+    await saveRoomState(bumpRoomVersion(state!));
+    return room.settings;
   });
-
-  await roomRef(params.roomId).update({
-    settings,
-  });
-
-  return settings;
 }
 
 export async function pingRoom(roomId: string, uid: string): Promise<void> {
-  const roomSnapshot = await roomRef(roomId).get();
-  requireRoom(roomSnapshot);
+  await withRoomLock(roomId, async () => {
+    const state = await loadRoomState(roomId);
+    requireRoom(state?.room);
 
-  const playerSnapshot = await playerRef(roomId, uid).get();
-  requirePlayer(playerSnapshot);
+    const player = requirePlayer(state?.players[uid]);
+    player.lastSeenAt = new Date();
 
-  await playerRef(roomId, uid).update({
-    lastSeenAt: new Date(),
+    await saveRoomState(state!);
   });
 }
 
 export async function leaveRoom(roomId: string, uid: string): Promise<void> {
-  const roomSnapshot = await roomRef(roomId).get();
-  requireRoom(roomSnapshot);
+  await withRoomLock(roomId, async () => {
+    const state = await loadRoomState(roomId);
+    const room = requireRoom(state?.room);
+    const leavingPlayer = requirePlayer(state?.players[uid]);
 
-  const playerSnapshot = await playerRef(roomId, uid).get();
-  const leavingPlayer = requirePlayer(playerSnapshot);
+    delete state!.players[uid];
 
-  await playerRef(roomId, uid).delete();
+    const players = Object.values(state!.players);
+    if (!players.length) {
+      room.status = "FINISHED";
+      room.currentRoundId = null;
+      await saveRoomState(bumpRoomVersion(state!));
+      return;
+    }
 
-  const playersSnapshot = await playersRef(roomId).orderBy("joinedAt", "asc").get();
+    if (!leavingPlayer.isHost) {
+      await saveRoomState(bumpRoomVersion(state!));
+      return;
+    }
 
-  if (playersSnapshot.empty) {
-    await roomRef(roomId).update({
-      status: "FINISHED",
-      currentRoundId: null,
-    });
-    return;
-  }
+    const nextHostUid = selectNextHost(
+      players.map((player) => ({
+        uid: player.uid,
+        isHost: player.isHost,
+        joinedAt: parseDate(player.joinedAt) ?? undefined,
+      })),
+    );
 
-  if (!leavingPlayer.isHost) {
-    return;
-  }
+    if (nextHostUid) {
+      for (const player of players) {
+        player.isHost = player.uid === nextHostUid;
+      }
+    }
 
-  const candidates = playersSnapshot.docs.map((playerDoc) => {
-    const data = playerDoc.data() as PlayerDoc;
-    return {
-      uid: data.uid,
-      isHost: data.isHost,
-      joinedAt: data.joinedAt,
-    };
+    await saveRoomState(bumpRoomVersion(state!));
   });
-
-  const nextHostUid = selectNextHost(candidates);
-  if (!nextHostUid) return;
-
-  const batch = getAdminDb().batch();
-  for (const playerDoc of playersSnapshot.docs) {
-    batch.update(playerDoc.ref, {
-      isHost: playerDoc.id === nextHostUid,
-    });
-  }
-
-  await batch.commit();
 }

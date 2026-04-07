@@ -1,33 +1,25 @@
-import { getAdminDb } from "@/lib/google-cloud/admin";
 import {
-  roundPrivateRef,
-  roundRef,
-  roomRef,
-  playerRef,
-  playersRef,
-} from "@/lib/api/paths";
-import {
-  captionFromImage,
   generateGmPrompt,
   generateImage,
   imageToBuffer,
   imageToPublicUrl,
 } from "@/lib/gemini/client";
 import { nextRoundId } from "@/lib/game/defaults";
-import { getRoundSchedule } from "@/lib/game/modes";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
+import { getRoundSchedule } from "@/lib/game/modes";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
-import { normalizeCaption } from "@/lib/scoring/normalize-caption";
+import {
+  bumpRoomVersion,
+  loadRoomState,
+  saveRoomState,
+  withRoomLock,
+} from "@/lib/server/room-state";
 import { buildRoundTargetImagePath } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
 import type { RoundPublicDoc, RoomStatus } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
-
-function isMissingSigningIdentityError(error: unknown): boolean {
-  return /cannot sign data without `?client_email`?/i.test(String(error));
-}
 
 async function resolveImageUrl(params: {
   roomId: string;
@@ -57,14 +49,6 @@ async function resolveImageUrl(params: {
     });
   } catch (error) {
     console.warn("Image storage upload fallback", params.roomId, params.roundId, error);
-    if (isMissingSigningIdentityError(error)) {
-      throw new AppError(
-        "GCP_ERROR",
-        "Cloud Storage の署名付きURLを作れません。ローカル/Vercel では `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` を設定してください。",
-        false,
-        503,
-      );
-    }
     if (!directUrl) {
       throw new AppError("GEMINI_ERROR", "No fallback image URL available", true, 502);
     }
@@ -76,155 +60,188 @@ export async function startRound(params: {
   roomId: string;
   uid: string;
 }): Promise<{ roundId: string; roundIndex: number }> {
-  const roomSnapshot = await roomRef(params.roomId).get();
-  const room = requireRoom(roomSnapshot);
+  const reservation = await withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const player = requirePlayer(state?.players[params.uid]);
 
-  const playerSnapshot = await playerRef(params.roomId, params.uid).get();
-  const player = requirePlayer(playerSnapshot);
+    if (!player.isHost) {
+      throw new AppError("NOT_HOST", "Only host can start rounds", false, 403);
+    }
 
-  if (!player.isHost) {
-    throw new AppError("NOT_HOST", "Only host can start rounds", false, 403);
-  }
+    if (!["LOBBY", "RESULTS"].includes(room.status)) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Room status ${room.status} cannot start a round`,
+        false,
+        409,
+      );
+    }
 
-  if (!["LOBBY", "RESULTS"].includes(room.status)) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      `Room status ${room.status} cannot start a round`,
-      false,
-      409,
+    const players = Object.values(state!.players).map((candidate) => ({
+      ready: Boolean(candidate.ready),
+      lastSeenAt: parseDate(candidate.lastSeenAt),
+    }));
+
+    const nowMs = Date.now();
+    const activePlayers = players.filter(
+      (candidate) => !candidate.lastSeenAt || nowMs - candidate.lastSeenAt.getTime() <= 90_000,
     );
-  }
+    assertCanStartRound(activePlayers.length > 0 ? activePlayers : players);
 
-  const playersSnapshot = await playersRef(params.roomId).get();
-  const players = playersSnapshot.docs.map((snapshot) => {
-    const data = snapshot.data() as { ready?: boolean; lastSeenAt?: unknown };
+    const nextIndex = room.roundIndex + 1;
+    if (nextIndex > room.settings.totalRounds) {
+      room.status = "FINISHED";
+      await saveRoomState(bumpRoomVersion(state!));
+      throw new AppError("VALIDATION_ERROR", "All rounds are completed", false, 409);
+    }
+
+    const roundId = nextRoundId(nextIndex);
+    const now = new Date();
+    const expiresAt = dateAfterHours(24);
+    const previousStatus = room.status;
+    const previousRoundId = room.currentRoundId;
+    const previousRoundIndex = room.roundIndex;
+
+    assertRoomTransition(room.status, "GENERATING_ROUND");
+
+    room.status = "GENERATING_ROUND";
+    room.currentRoundId = roundId;
+    room.roundIndex = nextIndex;
+
+    const baseRoundDoc: RoundPublicDoc = {
+      roundId,
+      index: nextIndex,
+      status: "GENERATING",
+      createdAt: now,
+      expiresAt,
+      startedAt: null,
+      promptStartsAt: null,
+      endsAt: null,
+      targetImageUrl: "",
+      targetThumbUrl: "",
+      gmTitle: "Generating...",
+      gmTags: [],
+      difficulty: 3,
+      reveal: {},
+      stats: {
+        submissions: 0,
+        topScore: 0,
+      },
+    };
+
+    state!.rounds[roundId] = baseRoundDoc;
+    state!.roundPrivates[roundId] = {
+      roundId,
+      createdAt: now,
+      expiresAt,
+      gmPrompt: "",
+      gmNegativePrompt: "",
+      safety: {
+        blocked: false,
+      },
+    };
+
+    await saveRoomState(bumpRoomVersion(state!));
+
     return {
-      ready: Boolean(data.ready),
-      lastSeenAt: parseDate(data.lastSeenAt),
+      previousStatus: previousStatus as RoomStatus,
+      previousRoundId,
+      previousRoundIndex,
+      roundId,
+      roundIndex: nextIndex,
+      settings: room.settings,
+      expiresAt,
     };
   });
 
-  const nowMs = Date.now();
-  const activePlayers = players.filter(
-    (player) => !player.lastSeenAt || nowMs - player.lastSeenAt.getTime() <= 90_000,
-  );
-  assertCanStartRound(activePlayers.length > 0 ? activePlayers : players);
-
-  const nextIndex = room.roundIndex + 1;
-  if (nextIndex > room.settings.totalRounds) {
-    await roomRef(params.roomId).update({ status: "FINISHED" });
-    throw new AppError("VALIDATION_ERROR", "All rounds are completed", false, 409);
-  }
-
-  const roundId = nextRoundId(nextIndex);
-  const now = new Date();
-  const expiresAt = dateAfterHours(24);
-
-  assertRoomTransition(room.status, "GENERATING_ROUND");
-
-  await roomRef(params.roomId).update({
-    status: "GENERATING_ROUND",
-    currentRoundId: roundId,
-    roundIndex: nextIndex,
-  });
-
-  const baseRoundDoc: RoundPublicDoc = {
-    roundId,
-    index: nextIndex,
-    status: "GENERATING",
-    createdAt: now,
-    expiresAt,
-    startedAt: null,
-    promptStartsAt: null,
-    endsAt: null,
-    targetImageUrl: "",
-    targetThumbUrl: "",
-    gmTitle: "Generating...",
-    gmTags: [],
-    difficulty: 3,
-    reveal: {},
-    stats: {
-      submissions: 0,
-      topScore: 0,
-    },
-  };
-
-  await roundRef(params.roomId, roundId).set(baseRoundDoc);
+  const previousStatus = reservation.previousStatus;
+  const previousRoundId = reservation.previousRoundId;
+  const previousRoundIndex = reservation.previousRoundIndex;
 
   try {
     const gmPrompt = await generateGmPrompt({
-      settings: room.settings,
+      settings: reservation.settings,
     });
     const targetImage = await generateImage({
       prompt: gmPrompt.prompt,
-      aspectRatio: room.settings.aspectRatio,
+      aspectRatio: reservation.settings.aspectRatio,
     });
 
     const targetImageUrl = await resolveImageUrl({
       roomId: params.roomId,
-      roundId,
+      roundId: reservation.roundId,
       subPath: "target.png",
       prompt: gmPrompt.prompt,
       image: targetImage,
     });
 
-    const targetCaptionJson = await captionFromImage(targetImage, gmPrompt.prompt);
-    const targetCaptionText = normalizeCaption(targetCaptionJson);
+    await withRoomLock(params.roomId, async () => {
+      const state = await loadRoomState(params.roomId);
+      const room = requireRoom(state?.room);
+      const round = state?.rounds[reservation.roundId];
+      const roundPrivate = state?.roundPrivates[reservation.roundId];
 
-    const startedAt = new Date();
-    const { promptStartsAt, endsAt } = getRoundSchedule({
-      gameMode: room.settings.gameMode,
-      roundSeconds: room.settings.roundSeconds,
-      startedAt,
+      if (
+        !round ||
+        !roundPrivate ||
+        room.status !== "GENERATING_ROUND" ||
+        room.currentRoundId !== reservation.roundId
+      ) {
+        throw new AppError("ROUND_CLOSED", "Round generation state was replaced", false, 409);
+      }
+
+      const startedAt = new Date();
+      const { promptStartsAt, endsAt } = getRoundSchedule({
+        gameMode: room.settings.gameMode,
+        roundSeconds: room.settings.roundSeconds,
+        startedAt,
+      });
+
+      round.status = "IN_ROUND";
+      round.startedAt = startedAt;
+      round.promptStartsAt = promptStartsAt;
+      round.endsAt = endsAt;
+      round.targetImageUrl = targetImageUrl;
+      round.targetThumbUrl = targetImageUrl;
+      round.gmTitle = gmPrompt.title;
+      round.gmTags = gmPrompt.tags;
+      round.difficulty = gmPrompt.difficulty as RoundPublicDoc["difficulty"];
+      round.reveal = {};
+
+      roundPrivate.createdAt = startedAt;
+      roundPrivate.expiresAt = reservation.expiresAt;
+      roundPrivate.gmPrompt = gmPrompt.prompt;
+      roundPrivate.gmNegativePrompt = gmPrompt.negativePrompt ?? "";
+
+      assertRoomTransition("GENERATING_ROUND", "IN_ROUND");
+      room.status = "IN_ROUND";
+      room.currentRoundId = reservation.roundId;
+      room.roundIndex = reservation.roundIndex;
+
+      await saveRoomState(bumpRoomVersion(state!));
     });
 
-    await roundRef(params.roomId, roundId).update({
-      status: "IN_ROUND",
-      startedAt,
-      promptStartsAt,
-      endsAt,
-      targetImageUrl,
-      targetThumbUrl: targetImageUrl,
-      gmTitle: gmPrompt.title,
-      gmTags: gmPrompt.tags,
-      difficulty: gmPrompt.difficulty,
-      reveal: {},
-    });
-
-    await roundPrivateRef(params.roomId, roundId).set({
-      roundId,
-      createdAt: startedAt,
-      expiresAt,
-      gmPrompt: gmPrompt.prompt,
-      gmNegativePrompt: gmPrompt.negativePrompt ?? "",
-      targetCaptionJson,
-      targetCaptionText,
-      safety: {
-        blocked: false,
-      },
-    });
-
-    assertRoomTransition("GENERATING_ROUND", "IN_ROUND");
-    await roomRef(params.roomId).update({
-      status: "IN_ROUND",
-      currentRoundId: roundId,
-      roundIndex: nextIndex,
-    });
-
-    return { roundId, roundIndex: nextIndex };
+    return { roundId: reservation.roundId, roundIndex: reservation.roundIndex };
   } catch (error) {
     console.error("Round generation failed", error);
 
-    const rollbackStatus: RoomStatus = room.status;
-    const batch = getAdminDb().batch();
-    batch.update(roomRef(params.roomId), {
-      status: rollbackStatus,
-      currentRoundId: room.currentRoundId,
-      roundIndex: room.roundIndex,
+    await withRoomLock(params.roomId, async () => {
+      const state = await loadRoomState(params.roomId);
+      if (!state) return;
+
+      if (state.room.currentRoundId === reservation.roundId) {
+        state.room.status = previousStatus;
+        state.room.currentRoundId = previousRoundId;
+        state.room.roundIndex = previousRoundIndex;
+      }
+
+      delete state.rounds[reservation.roundId];
+      delete state.roundPrivates[reservation.roundId];
+      delete state.attempts[reservation.roundId];
+      delete state.scores[reservation.roundId];
+      await saveRoomState(bumpRoomVersion(state));
     });
-    batch.delete(roundRef(params.roomId, roundId));
-    batch.delete(roundPrivateRef(params.roomId, roundId));
-    await batch.commit();
 
     throw new AppError(
       "GEMINI_ERROR",
@@ -239,80 +256,74 @@ export async function endRoundIfNeeded(params: {
   roomId: string;
   roundId: string;
 }): Promise<{ status: "IN_ROUND" | "RESULTS" }> {
-  const roomSnapshot = await roomRef(params.roomId).get();
-  const room = requireRoom(roomSnapshot);
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const roundDoc = state?.rounds[params.roundId];
 
-  const roundSnapshot = await roundRef(params.roomId, params.roundId).get();
-  if (!roundSnapshot.exists) {
-    throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
-  }
+    if (!roundDoc) {
+      throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+    }
 
-  const roundDoc = roundSnapshot.data() as RoundPublicDoc;
-  const endsAt = parseDate(roundDoc.endsAt);
+    const endsAt = parseDate(roundDoc.endsAt);
+    if (
+      room.status !== "IN_ROUND" ||
+      room.currentRoundId !== params.roundId ||
+      !endsAt ||
+      Date.now() < endsAt.getTime()
+    ) {
+      return { status: "IN_ROUND" };
+    }
 
-  if (
-    room.status !== "IN_ROUND" ||
-    room.currentRoundId !== params.roundId ||
-    !endsAt ||
-    Date.now() < endsAt.getTime()
-  ) {
-    return { status: "IN_ROUND" };
-  }
+    const roundPrivate = state?.roundPrivates[params.roundId];
 
-  const roundPrivateSnapshot = await roundPrivateRef(params.roomId, params.roundId).get();
-  const roundPrivate = (roundPrivateSnapshot.exists
-    ? roundPrivateSnapshot.data()
-    : { gmPrompt: "", targetCaptionText: "" }) as {
-    gmPrompt: string;
-    targetCaptionText: string;
-  };
+    roundDoc.status = "RESULTS";
+    roundDoc.reveal = {
+      gmPromptPublic: roundPrivate?.gmPrompt ?? "",
+    };
 
-  await roundRef(params.roomId, params.roundId).update({
-    status: "RESULTS",
-    reveal: {
-      targetCaption: roundPrivate.targetCaptionText,
-      gmPromptPublic: roundPrivate.gmPrompt,
-    },
+    room.status = "RESULTS";
+
+    await saveRoomState(bumpRoomVersion(state!));
+    return { status: "RESULTS" };
   });
-
-  await roomRef(params.roomId).update({
-    status: "RESULTS",
-  });
-
-  return { status: "RESULTS" };
 }
 
-export const __test__ = {
-  isMissingSigningIdentityError,
-};
-
 export async function endGame(roomId: string): Promise<void> {
-  await roomRef(roomId).update({
-    status: "FINISHED",
+  await withRoomLock(roomId, async () => {
+    const state = await loadRoomState(roomId);
+    if (!state) return;
+    state.room.status = "FINISHED";
+    await saveRoomState(bumpRoomVersion(state));
   });
 }
 
 export async function resetRoomForReplay(roomId: string): Promise<void> {
-  const playersSnapshot = await playersRef(roomId).get();
-  if (playersSnapshot.empty) {
-    await endGame(roomId);
-    return;
-  }
+  await withRoomLock(roomId, async () => {
+    const state = await loadRoomState(roomId);
+    if (!state) return;
 
-  const batch = getAdminDb().batch();
-  batch.update(roomRef(roomId), {
-    status: "LOBBY",
-    currentRoundId: null,
-    roundIndex: 0,
+    const players = Object.values(state.players);
+    if (!players.length) {
+      state.room.status = "FINISHED";
+      await saveRoomState(bumpRoomVersion(state));
+      return;
+    }
+
+    state.room.status = "LOBBY";
+    state.room.currentRoundId = null;
+    state.room.roundIndex = 0;
+    state.rounds = {};
+    state.roundPrivates = {};
+    state.attempts = {};
+    state.scores = {};
+
+    for (const player of players) {
+      player.ready = false;
+      player.totalScore = 0;
+      player.lastSeenAt = new Date();
+    }
+
+    await saveRoomState(bumpRoomVersion(state));
   });
-
-  for (const playerDoc of playersSnapshot.docs) {
-    batch.update(playerDoc.ref, {
-      ready: false,
-      totalScore: 0,
-      lastSeenAt: new Date(),
-    });
-  }
-
-  await batch.commit();
 }

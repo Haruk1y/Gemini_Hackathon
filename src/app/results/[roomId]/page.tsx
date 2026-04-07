@@ -143,8 +143,8 @@ export default function ResultsPage() {
 
   return (
     <>
-      <main className="page-enter mx-auto flex h-screen max-h-screen w-full max-w-[1500px] flex-col gap-3 overflow-hidden px-4 py-4 md:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
+      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
         <div>
           <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -190,7 +190,7 @@ export default function ResultsPage() {
       </header>
 
       {!isResultsPhase && waitingMessage ? (
-        <Card className="bg-white">
+        <Card className="bg-white p-3">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <LoaderCircle className="h-4 w-4 animate-spin" />
             {waitingMessage}
@@ -198,13 +198,12 @@ export default function ResultsPage() {
         </Card>
       ) : null}
 
-      <section className="min-h-0 flex-1 overflow-y-auto overflow-x-visible pr-3 pb-3">
-        <Card className="overflow-hidden bg-white p-4">
-          <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
-          <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-stretch">
-            <div className="lg:flex lg:h-full lg:flex-col">
-              <p className="h-6 text-sm font-bold">お題画像</p>
-              <div className="mt-2 h-[260px] w-full sm:h-[300px]">
+      <section className="min-h-0 flex-1 overflow-hidden">
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch">
+            <div className="min-h-0 lg:flex lg:h-full lg:flex-col">
+              <p className="h-7 text-base font-black md:text-lg">お題画像</p>
+              <div className="mt-2 h-[220px] w-full shrink-0 sm:h-[260px] lg:h-[240px] xl:h-[280px]">
                 <img
                   src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
                   alt="target"
@@ -212,18 +211,20 @@ export default function ResultsPage() {
                 />
               </div>
               {round.reveal?.gmPromptPublic ? (
-                <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                  <p className="text-xs font-bold">正解プロンプト</p>
-                  <p className="mt-1 font-mono text-xs font-semibold">
-                    {round.reveal.gmPromptPublic}
-                  </p>
+                <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                  <p className="shrink-0 text-xs font-bold">正解プロンプト</p>
+                  <div className="mt-1 h-full max-h-[min(28vh,220px)] overflow-y-auto pr-1">
+                    <p className="font-mono text-xs font-semibold break-words">
+                      {round.reveal.gmPromptPublic}
+                    </p>
+                  </div>
                 </div>
               ) : null}
             </div>
 
-            <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-              <p className="h-6 text-sm font-bold">生成画像</p>
-              <div className="mt-2 flex-1">
+            <div className="min-h-0 overflow-hidden lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+              <p className="h-7 text-base font-black md:text-lg">生成画像</p>
+              <div className="mt-2 min-h-0 flex-1 overflow-hidden pb-2">
                 <Podium
                   entries={sortedScores}
                   myUid={user?.uid}

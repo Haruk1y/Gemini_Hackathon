@@ -1,36 +1,9 @@
-import {
-  attemptPrivateRef,
-  playerRef,
-  playersRef,
-  roundRef,
-  roomRef,
-  scoresRef,
-} from "@/lib/api/paths";
 import { isMemoryPreviewActive } from "@/lib/game/modes";
-import { requireRoom } from "@/lib/game/guards";
-import type { GameMode, RoundPublicDoc, RoundStatus } from "@/lib/types/game";
+import type { RoomState } from "@/lib/server/room-state";
+import type { GameMode, RoundStatus } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export type RoomViewName = "lobby" | "round" | "results" | "transition";
-
-export async function buildRoomViewSnapshot(params: {
-  roomId: string;
-  uid: string;
-  view: RoomViewName;
-}) {
-  switch (params.view) {
-    case "lobby":
-      return buildLobbySnapshot(params.roomId, params.uid);
-    case "round":
-      return buildRoundSnapshot(params.roomId, params.uid);
-    case "results":
-      return buildResultsSnapshot(params.roomId, params.uid);
-    case "transition":
-      return buildTransitionSnapshot(params.roomId, params.uid);
-    default:
-      return null;
-  }
-}
 
 function toSerializableDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -128,51 +101,68 @@ export function shouldConcealRoundTarget(params: {
   return !hasAttemptImage(params.attemptData);
 }
 
-async function buildLobbySnapshot(roomId: string, uid: string) {
-  const [roomSnapshot, playersSnapshot] = await Promise.all([
-    roomRef(roomId).get(),
-    playersRef(roomId).orderBy("joinedAt", "asc").get(),
-  ]);
+function getSortedPlayers(state: RoomState) {
+  return Object.values(state.players).sort(
+    (a, b) => (parseDate(a.joinedAt)?.getTime() ?? 0) - (parseDate(b.joinedAt)?.getTime() ?? 0),
+  );
+}
 
-  const room = requireRoom(roomSnapshot);
+function getSortedScores(state: RoomState, roundId: string | null) {
+  if (!roundId) return [];
+  return Object.values(state.scores[roundId] ?? {}).sort((a, b) => b.bestScore - a.bestScore);
+}
+
+function getAttempts(state: RoomState, roundId: string | null, uid: string) {
+  if (!roundId) return null;
+  return state.attempts[roundId]?.[uid] ?? null;
+}
+
+export function buildRoomViewSnapshot(params: {
+  state: RoomState;
+  uid: string;
+  view: RoomViewName;
+}) {
+  switch (params.view) {
+    case "lobby":
+      return buildLobbySnapshot(params.state, params.uid);
+    case "round":
+      return buildRoundSnapshot(params.state, params.uid);
+    case "results":
+      return buildResultsSnapshot(params.state, params.uid);
+    case "transition":
+      return buildTransitionSnapshot(params.state, params.uid);
+    default:
+      return null;
+  }
+}
+
+function buildLobbySnapshot(state: RoomState, uid: string) {
   return {
     room: {
-      roomId: room.roomId,
-      code: room.code,
-      status: room.status,
-      currentRoundId: room.currentRoundId,
+      roomId: state.room.roomId,
+      code: state.room.code,
+      status: state.room.status,
+      currentRoundId: state.room.currentRoundId,
       settings: {
-        gameMode: room.settings.gameMode,
-        roundSeconds: room.settings.roundSeconds,
-        maxAttempts: room.settings.maxAttempts,
-        hintLimit: room.settings.hintLimit,
-        totalRounds: room.settings.totalRounds,
+        gameMode: state.room.settings.gameMode,
+        roundSeconds: state.room.settings.roundSeconds,
+        maxAttempts: state.room.settings.maxAttempts,
+        hintLimit: state.room.settings.hintLimit,
+        totalRounds: state.room.settings.totalRounds,
       },
     },
-    players: playersSnapshot.docs.map((item) => serializeForClient(item.data())),
+    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
     meUid: uid,
   };
 }
 
-async function buildRoundSnapshot(roomId: string, uid: string) {
-  const roomSnapshot = await roomRef(roomId).get();
-  const room = requireRoom(roomSnapshot);
-
-  const currentRoundId = room.currentRoundId;
-  const [playersSnapshot, roundSnapshot, scoresSnapshot, attemptSnapshot] = await Promise.all([
-    playersRef(roomId).get(),
-    currentRoundId ? roundRef(roomId, currentRoundId).get() : Promise.resolve(null),
-    currentRoundId
-      ? scoresRef(roomId, currentRoundId).orderBy("bestScore", "desc").get()
-      : Promise.resolve(null),
-    currentRoundId ? attemptPrivateRef(roomId, currentRoundId, uid).get() : Promise.resolve(null),
-  ]);
-
-  const round = roundSnapshot?.exists ? (roundSnapshot.data() as RoundPublicDoc) : null;
-  const attemptData = attemptSnapshot?.exists ? attemptSnapshot.data() : null;
+function buildRoundSnapshot(state: RoomState, uid: string) {
+  const currentRoundId = state.room.currentRoundId;
+  const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
+  const attemptData = getAttempts(state, currentRoundId, uid);
   const shouldConcealTarget = round
     ? shouldConcealRoundTarget({
-        gameMode: room.settings.gameMode,
+        gameMode: state.room.settings.gameMode,
         roundStatus: round.status,
         promptStartsAt: round.promptStartsAt,
         attemptData,
@@ -181,13 +171,13 @@ async function buildRoundSnapshot(roomId: string, uid: string) {
 
   return {
     room: {
-      status: room.status,
-      currentRoundId: room.currentRoundId,
+      status: state.room.status,
+      currentRoundId: state.room.currentRoundId,
       settings: {
-        gameMode: room.settings.gameMode,
-        roundSeconds: room.settings.roundSeconds,
-        maxAttempts: room.settings.maxAttempts,
-        hintLimit: room.settings.hintLimit,
+        gameMode: state.room.settings.gameMode,
+        roundSeconds: state.room.settings.roundSeconds,
+        maxAttempts: state.room.settings.maxAttempts,
+        hintLimit: state.room.settings.hintLimit,
       },
     },
     round: round
@@ -197,56 +187,41 @@ async function buildRoundSnapshot(roomId: string, uid: string) {
           targetThumbUrl: shouldConcealTarget ? "" : round.targetThumbUrl,
         })
       : null,
-    scores: scoresSnapshot?.docs.map((entry) => serializeForClient(entry.data())) ?? [],
+    scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
     attempts: attemptData ? serializeForClient(attemptData) : null,
-    playerCount: playersSnapshot.size,
+    playerCount: getSortedPlayers(state).length,
   };
 }
 
-async function buildResultsSnapshot(roomId: string, uid: string) {
-  const roomSnapshot = await roomRef(roomId).get();
-  const room = requireRoom(roomSnapshot);
-
-  const currentRoundId = room.currentRoundId;
-  const [roundSnapshot, scoresSnapshot, playerSnapshot, attemptSnapshot] = await Promise.all([
-    currentRoundId ? roundRef(roomId, currentRoundId).get() : Promise.resolve(null),
-    currentRoundId
-      ? scoresRef(roomId, currentRoundId).orderBy("bestScore", "desc").get()
-      : Promise.resolve(null),
-    playerRef(roomId, uid).get(),
-    currentRoundId ? attemptPrivateRef(roomId, currentRoundId, uid).get() : Promise.resolve(null),
-  ]);
+function buildResultsSnapshot(state: RoomState, uid: string) {
+  const currentRoundId = state.room.currentRoundId;
+  const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
+  const me = state.players[uid] ?? null;
 
   return {
     room: {
-      status: room.status,
-      currentRoundId: room.currentRoundId,
-      roundIndex: room.roundIndex,
+      status: state.room.status,
+      currentRoundId: state.room.currentRoundId,
+      roundIndex: state.room.roundIndex,
       settings: {
-        gameMode: room.settings.gameMode,
-        totalRounds: room.settings.totalRounds,
+        gameMode: state.room.settings.gameMode,
+        totalRounds: state.room.settings.totalRounds,
       },
     },
-    round: roundSnapshot?.exists ? serializeForClient(roundSnapshot.data()) : null,
-    scores: scoresSnapshot?.docs.map((item) => serializeForClient(item.data())) ?? [],
-    players: playerSnapshot.exists ? [serializeForClient(playerSnapshot.data())] : [],
-    myAttempts: attemptSnapshot?.exists ? serializeForClient(attemptSnapshot.data()) : null,
+    round: round ? serializeForClient(round) : null,
+    scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
+    players: me ? [serializeForClient(me)] : [],
+    myAttempts: currentRoundId ? serializeForClient(state.attempts[currentRoundId]?.[uid] ?? null) : null,
   };
 }
 
-async function buildTransitionSnapshot(roomId: string, uid: string) {
-  const [roomSnapshot, playerSnapshot] = await Promise.all([
-    roomRef(roomId).get(),
-    playerRef(roomId, uid).get(),
-  ]);
-
-  const room = requireRoom(roomSnapshot);
-  const player = playerSnapshot.exists ? playerSnapshot.data() : null;
+function buildTransitionSnapshot(state: RoomState, uid: string) {
+  const me = state.players[uid] ?? null;
 
   return {
     room: {
-      status: room.status,
+      status: state.room.status,
     },
-    players: player ? [serializeForClient(player)] : [],
+    players: me ? [serializeForClient(me)] : [],
   };
 }

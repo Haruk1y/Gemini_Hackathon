@@ -1,7 +1,7 @@
 import { createRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
-import { playerRef, roomRef } from "@/lib/api/paths";
 import { mergeRoomSettings } from "@/lib/game/defaults";
+import { createRoomState, roomStateExists, saveRoomState } from "@/lib/server/room-state";
 import { createRoomCode } from "@/lib/utils/id";
 import { dateAfterHours } from "@/lib/utils/time";
 
@@ -16,8 +16,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
   let roomId = "";
   for (let i = 0; i < 8; i += 1) {
     const candidate = createRoomCode();
-    const existing = await roomRef(candidate).get();
-    if (!existing.exists) {
+    if (!(await roomStateExists(candidate))) {
       roomId = candidate;
       break;
     }
@@ -27,7 +26,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     throw new Error("Failed to generate unique room code");
   }
 
-  await roomRef(roomId).set({
+  const state = createRoomState({
     roomId,
     code: roomId,
     createdAt: now,
@@ -42,7 +41,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     },
   });
 
-  await playerRef(roomId, auth.uid).set({
+  state.players[auth.uid] = {
     uid: auth.uid,
     displayName: body.displayName,
     isHost: true,
@@ -51,7 +50,8 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     lastSeenAt: now,
     ready: false,
     totalScore: 0,
-  });
+  };
 
+  await saveRoomState(state);
   return ok({ roomId, code: roomId });
 });

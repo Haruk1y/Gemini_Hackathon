@@ -1,42 +1,29 @@
 import { NextResponse } from "next/server";
 
-import { verifySchedulerRequest } from "@/lib/auth/verify-scheduler";
-import {
-  getAdminDb,
-  getAdminStorage,
-  getStorageBucketName,
-} from "@/lib/google-cloud/admin";
+import { deleteRoomState, listExpiredRoomIds } from "@/lib/server/room-state";
+import { deleteStoragePrefix } from "@/lib/storage/upload-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
-  try {
-    await verifySchedulerRequest(request);
-  } catch {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+function isAuthorized(request: Request) {
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!secret) {
+    return false;
   }
 
-  const now = new Date();
-  const expiredRooms = await getAdminDb()
-    .collection("rooms")
-    .where("expiresAt", "<=", now)
-    .limit(50)
-    .get();
+  return request.headers.get("authorization") === `Bearer ${secret}`;
+}
 
+async function handleCleanup() {
+  const expiredRoomIds = await listExpiredRoomIds(50);
   let deletedRooms = 0;
 
-  for (const room of expiredRooms.docs) {
-    const roomId = room.id;
-
-    await getAdminDb().recursiveDelete(room.ref);
-    await getAdminStorage()
-      .bucket(getStorageBucketName())
-      .deleteFiles({ prefix: `rooms/${roomId}/` })
-      .catch((error) => {
-        console.warn("Storage cleanup warning", roomId, error);
-      });
-
+  for (const roomId of expiredRoomIds) {
+    await deleteRoomState(roomId);
+    await deleteStoragePrefix(`rooms/${roomId}/`).catch((error) => {
+      console.warn("Storage cleanup warning", roomId, error);
+    });
     deletedRooms += 1;
   }
 
@@ -44,4 +31,20 @@ export async function POST(request: Request) {
     ok: true,
     deletedRooms,
   });
+}
+
+export async function GET(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  return handleCleanup();
+}
+
+export async function POST(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  return handleCleanup();
 }

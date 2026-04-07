@@ -78,7 +78,6 @@ export interface RoundPublicDoc {
   gmTags: string[];
   difficulty: 1 | 2 | 3 | 4 | 5;
   reveal: {
-    targetCaption?: string;
     gmPromptPublic?: string;
   };
   stats: {
@@ -93,8 +92,6 @@ export interface RoundPrivateDoc {
   expiresAt: Date;
   gmPrompt: string;
   gmNegativePrompt?: string;
-  targetCaptionJson: unknown;
-  targetCaptionText: string;
   safety: {
     blocked: boolean;
     reason?: string;
@@ -105,9 +102,12 @@ export interface AttemptItem {
   attemptNo: number;
   prompt: string;
   imageUrl: string;
-  captionText: string;
   score: number;
   createdAt: Date;
+  matchedElements?: string[];
+  missingElements?: string[];
+  judgeNote?: string;
+  status?: "SCORING" | "DONE";
 }
 
 export interface AttemptsPrivateDoc {

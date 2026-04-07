@@ -1,90 +1,93 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-const roomRef = vi.fn();
-const roundRef = vi.fn();
-const playerRef = vi.fn();
-const roundPrivateRef = vi.fn();
+import {
+  assertRoundOpen,
+  assertRoundSubmissionWindow,
+} from "@/lib/game/round-validation";
+import { createRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
+import { dateAfterHours } from "@/lib/utils/time";
 
-vi.mock("@/lib/api/paths", () => ({
-  roomRef,
-  roundRef,
-  playerRef,
-  roundPrivateRef,
-}));
+function createRoundState(promptStartsAt: Date, endsAt: Date) {
+  const now = new Date("2026-04-07T10:00:00.000Z");
+  const state = createRoomState({
+    roomId: "ROOM1",
+    code: "ROOM1",
+    createdAt: now,
+    expiresAt: dateAfterHours(24),
+    createdByUid: "anon_1",
+    status: "IN_ROUND",
+    currentRoundId: "round-1",
+    roundIndex: 1,
+    settings: {
+      maxPlayers: 8,
+      roundSeconds: 60,
+      maxAttempts: 1,
+      aspectRatio: "1:1",
+      imageModel: "flash",
+      hintLimit: 0,
+      totalRounds: 3,
+      gameMode: "memory",
+    },
+    ui: {
+      theme: "neo-brutal",
+    },
+  });
 
-function doc<T>(value: T) {
-  return {
-    exists: true,
-    data: () => value,
+  state.players.anon_1 = {
+    uid: "anon_1",
+    displayName: "Player",
+    isHost: false,
+    joinedAt: now,
+    expiresAt: dateAfterHours(24),
+    lastSeenAt: now,
+    ready: true,
+    totalScore: 0,
   };
+
+  state.rounds["round-1"] = {
+    roundId: "round-1",
+    index: 1,
+    status: "IN_ROUND",
+    createdAt: now,
+    expiresAt: dateAfterHours(24),
+    startedAt: now,
+    promptStartsAt,
+    endsAt,
+    targetImageUrl: "https://example.com/target.png",
+    targetThumbUrl: "https://example.com/target.png",
+    gmTitle: "Target",
+    gmTags: [],
+    difficulty: 3,
+    reveal: {},
+    stats: {
+      submissions: 0,
+      topScore: 0,
+    },
+  };
+
+  state.roundPrivates["round-1"] = {
+    roundId: "round-1",
+    createdAt: now,
+    expiresAt: dateAfterHours(24),
+    gmPrompt: "prompt",
+    gmNegativePrompt: "",
+    safety: {
+      blocked: false,
+    },
+  };
+
+  return state;
 }
-
-const roomDoc = {
-  roomId: "ROOM1",
-  code: "ROOM1",
-  status: "IN_ROUND" as const,
-  currentRoundId: "round-1",
-  roundIndex: 1,
-  settings: {
-    maxPlayers: 8,
-    roundSeconds: 60,
-    maxAttempts: 1,
-    aspectRatio: "1:1" as const,
-    imageModel: "flash" as const,
-    hintLimit: 0,
-    totalRounds: 3,
-    gameMode: "memory" as const,
-  },
-};
-
-const playerDoc = {
-  uid: "anon_1",
-  displayName: "Player",
-  isHost: false,
-  joinedAt: new Date("2026-04-07T10:00:00.000Z"),
-  expiresAt: new Date("2026-04-08T10:00:00.000Z"),
-  lastSeenAt: new Date("2026-04-07T10:00:00.000Z"),
-  ready: true,
-  totalScore: 0,
-};
-
-const roundPrivateDoc = {
-  targetCaptionText: "caption",
-  gmPrompt: "prompt",
-};
 
 describe("assertRoundOpen", () => {
   beforeEach(() => {
-    vi.resetModules();
-    roomRef.mockReset();
-    roundRef.mockReset();
-    playerRef.mockReset();
-    roundPrivateRef.mockReset();
+    roomStateTest.resetMemoryStore();
   });
 
   it("rejects memory mode submissions before prompt entry starts", async () => {
-    roomRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(roomDoc)),
-    });
-    roundRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(
-        doc({
-          roundId: "round-1",
-          index: 1,
-          status: "IN_ROUND" as const,
-          promptStartsAt: new Date(Date.now() + 10_000),
-          endsAt: new Date(Date.now() + 70_000),
-        }),
-      ),
-    });
-    playerRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(playerDoc)),
-    });
-    roundPrivateRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(roundPrivateDoc)),
-    });
-
-    const { assertRoundOpen } = await import("@/lib/game/round-validation");
+    await saveRoomState(
+      createRoundState(new Date(Date.now() + 10_000), new Date(Date.now() + 70_000)),
+    );
 
     await expect(
       assertRoundOpen({
@@ -99,28 +102,10 @@ describe("assertRoundOpen", () => {
   });
 
   it("allows submissions after prompt entry has started", async () => {
-    roomRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(roomDoc)),
-    });
-    roundRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(
-        doc({
-          roundId: "round-1",
-          index: 1,
-          status: "IN_ROUND" as const,
-          promptStartsAt: new Date(Date.now() - 1_000),
-          endsAt: new Date(Date.now() + 60_000),
-        }),
-      ),
-    });
-    playerRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(playerDoc)),
-    });
-    roundPrivateRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(roundPrivateDoc)),
-    });
+    await saveRoomState(
+      createRoundState(new Date(Date.now() - 1_000), new Date(Date.now() + 60_000)),
+    );
 
-    const { assertRoundOpen } = await import("@/lib/game/round-validation");
     const result = await assertRoundOpen({
       roomId: "ROOM1",
       roundId: "round-1",
@@ -128,5 +113,43 @@ describe("assertRoundOpen", () => {
     });
 
     expect(result.round.roundId).toBe("round-1");
+    expect(result.room.roomId).toBe("ROOM1");
+  });
+
+  it("uses the submission start time instead of current time", async () => {
+    const startedAt = new Date(Date.now() - 5_000);
+    const endsAt = new Date(Date.now() - 1_000);
+
+    await saveRoomState(createRoundState(startedAt, endsAt));
+
+    const result = await assertRoundOpen({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "anon_1",
+      now: new Date(endsAt.getTime() - 2_000),
+    });
+
+    expect(result.round.roundId).toBe("round-1");
+  });
+
+  it("allows in-flight submissions to finish after the room has moved to results", () => {
+    const referenceTime = new Date(Date.now() - 2_000);
+
+    expect(() =>
+      assertRoundSubmissionWindow({
+        room: {
+          status: "RESULTS",
+          currentRoundId: "round-1",
+        },
+        round: {
+          status: "RESULTS",
+          promptStartsAt: new Date(referenceTime.getTime() - 10_000),
+          endsAt: new Date(referenceTime.getTime() + 1_000),
+        },
+        roundId: "round-1",
+        now: referenceTime,
+        allowResults: true,
+      }),
+    ).not.toThrow();
   });
 });
