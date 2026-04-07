@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /* eslint-disable @next/next/no-img-element */
 
 import { Crown } from "lucide-react";
@@ -16,9 +18,10 @@ interface Entry {
 interface PodiumProps {
   entries: Entry[];
   myUid?: string;
+  myEntryFooter?: ReactNode;
 }
 
-export function Podium({ entries, myUid }: PodiumProps) {
+export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
   const sorted = [...entries].sort((a, b) => b.bestScore - a.bestScore);
 
   if (!sorted.length) {
@@ -32,7 +35,7 @@ export function Podium({ entries, myUid }: PodiumProps) {
           <div
             key={entry.uid}
             className={[
-              "relative w-64 shrink-0 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
+              "relative flex w-64 shrink-0 flex-col rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
               entry.uid === myUid ? "bg-[var(--pmb-blue)]" : "",
             ].join(" ")}
           >
@@ -58,6 +61,7 @@ export function Podium({ entries, myUid }: PodiumProps) {
                 {entry.bestPromptPublic || "未記録"}
               </p>
             </div>
+            {entry.uid === myUid && myEntryFooter ? <div className="mt-2">{myEntryFooter}</div> : null}
           </div>
         ))}
       </div>

@@ -8,6 +8,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   imageModel: "flash",
   hintLimit: 0,
   totalRounds: 3,
+  gameMode: "classic",
 };
 
 export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {

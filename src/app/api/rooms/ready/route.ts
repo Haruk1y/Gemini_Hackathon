@@ -9,23 +9,23 @@ export const dynamic = "force-dynamic";
 
 export const POST = withPostHandler(readySchema, async ({ body, auth }) => {
   const roomSnapshot = await roomRef(body.roomId).get();
-  requireRoom(roomSnapshot);
+  const room = requireRoom(roomSnapshot);
+
+  if (room.status !== "LOBBY") {
+    throw new AppError("VALIDATION_ERROR", "READY状態を変更できるのはロビー中だけです。", false, 409);
+  }
 
   const playerSnapshot = await playerRef(body.roomId, auth.uid).get();
   const player = requirePlayer(playerSnapshot);
 
-  if (!body.ready) {
-    throw new AppError("VALIDATION_ERROR", "Unready is disabled in this lobby", false, 409);
-  }
-
-  if (player.ready) {
-    return ok({ updated: false, ready: true });
+  if (player.ready === body.ready) {
+    return ok({ updated: false, ready: player.ready });
   }
 
   await playerRef(body.roomId, auth.uid).update({
-    ready: true,
+    ready: body.ready,
     lastSeenAt: new Date(),
   });
 
-  return ok({ updated: true, ready: true });
+  return ok({ updated: true, ready: body.ready });
 });

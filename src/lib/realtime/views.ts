@@ -6,7 +6,9 @@ import {
   roomRef,
   scoresRef,
 } from "@/lib/api/paths";
+import { isMemoryPreviewActive } from "@/lib/game/modes";
 import { requireRoom } from "@/lib/game/guards";
+import type { GameMode, RoundPublicDoc, RoundStatus } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export type RoomViewName = "lobby" | "round" | "results" | "transition";
@@ -84,6 +86,48 @@ export function serializeForClient<T>(value: T): T {
   return value;
 }
 
+function hasAttemptImage(value: unknown): boolean {
+  if (!value || typeof value !== "object" || !("attempts" in value)) {
+    return false;
+  }
+
+  const attempts = (value as { attempts?: unknown }).attempts;
+  if (!Array.isArray(attempts)) {
+    return false;
+  }
+
+  return attempts.some((attempt) => {
+    if (!attempt || typeof attempt !== "object") {
+      return false;
+    }
+
+    const imageUrl = (attempt as { imageUrl?: unknown }).imageUrl;
+    return typeof imageUrl === "string" && imageUrl.trim().length > 0;
+  });
+}
+
+export function shouldConcealRoundTarget(params: {
+  gameMode: GameMode;
+  roundStatus: RoundStatus | null | undefined;
+  promptStartsAt: unknown;
+  attemptData?: unknown;
+}): boolean {
+  if (params.gameMode !== "memory" || params.roundStatus !== "IN_ROUND") {
+    return false;
+  }
+
+  if (
+    isMemoryPreviewActive({
+      gameMode: params.gameMode,
+      promptStartsAt: params.promptStartsAt,
+    })
+  ) {
+    return false;
+  }
+
+  return !hasAttemptImage(params.attemptData);
+}
+
 async function buildLobbySnapshot(roomId: string, uid: string) {
   const [roomSnapshot, playersSnapshot] = await Promise.all([
     roomRef(roomId).get(),
@@ -98,8 +142,10 @@ async function buildLobbySnapshot(roomId: string, uid: string) {
       status: room.status,
       currentRoundId: room.currentRoundId,
       settings: {
+        gameMode: room.settings.gameMode,
         roundSeconds: room.settings.roundSeconds,
         maxAttempts: room.settings.maxAttempts,
+        hintLimit: room.settings.hintLimit,
         totalRounds: room.settings.totalRounds,
       },
     },
@@ -122,19 +168,37 @@ async function buildRoundSnapshot(roomId: string, uid: string) {
     currentRoundId ? attemptPrivateRef(roomId, currentRoundId, uid).get() : Promise.resolve(null),
   ]);
 
+  const round = roundSnapshot?.exists ? (roundSnapshot.data() as RoundPublicDoc) : null;
+  const attemptData = attemptSnapshot?.exists ? attemptSnapshot.data() : null;
+  const shouldConcealTarget = round
+    ? shouldConcealRoundTarget({
+        gameMode: room.settings.gameMode,
+        roundStatus: round.status,
+        promptStartsAt: round.promptStartsAt,
+        attemptData,
+      })
+    : false;
+
   return {
     room: {
       status: room.status,
       currentRoundId: room.currentRoundId,
       settings: {
+        gameMode: room.settings.gameMode,
         roundSeconds: room.settings.roundSeconds,
         maxAttempts: room.settings.maxAttempts,
         hintLimit: room.settings.hintLimit,
       },
     },
-    round: roundSnapshot?.exists ? serializeForClient(roundSnapshot.data()) : null,
+    round: round
+      ? serializeForClient({
+          ...round,
+          targetImageUrl: shouldConcealTarget ? "" : round.targetImageUrl,
+          targetThumbUrl: shouldConcealTarget ? "" : round.targetThumbUrl,
+        })
+      : null,
     scores: scoresSnapshot?.docs.map((entry) => serializeForClient(entry.data())) ?? [],
-    attempts: attemptSnapshot?.exists ? serializeForClient(attemptSnapshot.data()) : null,
+    attempts: attemptData ? serializeForClient(attemptData) : null,
     playerCount: playersSnapshot.size,
   };
 }
@@ -159,6 +223,7 @@ async function buildResultsSnapshot(roomId: string, uid: string) {
       currentRoundId: room.currentRoundId,
       roundIndex: room.roundIndex,
       settings: {
+        gameMode: room.settings.gameMode,
         totalRounds: room.settings.totalRounds,
       },
     },

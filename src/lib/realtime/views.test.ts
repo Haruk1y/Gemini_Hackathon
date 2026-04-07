@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { serializeForClient } from "@/lib/realtime/views";
+import { serializeForClient, shouldConcealRoundTarget } from "@/lib/realtime/views";
 
 describe("serializeForClient", () => {
   it("keeps plain strings unchanged", () => {
@@ -31,5 +31,30 @@ describe("serializeForClient", () => {
         lastSeenAt: "2026-04-03T02:30:00.500Z",
       },
     });
+  });
+});
+
+describe("shouldConcealRoundTarget", () => {
+  it("conceals the memory target after preview when the player has no generated image yet", () => {
+    expect(
+      shouldConcealRoundTarget({
+        gameMode: "memory",
+        roundStatus: "IN_ROUND",
+        promptStartsAt: new Date(Date.now() - 1_000),
+      }),
+    ).toBe(true);
+  });
+
+  it("reveals the memory target once the player has a generated image", () => {
+    expect(
+      shouldConcealRoundTarget({
+        gameMode: "memory",
+        roundStatus: "IN_ROUND",
+        promptStartsAt: new Date(Date.now() - 1_000),
+        attemptData: {
+          attempts: [{ imageUrl: "https://example.com/attempt.png" }],
+        },
+      }),
+    ).toBe(false);
   });
 });

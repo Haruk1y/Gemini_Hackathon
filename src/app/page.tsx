@@ -3,86 +3,85 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiPost, ApiClientError } from "@/lib/client/api";
-import { useAuth } from "@/components/providers/auth-provider";
+
+type BusyAction = "create" | "join" | null;
 
 export default function HomePage() {
   const router = useRouter();
   const { loading, error: authError } = useAuth();
 
-  const [displayName, setDisplayName] = useState("");
+  const [createDisplayName, setCreateDisplayName] = useState("");
+  const [joinDisplayName, setJoinDisplayName] = useState("");
   const [joinCode, setJoinCode] = useState("");
-  const [totalRounds, setTotalRounds] = useState("3");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
-  const canSubmit =
-    !loading && !authError && !busy && displayName.trim().length >= 1;
+  const createDisabled =
+    loading || Boolean(authError) || busyAction !== null || createDisplayName.trim().length < 1;
+  const joinDisabled =
+    loading ||
+    Boolean(authError) ||
+    busyAction !== null ||
+    joinDisplayName.trim().length < 1 ||
+    joinCode.trim().length !== 6;
 
   const createRoom = async () => {
-    if (!canSubmit) return;
+    if (createDisabled) return;
 
-    setBusy(true);
-    setError(null);
+    setBusyAction("create");
+    setCreateError(null);
+    setJoinError(null);
+
     try {
-      const response = await apiPost<{ ok: true; roomId: string }>(
-        "/api/rooms/create",
-        {
-          displayName,
-          settings: {
-            roundSeconds: 60,
-            maxAttempts: 1,
-            totalRounds: Number(totalRounds),
-            hintLimit: 0,
-            maxPlayers: 8,
-            aspectRatio: "1:1",
-          },
-        },
-      );
+      const response = await apiPost<{ ok: true; roomId: string }>("/api/rooms/create", {
+        displayName: createDisplayName.trim(),
+      });
 
       router.push(`/lobby/${response.roomId}`);
     } catch (e) {
       if (e instanceof ApiClientError) {
-        setError(e.message);
+        setCreateError(e.message);
       } else {
-        setError("ルーム作成に失敗しました");
+        setCreateError("ルーム作成に失敗しました");
       }
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const joinRoom = async () => {
-    if (!canSubmit || joinCode.trim().length !== 6) return;
+    if (joinDisabled) return;
 
-    setBusy(true);
-    setError(null);
+    setBusyAction("join");
+    setCreateError(null);
+    setJoinError(null);
+
     try {
-      const response = await apiPost<{ ok: true; roomId: string }>(
-        "/api/rooms/join",
-        {
-          code: joinCode.trim().toUpperCase(),
-          displayName,
-        },
-      );
+      const response = await apiPost<{ ok: true; roomId: string }>("/api/rooms/join", {
+        code: joinCode.trim().toUpperCase(),
+        displayName: joinDisplayName.trim(),
+      });
       router.push(`/lobby/${response.roomId}`);
     } catch (e) {
       if (e instanceof ApiClientError) {
-        setError(e.message);
+        setJoinError(e.message);
       } else {
-        setError("ルーム参加に失敗しました");
+        setJoinError("ルーム参加に失敗しました");
       }
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   return (
     <main className="page-enter mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
-      <header className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <header className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
         <Card className="bg-[var(--pmb-yellow)] p-6 md:p-8">
           <h1 className="text-3xl leading-tight md:text-5xl">PrompDojo</h1>
           <p className="mt-3 max-w-xl text-base font-semibold leading-relaxed md:text-xl">
@@ -92,59 +91,83 @@ export default function HomePage() {
           </p>
         </Card>
 
-        <Card className="space-y-4 bg-white p-6">
-          <h2 className="text-xl">プレイヤー情報</h2>
-          <div className="space-y-1">
-            <p className="text-xs font-bold">表示名</p>
-            <Input
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="表示名（1文字以上）"
-              maxLength={24}
-            />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-bold">ルームコード</p>
-            <Input
-              value={joinCode}
-              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-              placeholder="ルームコード（6文字）"
-              maxLength={6}
-            />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-bold">ラウンド数</p>
-            <select
-              value={totalRounds}
-              onChange={(event) => setTotalRounds(event.target.value)}
-              className="w-full rounded-[10px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-2 text-sm text-[var(--pmb-ink)] focus:outline-none focus:ring-4 focus:ring-[var(--pmb-blue)]/30"
+        <div className="grid gap-4">
+          <Card className="bg-white p-6">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--pmb-ink)_68%,white)]">
+              Create Room
+            </p>
+            <h2 className="mt-2 text-2xl">ルームを作成</h2>
+
+            <div className="mt-4 space-y-1">
+              <p className="text-xs font-bold">表示名</p>
+              <Input
+                value={createDisplayName}
+                onChange={(event) => setCreateDisplayName(event.target.value)}
+                placeholder="表示名（1文字以上）"
+                maxLength={24}
+              />
+            </div>
+
+            <Button
+              onClick={createRoom}
+              disabled={createDisabled}
+              className="mt-5 w-full"
             >
-              {[1, 2, 3, 4, 5].map((roundCount) => (
-                <option key={roundCount} value={roundCount}>
-                  {roundCount}ラウンド
-                </option>
-              ))}
-            </select>
-            <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
-              1人でもプレイできます。各ラウンドの生成は1回だけ、ヒントはありません。
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Button onClick={createRoom} disabled={!canSubmit}>
-              ルーム作成
+              {busyAction === "create" ? "作成中..." : "ルーム作成"}
             </Button>
-            <Button onClick={joinRoom} variant="accent" disabled={!canSubmit || joinCode.length !== 6}>
-              ルーム参加
-            </Button>
-          </div>
-          {error ? <p className="text-sm font-semibold text-[var(--pmb-red)]">{error}</p> : null}
-          {authError ? (
-            <p className="text-sm font-semibold text-[var(--pmb-red)]">
-              {authError}
+
+            {createError ? (
+              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">{createError}</p>
+            ) : null}
+          </Card>
+
+          <Card className="bg-[var(--pmb-base)] p-6">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--pmb-ink)_68%,white)]">
+              Join Room
             </p>
-          ) : null}
-        </Card>
+            <h2 className="mt-2 text-2xl">ルームに参加</h2>
+
+            <div className="mt-4 space-y-3">
+              <div className="space-y-1">
+                <p className="text-xs font-bold">表示名</p>
+                <Input
+                  value={joinDisplayName}
+                  onChange={(event) => setJoinDisplayName(event.target.value)}
+                  placeholder="表示名（1文字以上）"
+                  maxLength={24}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-bold">ルームコード</p>
+                <Input
+                  value={joinCode}
+                  onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+                  placeholder="ルームコード（6文字）"
+                  maxLength={6}
+                />
+              </div>
+            </div>
+
+            <Button
+              onClick={joinRoom}
+              variant="accent"
+              disabled={joinDisabled}
+              className="mt-5 w-full"
+            >
+              {busyAction === "join" ? "参加中..." : "ルーム参加"}
+            </Button>
+
+            {joinError ? (
+              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">{joinError}</p>
+            ) : null}
+          </Card>
+        </div>
       </header>
+
+      {authError ? (
+        <p className="text-sm font-semibold text-[var(--pmb-red)]">{authError}</p>
+      ) : null}
     </main>
   );
 }

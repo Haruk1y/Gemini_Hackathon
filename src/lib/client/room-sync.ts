@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { GameMode } from "@/lib/types/game";
 
 export type RoomStatus = "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
@@ -12,6 +13,7 @@ export interface RoomData {
   currentRoundId: string | null;
   roundIndex?: number;
   settings?: {
+    gameMode?: GameMode;
     maxPlayers?: number;
     roundSeconds?: number;
     maxAttempts?: number;
@@ -33,9 +35,10 @@ export interface RoundData {
   roundId: string;
   index: number;
   status: RoundStatus;
-  targetImageUrl: string;
+  targetImageUrl?: string;
   targetThumbUrl?: string;
   gmTitle: string;
+  promptStartsAt?: unknown;
   gmTags?: string[];
   reveal?: {
     targetCaption?: string;
@@ -125,6 +128,10 @@ function normalizeRoundStatus(value: unknown): RoundStatus | null {
   return value === "GENERATING" || value === "IN_ROUND" || value === "RESULTS" ? value : null;
 }
 
+function normalizeGameMode(value: unknown): GameMode | null {
+  return value === "classic" || value === "memory" ? value : null;
+}
+
 function normalizeRoomData(value: unknown): RoomData | null {
   if (!isRecord(value)) return null;
   const status = normalizeRoomStatus(value.status);
@@ -138,6 +145,7 @@ function normalizeRoomData(value: unknown): RoomData | null {
     roundIndex: asNumber(value.roundIndex) ?? undefined,
     settings: isRecord(value.settings)
       ? {
+          gameMode: normalizeGameMode(value.settings.gameMode) ?? undefined,
           maxPlayers: asNumber(value.settings.maxPlayers) ?? undefined,
           roundSeconds: asNumber(value.settings.roundSeconds) ?? undefined,
           maxAttempts: asNumber(value.settings.maxAttempts) ?? undefined,
@@ -173,17 +181,17 @@ function normalizeRoundData(value: unknown): RoundData | null {
   const status = normalizeRoundStatus(value.status);
   const roundId = asString(value.roundId);
   const index = asNumber(value.index);
-  const targetImageUrl = asString(value.targetImageUrl);
   const gmTitle = asString(value.gmTitle);
-  if (!status || !roundId || index == null || !targetImageUrl || !gmTitle) return null;
+  if (!status || !roundId || index == null || !gmTitle) return null;
 
   return {
     roundId,
     index,
     status,
-    targetImageUrl,
-    targetThumbUrl: asString(value.targetThumbUrl) ?? undefined,
+    targetImageUrl: typeof value.targetImageUrl === "string" ? value.targetImageUrl : undefined,
+    targetThumbUrl: typeof value.targetThumbUrl === "string" ? value.targetThumbUrl : undefined,
     gmTitle,
+    promptStartsAt: value.promptStartsAt ?? null,
     gmTags: Array.isArray(value.gmTags)
       ? value.gmTags.filter((tag): tag is string => typeof tag === "string")
       : undefined,
