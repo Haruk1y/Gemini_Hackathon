@@ -58,3 +58,43 @@ describe("room-state deserializeState", () => {
     expect(revived.room.expiresAt).toBeInstanceOf(Date);
   });
 });
+
+describe("room-state backend resolution", () => {
+  it("prefers UPSTASH_REDIS_REST_* when present", () => {
+    const config = __test__.resolveRedisConfig({
+      NODE_ENV: "test",
+      UPSTASH_REDIS_REST_URL: "https://redis.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "rest-token",
+      UPSTASH_KV_REST_API_URL: "https://kv.example.com",
+      UPSTASH_KV_REST_API_TOKEN: "kv-token",
+    });
+
+    expect(config).toEqual({
+      url: "https://redis.example.com",
+      token: "rest-token",
+      envSource: "UPSTASH_REDIS_REST_*",
+    });
+  });
+
+  it("falls back to UPSTASH_KV_REST_API_* when redis env names are absent", () => {
+    const config = __test__.resolveRedisConfig({
+      NODE_ENV: "test",
+      UPSTASH_KV_REST_API_URL: "https://kv.example.com",
+      UPSTASH_KV_REST_API_TOKEN: "kv-token",
+    });
+
+    expect(config).toEqual({
+      url: "https://kv.example.com",
+      token: "kv-token",
+      envSource: "UPSTASH_KV_REST_API_*",
+    });
+  });
+
+  it("rejects memory fallback in production", () => {
+    expect(() =>
+      __test__.resolveRoomStateBackend({
+        NODE_ENV: "production",
+      }),
+    ).toThrow("Redis storage is not configured in production.");
+  });
+});

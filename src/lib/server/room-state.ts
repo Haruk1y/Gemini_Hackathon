@@ -18,6 +18,9 @@ const LOCK_RETRY_MS = 80;
 const DEFAULT_LOCK_TTL_MS = 8_000;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
+type RoomStateBackend = "redis" | "memory";
+type RedisEnvSource = "UPSTASH_REDIS_REST_*" | "UPSTASH_KV_REST_API_*" | null;
+
 export interface RoomState {
   room: RoomDoc;
   players: Record<string, PlayerDoc>;
@@ -114,15 +117,77 @@ function pruneMemoryEntries() {
 
 let redisClient: Redis | null | undefined;
 
+function resolveRedisConfig(env: NodeJS.ProcessEnv = process.env) {
+  const restUrl = env.UPSTASH_REDIS_REST_URL?.trim();
+  const restToken = env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (restUrl && restToken) {
+    return {
+      url: restUrl,
+      token: restToken,
+      envSource: "UPSTASH_REDIS_REST_*" as const,
+    };
+  }
+
+  const kvUrl = env.UPSTASH_KV_REST_API_URL?.trim();
+  const kvToken = env.UPSTASH_KV_REST_API_TOKEN?.trim();
+  if (kvUrl && kvToken) {
+    return {
+      url: kvUrl,
+      token: kvToken,
+      envSource: "UPSTASH_KV_REST_API_*" as const,
+    };
+  }
+
+  return null;
+}
+
+function resolveRoomStateBackend(env: NodeJS.ProcessEnv = process.env): {
+  kind: RoomStateBackend;
+  envSource: RedisEnvSource;
+} {
+  const config = resolveRedisConfig(env);
+  if (config) {
+    return {
+      kind: "redis",
+      envSource: config.envSource,
+    };
+  }
+
+  if (env.NODE_ENV === "production") {
+    throw new AppError(
+      "INTERNAL_ERROR",
+      "Redis storage is not configured in production.",
+      false,
+      500,
+    );
+  }
+
+  return {
+    kind: "memory",
+    envSource: null,
+  };
+}
+
 function getRedisClient(): Redis | null {
   if (redisClient !== undefined) {
     return redisClient;
   }
 
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-  redisClient = url && token ? Redis.fromEnv() : null;
+  const backend = resolveRoomStateBackend();
+  if (backend.kind === "memory") {
+    redisClient = null;
+    return redisClient;
+  }
+
+  const config = resolveRedisConfig();
+  redisClient = config ? new Redis({ url: config.url, token: config.token }) : null;
   return redisClient;
+}
+
+export function getRoomStateBackendInfo() {
+  const backend = resolveRoomStateBackend();
+  getRedisClient();
+  return backend;
 }
 
 async function getValue(key: string): Promise<unknown | null> {
@@ -314,4 +379,6 @@ export const __test__ = {
     redisClient = null;
   },
   deserializeState,
+  resolveRedisConfig,
+  resolveRoomStateBackend,
 };

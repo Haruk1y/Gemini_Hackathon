@@ -299,8 +299,8 @@ export default function LobbyPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const router = useRouter();
-  const { user, loading } = useAuth();
-  const { snapshot } = useRoomSync({
+  const { user, loading, error: authError } = useAuth();
+  const { snapshot, error: snapshotError, isConnecting } = useRoomSync({
     roomId,
     view: "lobby",
     enabled: Boolean(user) && !loading,
@@ -571,10 +571,56 @@ export default function LobbyPage() {
     return null;
   })();
 
-  if (loading || !room) {
+  if (loading || (isConnecting && !snapshotError && !room)) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">読み込み中...</Card>
+      </main>
+    );
+  }
+
+  if (authError) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+        <Card className="bg-white">
+          <p className="text-sm font-semibold text-[var(--pmb-red)]">{authError}</p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (snapshotError) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+        <Card className="bg-white">
+          <p className="text-sm font-semibold text-[var(--pmb-red)]">
+            ルーム情報の取得に失敗しました: {snapshotError}
+          </p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (!room) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+        <Card className="bg-white">
+          <p className="text-sm font-semibold text-[var(--pmb-red)]">
+            ルーム情報を取得できませんでした。Vercel の Redis 設定と runtime logs を確認してください。
+          </p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (!me) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+        <Card className="bg-white">
+          <p className="text-sm font-semibold text-[var(--pmb-red)]">
+            セッションがルーム参加情報と一致しませんでした。ページを再読み込みしてください。
+          </p>
+        </Card>
       </main>
     );
   }
