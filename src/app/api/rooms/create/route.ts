@@ -1,7 +1,12 @@
 import { createRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { mergeRoomSettings } from "@/lib/game/defaults";
-import { createRoomState, roomStateExists, saveRoomState } from "@/lib/server/room-state";
+import {
+  createRoomState,
+  getRoomStateBackendInfo,
+  roomStateExists,
+  saveRoomState,
+} from "@/lib/server/room-state";
 import { createRoomCode } from "@/lib/utils/id";
 import { dateAfterHours } from "@/lib/utils/time";
 
@@ -53,5 +58,12 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
   };
 
   await saveRoomState(state);
+  const backend = getRoomStateBackendInfo();
+  console.info("Room created", {
+    roomId,
+    uid: auth.uid,
+    backend: backend.kind,
+    envSource: backend.envSource ?? "memory",
+  });
   return ok({ roomId, code: roomId });
 });

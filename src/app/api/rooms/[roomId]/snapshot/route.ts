@@ -5,7 +5,7 @@ import {
   buildRoomViewSnapshot,
   type RoomViewName,
 } from "@/lib/realtime/views";
-import { loadRoomState } from "@/lib/server/room-state";
+import { getRoomStateBackendInfo, loadRoomState } from "@/lib/server/room-state";
 import { AppError, toErrorResponse } from "@/lib/utils/errors";
 
 export const runtime = "nodejs";
@@ -33,9 +33,17 @@ export async function GET(
     const auth = verifySessionCookie(request.cookies);
     const view = parseView(request.nextUrl.searchParams.get("view"));
     const since = Number.parseInt(request.nextUrl.searchParams.get("since") ?? "", 10);
+    const backend = getRoomStateBackendInfo();
     const state = await loadRoomState(roomId);
 
     if (!state) {
+      console.warn("Room snapshot missing state", {
+        roomId,
+        uid: auth.uid,
+        view,
+        backend: backend.kind,
+        envSource: backend.envSource ?? "memory",
+      });
       return NextResponse.json({
         ok: true,
         version: 0,
@@ -52,6 +60,17 @@ export async function GET(
 
     if (Number.isFinite(since) && since >= state.version) {
       return new NextResponse(null, { status: 204 });
+    }
+
+    if (!(auth.uid in state.players)) {
+      console.warn("Room snapshot player missing", {
+        roomId,
+        uid: auth.uid,
+        view,
+        backend: backend.kind,
+        envSource: backend.envSource ?? "memory",
+        playerCount: Object.keys(state.players).length,
+      });
     }
 
     const snapshot = buildRoomViewSnapshot({
