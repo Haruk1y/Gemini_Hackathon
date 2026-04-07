@@ -72,8 +72,8 @@ describe("assertRoundOpen", () => {
           roundId: "round-1",
           index: 1,
           status: "IN_ROUND" as const,
-          promptStartsAt: new Date(Date.now() + 5_000),
-          endsAt: new Date(Date.now() + 65_000),
+          promptStartsAt: new Date(Date.now() + 10_000),
+          endsAt: new Date(Date.now() + 70_000),
         }),
       ),
     });

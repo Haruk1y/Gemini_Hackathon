@@ -1,8 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo } from "react";
-import { ChevronRight, Flag, LoaderCircle, LogOut } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, Flag, LoaderCircle, LogOut, X } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -97,6 +97,8 @@ export default function ResultsPage() {
   const currentMode = getGameModeDefinition(room?.settings?.gameMode ?? "classic");
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
   const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
+  const [showJudgeReason, setShowJudgeReason] = useState(false);
+  const [lobbyBusy, setLobbyBusy] = useState(false);
   const waitingMessage = useMemo(() => {
     if (room?.status === "GENERATING_ROUND") {
       return "次ラウンド開始中です。お題画像の準備が完了すると自動でラウンド画面へ移動します。";
@@ -113,7 +115,22 @@ export default function ResultsPage() {
   };
 
   const onLeave = () => {
-    router.push(`/lobby/${roomId}`);
+    const leave = async () => {
+      if (isFinalRound && me?.isHost && isResultsPhase) {
+        setLobbyBusy(true);
+        try {
+          await apiPost("/api/rounds/next", { roomId });
+        } catch (error) {
+          console.error("final return to lobby failed", error);
+        } finally {
+          setLobbyBusy(false);
+        }
+      }
+
+      router.push(`/lobby/${roomId}`);
+    };
+
+    void leave();
   };
 
   if (!room || !round) {
@@ -125,7 +142,8 @@ export default function ResultsPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex h-screen max-h-screen w-full max-w-[1500px] flex-col gap-3 overflow-hidden px-4 py-4 md:px-6">
+    <>
+      <main className="page-enter mx-auto flex h-screen max-h-screen w-full max-w-[1500px] flex-col gap-3 overflow-hidden px-4 py-4 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
         <div>
           <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
@@ -143,6 +161,7 @@ export default function ResultsPage() {
             <Badge className="bg-[var(--pmb-green)]">NEXT ROUND READY</Badge>
           )}
           <div className="flex flex-wrap justify-end gap-2">
+            {!isFinalRound ? (
               <Button
                 type="button"
                 variant="accent"
@@ -150,17 +169,18 @@ export default function ResultsPage() {
                 disabled={!me?.isHost || !isResultsPhase}
               >
                 <ChevronRight className="mr-1 h-4 w-4" />
-                {isFinalRound ? "ロビーに戻る" : "次ラウンドへ"}
+                次ラウンドへ
               </Button>
-            <Button type="button" variant="ghost" onClick={onLeave}>
-              <LogOut className="mr-2 h-4 w-4" />
+            ) : null}
+            <Button type="button" variant="ghost" onClick={onLeave} disabled={lobbyBusy}>
+              {lobbyBusy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
               ロビーに戻る
             </Button>
           </div>
-          {!me?.isHost ? (
+          {!me?.isHost && !isFinalRound ? (
             <p className="text-xs font-semibold">次の進行はホストのみ実行できます。</p>
           ) : null}
-          {room.status === "GENERATING_ROUND" ? (
+          {room.status === "GENERATING_ROUND" && !isFinalRound ? (
             <p className="flex items-center gap-2 text-xs font-semibold">
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
               次ラウンド開始中...
@@ -179,45 +199,85 @@ export default function ResultsPage() {
       ) : null}
 
       <section className="min-h-0 flex-1 overflow-y-auto overflow-x-visible pr-3 pb-3">
-        <div className="space-y-4">
-          <Card className="overflow-hidden bg-white p-4">
-            <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
-            <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-stretch">
-              <div className="lg:flex lg:h-full lg:flex-col">
-                <p className="h-6 text-sm font-bold">お題画像</p>
-                <div className="mt-2 h-[260px] w-full sm:h-[300px]">
-                  <img
-                    src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
-                    alt="target"
-                    className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
-                  />
-                </div>
-                {round.reveal?.gmPromptPublic ? (
-                  <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                    <p className="text-xs font-bold">正解プロンプト</p>
-                    <p className="mt-1 font-mono text-xs font-semibold">
-                      {round.reveal.gmPromptPublic}
-                    </p>
-                  </div>
-                ) : null}
+        <Card className="overflow-hidden bg-white p-4">
+          <h2 className="text-2xl font-black md:text-3xl">ランキング発表</h2>
+          <div className="mt-3 grid gap-4 lg:grid-cols-[340px_1fr] lg:items-stretch">
+            <div className="lg:flex lg:h-full lg:flex-col">
+              <p className="h-6 text-sm font-bold">お題画像</p>
+              <div className="mt-2 h-[260px] w-full sm:h-[300px]">
+                <img
+                  src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
+                  alt="target"
+                  className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                />
               </div>
-
-              <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="h-6 text-sm font-bold">生成画像</p>
-                <div className="mt-2 flex-1">
-                  <Podium entries={sortedScores} myUid={user?.uid} />
+              {round.reveal?.gmPromptPublic ? (
+                <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                  <p className="text-xs font-bold">正解プロンプト</p>
+                  <p className="mt-1 font-mono text-xs font-semibold">
+                    {round.reveal.gmPromptPublic}
+                  </p>
                 </div>
+              ) : null}
+            </div>
+
+            <div className="lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+              <p className="h-6 text-sm font-bold">生成画像</p>
+              <div className="mt-2 flex-1">
+                <Podium
+                  entries={sortedScores}
+                  myUid={user?.uid}
+                  myEntryFooter={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setShowJudgeReason(true)}
+                      disabled={!myLatestAttempt}
+                      className="w-full bg-white"
+                    >
+                      採点根拠を見る
+                    </Button>
+                  }
+                />
               </div>
             </div>
-          </Card>
+          </div>
+        </Card>
+      </section>
+    </main>
 
-          {isResultsPhase ? (
-            <Card className="bg-white p-4">
-              <h2 className="text-lg">あなたの採点根拠</h2>
+      {showJudgeReason ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6"
+          onClick={() => setShowJudgeReason(false)}
+        >
+          <Card
+            className="w-full max-w-xl bg-white p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em]">Judge Note</p>
+                <h2 className="mt-1 text-2xl md:text-3xl">あなたの採点根拠</h2>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowJudgeReason(false)}
+                className="h-11 w-11 p-0"
+                aria-label="採点根拠を閉じる"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="mt-4 max-h-[min(60vh,420px)] overflow-y-auto rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-4 text-sm font-semibold">
               {myLatestAttempt ? (
-                <div className="mt-2 text-sm font-semibold">
+                <>
                   {myLatestAttempt.matchedElements?.length ? (
-                    <p className="text-[var(--pmb-green)]">一致: {myLatestAttempt.matchedElements.join(" / ")}</p>
+                    <p className="text-[var(--pmb-green)]">
+                      一致: {myLatestAttempt.matchedElements.join(" / ")}
+                    </p>
                   ) : null}
                   {myLatestAttempt.missingElements?.length ? (
                     <p className="mt-1 text-[var(--pmb-red)]">
@@ -229,16 +289,14 @@ export default function ResultsPage() {
                   {myLatestAttempt.judgeNote ? (
                     <p className="mt-1">{myLatestAttempt.judgeNote}</p>
                   ) : null}
-                </div>
+                </>
               ) : (
-                <p className="mt-2 text-sm font-semibold">
-                  このラウンドの採点根拠はまだありません。
-                </p>
+                <p>このラウンドの採点根拠はまだありません。</p>
               )}
-            </Card>
-          ) : null}
+            </div>
+          </Card>
         </div>
-      </section>
-    </main>
+      ) : null}
+    </>
   );
 }

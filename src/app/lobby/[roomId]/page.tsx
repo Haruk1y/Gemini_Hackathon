@@ -225,7 +225,7 @@ function SwipeValuePicker({
         onWheel={onWheel}
         onKeyDown={onKeyDown}
         className={[
-          "relative mt-2 h-[74px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
+          "relative mt-2 h-[88px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
           "touch-none cursor-ns-resize shadow-[4px_4px_0_var(--pmb-ink)]",
           "hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)]",
@@ -238,19 +238,21 @@ function SwipeValuePicker({
         aria-valuetext={`${selectedOption.label} ${selectedOption.unitLabel}`}
         role="spinbutton"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
+        <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
           {previousOption ? `${previousOption.label} ${previousOption.unitLabel}` : ""}
         </span>
 
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5">
-          <ChevronsUpDown className="h-4 w-4" />
-          <span className="text-3xl font-black leading-none">{selectedOption.label}</span>
-          <span className="text-[11px] font-black uppercase tracking-[0.18em]">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2">
+          <ChevronsUpDown className="h-4 w-4 shrink-0" />
+          <span className="text-[2.55rem] font-black leading-none tracking-[-0.04em]">
+            {selectedOption.label}
+          </span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em]">
             {selectedOption.unitLabel}
           </span>
         </span>
 
-        <span className="pointer-events-none absolute inset-x-0 bottom-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
           {nextOption ? `${nextOption.label} ${nextOption.unitLabel}` : ""}
         </span>
       </button>
@@ -545,18 +547,6 @@ export default function LobbyPage() {
       return actionError;
     }
 
-    if (isGenerating) {
-      return "お題画像を生成中です。完了すると自動でラウンドへ移動します。";
-    }
-
-    if (me?.isHost && settingsPending) {
-      return "ルール反映が終わると開始できます。";
-    }
-
-    if (!me?.isHost) {
-      return "ホストの開始を待っています。";
-    }
-
     return null;
   })();
 
@@ -601,14 +591,14 @@ export default function LobbyPage() {
             </div>
           </div>
 
-          <div className="flex items-start gap-2">
-            <div>
+          <div className="flex self-stretch items-stretch gap-2">
+            <div className="flex">
               <Button
                 type="button"
                 variant="ghost"
                 onClick={onLeave}
                 disabled={actionBusy !== null}
-                className="h-12 px-4 text-sm"
+                className="h-full min-h-[62px] px-5 text-base"
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 退出
@@ -695,9 +685,7 @@ export default function LobbyPage() {
               <p
                 className={[
                   "mt-2 text-xs font-semibold",
-                  actionError
-                    ? "text-[var(--pmb-red)]"
-                    : "text-[color:color-mix(in_srgb,var(--pmb-ink)_74%,white)]",
+                  "text-[var(--pmb-red)]",
                 ].join(" ")}
               >
                 {lobbyStatusMessage}
@@ -713,7 +701,7 @@ export default function LobbyPage() {
             </h2>
             <div className="flex flex-wrap justify-end gap-1.5">
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">{currentMode.label}</Badge>
-              <Badge className="bg-[var(--pmb-blue)] px-2.5 py-0.5 text-[11px]">
+              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                 {currentTotalRounds} ROUNDS
               </Badge>
               <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
@@ -752,25 +740,25 @@ export default function LobbyPage() {
                   onClick={() => setDraftGameMode(mode.mode)}
                   disabled={!hostCanEdit}
                   className={[
-                    "rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150",
+                    "flex h-full flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150",
                     "disabled:cursor-not-allowed disabled:opacity-70",
                     selected
                       ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
                       : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
                   ].join(" ")}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex min-h-[68px] items-start justify-between gap-3">
+                    <div className="flex min-h-[52px] flex-col justify-start">
                       <p className="text-[11px] font-black uppercase tracking-[0.18em]">
                         {mode.mode === "classic" ? "Classic" : "Memory"}
                       </p>
-                      <h3 className="mt-1 text-lg font-black">{mode.label}</h3>
+                      <h3 className="mt-1 text-lg font-black leading-tight">{mode.label}</h3>
                     </div>
-                    <div className="rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
+                    <div className="shrink-0 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
                       <Icon className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="mt-2 text-[13px] font-semibold leading-[1.35]">
+                  <p className="mt-2 min-h-[2.7rem] text-[13px] font-semibold leading-[1.35]">
                     {mode.description}
                   </p>
                 </button>

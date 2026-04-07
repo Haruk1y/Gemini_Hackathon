@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState } from "react";
-import { Brain, Eye, EyeOff, LoaderCircle, LogOut, Send } from "lucide-react";
+import { EyeOff, LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -164,6 +164,9 @@ export default function RoundPage() {
     latestAttempt &&
       (latestAttempt.status === "SCORING" || latestAttempt.score == null),
   );
+  const hasGeneratedImage = Boolean(
+    attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
+  );
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
   const autoEndingSoon = everyoneScored && isRoundLive;
   const isPreviewPhase =
@@ -172,7 +175,8 @@ export default function RoundPage() {
     previewSecondsLeft !== null &&
     previewSecondsLeft > 0;
   const promptLocked = isPreviewPhase;
-  const shouldShowTargetImage = currentGameMode === "classic" || isPreviewPhase;
+  const shouldShowTargetImage =
+    currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
 
@@ -273,9 +277,6 @@ export default function RoundPage() {
                 {currentMode.label}
               </Badge>
             </div>
-            <p className="mt-2 text-sm font-semibold leading-relaxed">
-              {currentMode.roundBanner}
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isPreviewPhase ? (
@@ -308,28 +309,6 @@ export default function RoundPage() {
             </Button>
           </div>
         </div>
-
-        <div className="mt-4 rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {isPreviewPhase ? (
-              <>
-                <Brain className="h-5 w-5" />
-                <p className="text-lg font-black">記憶タイム</p>
-              </>
-            ) : (
-              <>
-                <Eye className="h-5 w-5" />
-                <p className="text-lg font-black">プロンプト作成タイム</p>
-              </>
-            )}
-          </div>
-          <p className="mt-2 text-sm font-semibold leading-relaxed">
-            {isPreviewPhase
-              ? `あと${previewSecondsLeft ?? MEMORY_PREVIEW_SECONDS}秒だけ見られます。画像を覚えたら入力フェーズが始まります。`
-              : "見えた情報をもとに、最も近い画像になるプロンプトを1回で作ろう。"}
-          </p>
-        </div>
-
         <h2 className="mt-4 mb-2 text-lg">プロンプトを入力しよう！</h2>
         <Textarea
           value={prompt}
@@ -370,11 +349,6 @@ export default function RoundPage() {
             試行残り {attemptsLeft}
           </Card>
         </div>
-        <p className="mt-2 text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
-          {isPreviewPhase
-            ? "プレビュー終了後に入力と送信が解放されます。"
-            : "このラウンドで画像を生成できるのは1回だけです。"}
-        </p>
         {feedback ? (
           <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p>
         ) : null}
@@ -414,12 +388,7 @@ export default function RoundPage() {
               <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4">
                 <EyeOff className="h-8 w-8" />
               </div>
-              <div>
-                <p className="text-lg font-black">ここからは記憶だけで勝負</p>
-                <p className="mt-2 text-sm font-semibold leading-relaxed">
-                  画像はもう隠れました。思い出した要素を英語プロンプトに落とし込もう。
-                </p>
-              </div>
+              <p className="text-lg font-black">ここからは記憶だけで勝負</p>
             </div>
           )}
         </Card>

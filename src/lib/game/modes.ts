@@ -1,7 +1,7 @@
 import type { GameMode, RoomSettings } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
-export const MEMORY_PREVIEW_SECONDS = 5;
+export const MEMORY_PREVIEW_SECONDS = 10;
 
 interface GameModeDefinition {
   mode: GameMode;
@@ -9,7 +9,6 @@ interface GameModeDefinition {
   shortLabel: string;
   description: string;
   lobbyHint: string;
-  roundBanner: string;
 }
 
 export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinition> = {
@@ -19,15 +18,13 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinition> = {
     shortLabel: "通常",
     description: "お題画像をみながらプロンプトを作る基本モード。",
     lobbyHint: "お題画像をずっと見ながら推理",
-    roundBanner: "お題画像を見ながら、最も近い1枚を狙おう。",
   },
   memory: {
     mode: "memory",
     label: "記憶勝負",
     shortLabel: "記憶",
-    description: "お題画像を見れるのは最初の5秒だけ！記憶で勝負するモード。",
-    lobbyHint: "最初の5秒だけ見て、その後は記憶で勝負",
-    roundBanner: "最初の5秒で目に焼き付けて、その後は記憶だけで再現しよう。",
+    description: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
+    lobbyHint: "最初の10秒だけ見て、その後は記憶で勝負",
   },
 };
 
