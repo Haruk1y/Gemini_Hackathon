@@ -1,19 +1,18 @@
 import { roomOnlySchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
-import { roomRef, playerRef } from "@/lib/api/paths";
-import { startRound, resetRoomForReplay } from "@/lib/game/round-service";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
+import { resetRoomForReplay, startRound } from "@/lib/game/round-service";
+import { loadRoomState } from "@/lib/server/room-state";
 import { AppError } from "@/lib/utils/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
-  const roomSnapshot = await roomRef(body.roomId).get();
-  const room = requireRoom(roomSnapshot);
+  const state = await loadRoomState(body.roomId);
+  const room = requireRoom(state?.room);
+  const player = requirePlayer(state?.players[auth.uid]);
 
-  const playerSnapshot = await playerRef(body.roomId, auth.uid).get();
-  const player = requirePlayer(playerSnapshot);
   if (!player.isHost) {
     throw new AppError("NOT_HOST", "Only host can start next round", false, 403);
   }

@@ -1,20 +1,20 @@
-import type { DocumentSnapshot } from "@google-cloud/firestore";
-
 import type { PlayerDoc, RoomDoc } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 
-export function requireRoom(snapshot: DocumentSnapshot): RoomDoc {
-  if (!snapshot.exists) {
+export function requireRoom(room: RoomDoc | null | undefined): RoomDoc {
+  if (!room) {
     throw new AppError("ROOM_NOT_FOUND", "Room does not exist", false, 404);
   }
-  return snapshot.data() as RoomDoc;
+
+  return room;
 }
 
-export function requirePlayer(snapshot: DocumentSnapshot): PlayerDoc {
-  if (!snapshot.exists) {
+export function requirePlayer(player: PlayerDoc | null | undefined): PlayerDoc {
+  if (!player) {
     throw new AppError("PLAYER_NOT_FOUND", "Player does not exist", false, 404);
   }
-  return snapshot.data() as PlayerDoc;
+
+  return player;
 }
 
 export function assertHost(player: PlayerDoc): void {

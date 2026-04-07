@@ -315,17 +315,27 @@ export default function LobbyPage() {
   const [draftTotalRounds, setDraftTotalRounds] = useState(3);
   const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
   const [draftsReady, setDraftsReady] = useState(false);
+  const [optimisticReady, setOptimisticReady] = useState<boolean | null>(null);
   const saveSequenceRef = useRef(0);
 
   const room = snapshot.room;
   const players = snapshot.players;
-  const me = players.find((player) => player.uid === user?.uid) ?? null;
+  const displayPlayers = players.map((player) =>
+    player.uid === user?.uid && optimisticReady !== null
+      ? { ...player, ready: optimisticReady }
+      : player,
+  );
+  const me = displayPlayers.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
   const currentTotalRounds = room?.settings?.totalRounds ?? 3;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
-  const currentMode = getGameModeDefinition(currentGameMode);
-  const readyCount = players.filter((player) => player.ready).length;
-  const everyoneReady = players.length > 0 && readyCount === players.length;
+  const displayGameMode = me?.isHost && draftsReady ? draftGameMode : currentGameMode;
+  const displayTotalRounds = me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
+  const displayRoundSeconds =
+    me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
+  const currentMode = getGameModeDefinition(displayGameMode);
+  const readyCount = displayPlayers.filter((player) => player.ready).length;
+  const everyoneReady = displayPlayers.length > 0 && readyCount === displayPlayers.length;
   const roomStatus = room?.status ?? null;
   const isGenerating = roomStatus === "GENERATING_ROUND";
   const hostCanEdit = Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
@@ -343,7 +353,7 @@ export default function LobbyPage() {
   const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
     Boolean(me?.isHost) &&
-    players.length >= 1 &&
+    displayPlayers.length >= 1 &&
     everyoneReady &&
     !isGenerating &&
     actionBusy === null &&
@@ -366,6 +376,14 @@ export default function LobbyPage() {
       router.replace("/");
     }
   }, [roomId, roomStatus, router]);
+
+  useEffect(() => {
+    if (optimisticReady === null) return;
+    const actualReady = players.find((player) => player.uid === user?.uid)?.ready ?? null;
+    if (actualReady === optimisticReady) {
+      setOptimisticReady(null);
+    }
+  }, [optimisticReady, players, user?.uid]);
 
   useEffect(() => {
     if (!roomStatus) return;
@@ -467,12 +485,15 @@ export default function LobbyPage() {
 
     setActionBusy("ready");
     setActionError(null);
+    const nextReady = !me.ready;
+    setOptimisticReady(nextReady);
     try {
       await apiPost("/api/rooms/ready", {
         roomId,
-        ready: !me.ready,
+        ready: nextReady,
       });
     } catch (error) {
+      setOptimisticReady(null);
       if (error instanceof ApiClientError) {
         setActionError(error.message);
       } else {
@@ -621,38 +642,38 @@ export default function LobbyPage() {
                   : "bg-[var(--pmb-base)] text-[var(--pmb-ink)]"
               }
             >
-              {players.length > 0 ? `${readyCount}/${players.length} READY` : "0 READY"}
+              {displayPlayers.length > 0 ? `${readyCount}/${displayPlayers.length} READY` : "0 READY"}
             </Badge>
           </div>
 
           <div className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-            {players.map((player) => (
-              <div
-                key={player.uid}
-                className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
-              >
-                <div className="min-w-0 flex items-center gap-2">
-                  <span className="truncate text-sm font-black md:text-[15px]">
-                    {player.displayName}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {player.uid === user?.uid ? (
-                      <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
-                    ) : null}
-                    {player.isHost ? (
-                      <Badge className="px-2 py-0 text-[10px]">HOST</Badge>
-                    ) : null}
+            {displayPlayers.map((player) => (
+                <div
+                  key={player.uid}
+                  className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="truncate text-sm font-black md:text-[15px]">
+                      {player.displayName}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {player.uid === user?.uid ? (
+                        <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
+                      ) : null}
+                      {player.isHost ? (
+                        <Badge className="px-2 py-0 text-[10px]">HOST</Badge>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
 
-                <PlayerReadyChip
-                  ready={player.ready}
-                  isSelf={player.uid === user?.uid}
-                  pending={player.uid === user?.uid && actionBusy === "ready"}
-                  disabled={isGenerating}
-                  onClick={onToggleReady}
-                />
-              </div>
+                  <PlayerReadyChip
+                    ready={player.ready}
+                    isSelf={player.uid === user?.uid}
+                    pending={player.uid === user?.uid && actionBusy === "ready"}
+                    disabled={isGenerating}
+                    onClick={onToggleReady}
+                  />
+                </div>
             ))}
           </div>
 
@@ -702,13 +723,13 @@ export default function LobbyPage() {
             <div className="flex flex-wrap justify-end gap-1.5">
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">{currentMode.label}</Badge>
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {currentTotalRounds} ROUNDS
+                {displayTotalRounds} ROUNDS
               </Badge>
               <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
-                {currentRoundSeconds} SEC
+                {displayRoundSeconds} SEC
               </Badge>
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {players.length} PLAYERS
+                {displayPlayers.length} PLAYERS
               </Badge>
             </div>
           </div>

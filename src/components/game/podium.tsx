@@ -29,13 +29,13 @@ export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
   }
 
   return (
-    <div className="w-full overflow-x-auto pb-1">
-      <div className="flex min-w-max gap-3">
+    <div className="h-full min-h-0 w-full overflow-x-auto overflow-y-hidden px-1 pt-1 pb-4">
+      <div className="flex min-w-max items-start gap-3">
         {sorted.map((entry, index) => (
           <div
             key={entry.uid}
             className={[
-              "relative flex w-64 shrink-0 flex-col rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
+              "relative flex w-60 shrink-0 flex-col rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-2.5 text-center shadow-[8px_8px_0_var(--pmb-ink)]",
               entry.uid === myUid ? "bg-[var(--pmb-blue)]" : "",
             ].join(" ")}
           >
@@ -57,7 +57,7 @@ export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
             <p className="font-mono text-3xl font-black">{entry.bestScore}</p>
             <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 text-left">
               <p className="text-[10px] font-black uppercase tracking-wide">Prompt</p>
-              <p className="mt-1 max-h-16 overflow-y-auto font-mono text-[11px] font-semibold leading-tight">
+              <p className="mt-1 h-16 overflow-y-auto font-mono text-[11px] font-semibold leading-tight">
                 {entry.bestPromptPublic || "未記録"}
               </p>
             </div>

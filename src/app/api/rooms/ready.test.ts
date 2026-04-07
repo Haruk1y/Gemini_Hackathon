@@ -1,29 +1,51 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const roomGet = vi.fn();
-const playerGet = vi.fn();
-const playerUpdate = vi.fn();
+import { createRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
+import { dateAfterHours } from "@/lib/utils/time";
 
 vi.mock("@/lib/auth/verify-session", () => ({
   verifySessionCookie: vi.fn(() => ({ uid: "anon_1", issuedAt: Date.now() })),
 }));
 
-vi.mock("@/lib/api/paths", () => ({
-  roomRef: vi.fn(() => ({
-    get: roomGet,
-  })),
-  playerRef: vi.fn(() => ({
-    get: playerGet,
-    update: playerUpdate,
-  })),
-}));
+function createLobbyState() {
+  const now = new Date("2026-04-07T10:00:00.000Z");
+  const state = createRoomState({
+    roomId: "ROOM1",
+    code: "ROOM1",
+    createdAt: now,
+    expiresAt: dateAfterHours(24),
+    createdByUid: "anon_1",
+    status: "LOBBY",
+    currentRoundId: null,
+    roundIndex: 0,
+    settings: {
+      maxPlayers: 8,
+      roundSeconds: 60,
+      maxAttempts: 1,
+      aspectRatio: "1:1",
+      imageModel: "flash",
+      hintLimit: 0,
+      totalRounds: 3,
+      gameMode: "classic",
+    },
+    ui: {
+      theme: "neo-brutal",
+    },
+  });
 
-function makeSnapshot<T>(data: T) {
-  return {
-    exists: true,
-    data: () => data,
+  state.players.anon_1 = {
+    uid: "anon_1",
+    displayName: "Alice",
+    isHost: true,
+    joinedAt: now,
+    expiresAt: dateAfterHours(24),
+    lastSeenAt: now,
+    ready: true,
+    totalScore: 0,
   };
+
+  return state;
 }
 
 async function postReady(body: { roomId: string; ready: boolean }) {
@@ -42,15 +64,11 @@ async function postReady(body: { roomId: string; ready: boolean }) {
 
 describe("POST /api/rooms/ready", () => {
   beforeEach(() => {
-    vi.resetModules();
-    roomGet.mockReset();
-    playerGet.mockReset();
-    playerUpdate.mockReset();
+    roomStateTest.resetMemoryStore();
   });
 
   it("toggles a ready player back to wait while in lobby", async () => {
-    roomGet.mockResolvedValue(makeSnapshot({ status: "LOBBY" }));
-    playerGet.mockResolvedValue(makeSnapshot({ ready: true }));
+    await saveRoomState(createLobbyState());
 
     const response = await postReady({
       roomId: "ROOM1",
@@ -63,15 +81,10 @@ describe("POST /api/rooms/ready", () => {
       updated: true,
       ready: false,
     });
-    expect(playerUpdate).toHaveBeenCalledWith({
-      ready: false,
-      lastSeenAt: expect.any(Date),
-    });
   });
 
   it("returns a no-op when the player is already in the requested ready state", async () => {
-    roomGet.mockResolvedValue(makeSnapshot({ status: "LOBBY" }));
-    playerGet.mockResolvedValue(makeSnapshot({ ready: true }));
+    await saveRoomState(createLobbyState());
 
     const response = await postReady({
       roomId: "ROOM1",
@@ -84,12 +97,12 @@ describe("POST /api/rooms/ready", () => {
       updated: false,
       ready: true,
     });
-    expect(playerUpdate).not.toHaveBeenCalled();
   });
 
   it("rejects ready changes outside the lobby", async () => {
-    roomGet.mockResolvedValue(makeSnapshot({ status: "IN_ROUND" }));
-    playerGet.mockResolvedValue(makeSnapshot({ ready: true }));
+    const state = createLobbyState();
+    state.room.status = "IN_ROUND";
+    await saveRoomState(state);
 
     const response = await postReady({
       roomId: "ROOM1",
@@ -103,6 +116,5 @@ describe("POST /api/rooms/ready", () => {
         code: "VALIDATION_ERROR",
       },
     });
-    expect(playerUpdate).not.toHaveBeenCalled();
   });
 });

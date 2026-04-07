@@ -1,4 +1,4 @@
-import { getAdminStorage, getStorageBucketName } from "@/lib/google-cloud/admin";
+import { del, list, put } from "@vercel/blob";
 
 interface UploadParams {
   path: string;
@@ -6,26 +6,43 @@ interface UploadParams {
   mimeType: string;
 }
 
+function hasBlobToken() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
+
 export async function uploadImageToStorage({
   path,
   buffer,
   mimeType,
 }: UploadParams): Promise<string> {
-  const bucket = getAdminStorage().bucket(getStorageBucketName());
-  const file = bucket.file(path);
-
-  await file.save(buffer, {
+  const blob = await put(path, buffer, {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: mimeType,
-    resumable: false,
-    metadata: {
-      cacheControl: "public, max-age=31536000, immutable",
-    },
+    cacheControlMaxAge: 60 * 60 * 24 * 365,
   });
 
-  const [url] = await file.getSignedUrl({
-    action: "read",
-    expires: "2500-01-01",
-  });
+  return blob.url;
+}
 
-  return url;
+export async function deleteStoragePrefix(prefix: string): Promise<void> {
+  if (!hasBlobToken()) {
+    return;
+  }
+
+  let cursor: string | undefined;
+  do {
+    const result = await list({
+      prefix,
+      cursor,
+      limit: 1000,
+    });
+
+    if (result.blobs.length > 0) {
+      await del(result.blobs.map((blob) => blob.pathname));
+    }
+
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
 }

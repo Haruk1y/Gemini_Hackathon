@@ -1,72 +1,68 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-const roomRef = vi.fn();
-const playerRef = vi.fn();
-const playersRef = vi.fn();
+import { updateRoomSettings } from "@/lib/game/room-service";
+import { createRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
+import { dateAfterHours } from "@/lib/utils/time";
 
-vi.mock("@/lib/api/paths", () => ({
-  roomRef,
-  playerRef,
-  playersRef,
-}));
+function createBaseState() {
+  const now = new Date("2026-04-07T10:00:00.000Z");
+  const state = createRoomState({
+    roomId: "ROOM1",
+    code: "ROOM1",
+    createdAt: now,
+    expiresAt: dateAfterHours(24),
+    createdByUid: "host",
+    status: "LOBBY",
+    currentRoundId: null,
+    roundIndex: 0,
+    settings: {
+      maxPlayers: 8,
+      roundSeconds: 60,
+      maxAttempts: 1,
+      aspectRatio: "1:1",
+      imageModel: "flash",
+      hintLimit: 0,
+      totalRounds: 3,
+      gameMode: "classic",
+    },
+    ui: {
+      theme: "neo-brutal",
+    },
+  });
 
-vi.mock("@/lib/google-cloud/admin", () => ({
-  getAdminDb: vi.fn(() => ({})),
-}));
-
-function doc<T>(value: T) {
-  return {
-    exists: true,
-    data: () => value,
+  state.players.host = {
+    uid: "host",
+    displayName: "Host",
+    isHost: true,
+    joinedAt: now,
+    expiresAt: dateAfterHours(24),
+    lastSeenAt: now,
+    ready: true,
+    totalScore: 0,
   };
+
+  state.players.guest = {
+    uid: "guest",
+    displayName: "Guest",
+    isHost: false,
+    joinedAt: now,
+    expiresAt: dateAfterHours(24),
+    lastSeenAt: now,
+    ready: true,
+    totalScore: 0,
+  };
+
+  return state;
 }
-
-const baseRoom = {
-  roomId: "ROOM1",
-  code: "ROOM1",
-  status: "LOBBY" as const,
-  currentRoundId: null,
-  roundIndex: 0,
-  settings: {
-    maxPlayers: 8,
-    roundSeconds: 60,
-    maxAttempts: 1,
-    aspectRatio: "1:1" as const,
-    imageModel: "flash" as const,
-    hintLimit: 0,
-    totalRounds: 3,
-    gameMode: "classic" as const,
-  },
-};
-
-const hostPlayer = {
-  uid: "host",
-  displayName: "Host",
-  isHost: true,
-  ready: true,
-  totalScore: 0,
-};
 
 describe("updateRoomSettings", () => {
   beforeEach(() => {
-    vi.resetModules();
-    roomRef.mockReset();
-    playerRef.mockReset();
-    playersRef.mockReset();
+    roomStateTest.resetMemoryStore();
   });
 
   it("allows the host to update settings in the lobby", async () => {
-    const roomGet = vi.fn().mockResolvedValue(doc(baseRoom));
-    const roomUpdate = vi.fn().mockResolvedValue(undefined);
-    roomRef.mockReturnValue({
-      get: roomGet,
-      update: roomUpdate,
-    });
-    playerRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(hostPlayer)),
-    });
+    await saveRoomState(createBaseState());
 
-    const { updateRoomSettings } = await import("@/lib/game/room-service");
     const settings = await updateRoomSettings({
       roomId: "ROOM1",
       uid: "host",
@@ -77,35 +73,15 @@ describe("updateRoomSettings", () => {
       },
     });
 
-    expect(roomUpdate).toHaveBeenCalledWith({
-      settings: expect.objectContaining({
-        gameMode: "memory",
-        totalRounds: 3,
-        roundSeconds: 45,
-        maxAttempts: 1,
-        hintLimit: 0,
-      }),
-    });
     expect(settings.gameMode).toBe("memory");
     expect(settings.totalRounds).toBe(3);
     expect(settings.roundSeconds).toBe(45);
+    expect(settings.maxAttempts).toBe(1);
+    expect(settings.hintLimit).toBe(0);
   });
 
   it("rejects non-host players", async () => {
-    roomRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(baseRoom)),
-      update: vi.fn(),
-    });
-    playerRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(
-        doc({
-          ...hostPlayer,
-          isHost: false,
-        }),
-      ),
-    });
-
-    const { updateRoomSettings } = await import("@/lib/game/room-service");
+    await saveRoomState(createBaseState());
 
     await expect(
       updateRoomSettings({
@@ -124,20 +100,9 @@ describe("updateRoomSettings", () => {
   });
 
   it("rejects updates outside the lobby", async () => {
-    roomRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(
-        doc({
-          ...baseRoom,
-          status: "IN_ROUND" as const,
-        }),
-      ),
-      update: vi.fn(),
-    });
-    playerRef.mockReturnValue({
-      get: vi.fn().mockResolvedValue(doc(hostPlayer)),
-    });
-
-    const { updateRoomSettings } = await import("@/lib/game/room-service");
+    const state = createBaseState();
+    state.room.status = "IN_ROUND";
+    await saveRoomState(state);
 
     await expect(
       updateRoomSettings({

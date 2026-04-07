@@ -41,7 +41,6 @@ export interface RoundData {
   promptStartsAt?: unknown;
   gmTags?: string[];
   reveal?: {
-    targetCaption?: string;
     gmPromptPublic?: string;
   };
   endsAt: unknown;
@@ -70,7 +69,6 @@ export interface AttemptData {
     imageUrl: string;
     score: number | null;
     prompt: string;
-    captionText?: string;
     status?: "SCORING" | "DONE";
     matchedElements?: string[];
     missingElements?: string[];
@@ -197,7 +195,6 @@ function normalizeRoundData(value: unknown): RoundData | null {
       : undefined,
     reveal: isRecord(value.reveal)
       ? {
-          targetCaption: asString(value.reveal.targetCaption) ?? undefined,
           gmPromptPublic: asString(value.reveal.gmPromptPublic) ?? undefined,
         }
       : undefined,
@@ -252,7 +249,6 @@ function normalizeAttempts(value: unknown): AttemptData | null {
             imageUrl: asString(attempt.imageUrl) ?? "",
             score: typeof attempt.score === "number" ? attempt.score : null,
             prompt: asString(attempt.prompt) ?? "",
-            captionText: asString(attempt.captionText) ?? undefined,
             status: normalizeAttemptStatus(attempt.status),
             matchedElements: Array.isArray(attempt.matchedElements)
               ? attempt.matchedElements.filter((item): item is string => typeof item === "string")
@@ -289,27 +285,6 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
   };
 }
 
-function mergeSnapshots(current: RoomSyncSnapshot, patch: RoomSyncSnapshot): RoomSyncSnapshot {
-  return {
-    room: patch.room ?? current.room,
-    players: patch.players.length > 0 ? patch.players : current.players,
-    round: patch.round ?? current.round,
-    scores: patch.scores.length > 0 ? patch.scores : current.scores,
-    attempts: patch.attempts ?? current.attempts,
-    playerCount:
-      patch.playerCount ?? current.playerCount ?? patch.players.length ?? current.players.length,
-  };
-}
-
-function parsePayload(data: string): unknown {
-  if (!data) return null;
-  try {
-    return JSON.parse(data);
-  } catch {
-    return { message: data };
-  }
-}
-
 export function useRoomSync(params: {
   roomId: string;
   view: "lobby" | "round" | "results" | "transition";
@@ -325,78 +300,75 @@ export function useRoomSync(params: {
       return;
     }
 
-    const url = `/api/rooms/${encodeURIComponent(params.roomId)}/events?view=${encodeURIComponent(
-      params.view,
-    )}`;
-    const eventSource = new EventSource(url, { withCredentials: true });
     let disposed = false;
+    let timerId: number | null = null;
+    let version = -1;
+    const intervalMs = params.view === "lobby" || params.view === "transition" ? 250 : 500;
 
-    const applySnapshot = (value: unknown, replace = false) => {
-      if (disposed) return;
-      const normalized = normalizeSnapshot(value);
-      setSnapshot((current) => (replace ? normalized : mergeSnapshots(current, normalized)));
-    };
+    const poll = async () => {
+      const controller = new AbortController();
+      try {
+        const response = await fetch(
+          `/api/rooms/${encodeURIComponent(params.roomId)}/snapshot?view=${encodeURIComponent(
+            params.view,
+          )}&since=${encodeURIComponent(String(version))}`,
+          {
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
 
-    const handleMessage = (event: MessageEvent<string>) => {
-      const payload = parsePayload(event.data);
-      if (!payload) return;
+        if (disposed) return;
 
-      if (isRecord(payload) && payload.type === "snapshot") {
-        applySnapshot(payload.snapshot ?? payload.data ?? payload, true);
-        return;
-      }
+        if (response.status === 204) {
+          setConnectionState("open");
+          setError(null);
+          return;
+        }
 
-      if (isRecord(payload) && payload.type === "patch") {
-        applySnapshot(payload.patch ?? payload.data ?? payload, false);
-        return;
-      }
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              ok?: boolean;
+              version?: unknown;
+              snapshot?: unknown;
+              error?: { message?: unknown };
+            }
+          | null;
 
-      applySnapshot(payload, false);
-    };
+        if (!response.ok || !payload?.ok) {
+          throw new Error(
+            typeof payload?.error?.message === "string"
+              ? payload.error.message
+              : "snapshot polling failed",
+          );
+        }
 
-    const handleNamedEvent = (event: MessageEvent<string>) => {
-      const payload = parsePayload(event.data);
-      if (!payload) return;
-
-      if (event.type === "snapshot") {
-        applySnapshot(payload, true);
-        return;
-      }
-
-      if (event.type === "patch" || event.type === "room" || event.type === "players" || event.type === "round" || event.type === "scores" || event.type === "attempts") {
-        applySnapshot({ [event.type]: payload }, false);
-        return;
-      }
-
-      handleMessage(event);
-    };
-
-    eventSource.onopen = () => {
-      if (!disposed) {
+        version = typeof payload.version === "number" ? payload.version : version;
+        setSnapshot(normalizeSnapshot(payload.snapshot));
         setConnectionState("open");
         setError(null);
-      }
-    };
-
-    eventSource.onmessage = handleMessage;
-    eventSource.addEventListener("snapshot", handleNamedEvent as EventListener);
-    eventSource.addEventListener("patch", handleNamedEvent as EventListener);
-    eventSource.addEventListener("room", handleNamedEvent as EventListener);
-    eventSource.addEventListener("players", handleNamedEvent as EventListener);
-    eventSource.addEventListener("round", handleNamedEvent as EventListener);
-    eventSource.addEventListener("scores", handleNamedEvent as EventListener);
-    eventSource.addEventListener("attempts", handleNamedEvent as EventListener);
-
-    eventSource.onerror = () => {
-      if (!disposed) {
+      } catch (pollError) {
+        if (disposed) return;
         setConnectionState((current) => (current === "open" ? "reconnecting" : "connecting"));
-        setError("reconnecting");
+        setError(pollError instanceof Error ? pollError.message : "reconnecting");
+      } finally {
+        if (!disposed) {
+          timerId = window.setTimeout(() => {
+            void poll();
+          }, intervalMs);
+        }
       }
     };
+
+    setConnectionState("connecting");
+    void poll();
 
     return () => {
       disposed = true;
-      eventSource.close();
+      if (timerId) {
+        window.clearTimeout(timerId);
+      }
     };
   }, [enabled, params.roomId, params.view]);
 
