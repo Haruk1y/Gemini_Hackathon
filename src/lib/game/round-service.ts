@@ -14,6 +14,7 @@ import {
   imageToPublicUrl,
 } from "@/lib/gemini/client";
 import { nextRoundId } from "@/lib/game/defaults";
+import { getRoundSchedule } from "@/lib/game/modes";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
@@ -134,6 +135,7 @@ export async function startRound(params: {
     createdAt: now,
     expiresAt,
     startedAt: null,
+    promptStartsAt: null,
     endsAt: null,
     targetImageUrl: "",
     targetThumbUrl: "",
@@ -170,11 +172,16 @@ export async function startRound(params: {
     const targetCaptionText = normalizeCaption(targetCaptionJson);
 
     const startedAt = new Date();
-    const endsAt = new Date(startedAt.getTime() + room.settings.roundSeconds * 1000);
+    const { promptStartsAt, endsAt } = getRoundSchedule({
+      gameMode: room.settings.gameMode,
+      roundSeconds: room.settings.roundSeconds,
+      startedAt,
+    });
 
     await roundRef(params.roomId, roundId).update({
       status: "IN_ROUND",
       startedAt,
+      promptStartsAt,
       endsAt,
       targetImageUrl,
       targetThumbUrl: targetImageUrl,

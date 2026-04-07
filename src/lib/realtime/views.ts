@@ -6,7 +6,9 @@ import {
   roomRef,
   scoresRef,
 } from "@/lib/api/paths";
+import { isMemoryPreviewActive } from "@/lib/game/modes";
 import { requireRoom } from "@/lib/game/guards";
+import type { RoundPublicDoc } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export type RoomViewName = "lobby" | "round" | "results" | "transition";
@@ -98,8 +100,10 @@ async function buildLobbySnapshot(roomId: string, uid: string) {
       status: room.status,
       currentRoundId: room.currentRoundId,
       settings: {
+        gameMode: room.settings.gameMode,
         roundSeconds: room.settings.roundSeconds,
         maxAttempts: room.settings.maxAttempts,
+        hintLimit: room.settings.hintLimit,
         totalRounds: room.settings.totalRounds,
       },
     },
@@ -122,17 +126,33 @@ async function buildRoundSnapshot(roomId: string, uid: string) {
     currentRoundId ? attemptPrivateRef(roomId, currentRoundId, uid).get() : Promise.resolve(null),
   ]);
 
+  const round = roundSnapshot?.exists ? (roundSnapshot.data() as RoundPublicDoc) : null;
+  const shouldConcealTarget =
+    room.settings.gameMode === "memory" &&
+    round?.status === "IN_ROUND" &&
+    !isMemoryPreviewActive({
+      gameMode: room.settings.gameMode,
+      promptStartsAt: round.promptStartsAt,
+    });
+
   return {
     room: {
       status: room.status,
       currentRoundId: room.currentRoundId,
       settings: {
+        gameMode: room.settings.gameMode,
         roundSeconds: room.settings.roundSeconds,
         maxAttempts: room.settings.maxAttempts,
         hintLimit: room.settings.hintLimit,
       },
     },
-    round: roundSnapshot?.exists ? serializeForClient(roundSnapshot.data()) : null,
+    round: round
+      ? serializeForClient({
+          ...round,
+          targetImageUrl: shouldConcealTarget ? "" : round.targetImageUrl,
+          targetThumbUrl: shouldConcealTarget ? "" : round.targetThumbUrl,
+        })
+      : null,
     scores: scoresSnapshot?.docs.map((entry) => serializeForClient(entry.data())) ?? [],
     attempts: attemptSnapshot?.exists ? serializeForClient(attemptSnapshot.data()) : null,
     playerCount: playersSnapshot.size,
@@ -159,6 +179,7 @@ async function buildResultsSnapshot(roomId: string, uid: string) {
       currentRoundId: room.currentRoundId,
       roundIndex: room.roundIndex,
       settings: {
+        gameMode: room.settings.gameMode,
         totalRounds: room.settings.totalRounds,
       },
     },

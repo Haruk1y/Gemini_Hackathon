@@ -1,7 +1,8 @@
 import { getAdminDb } from "@/lib/google-cloud/admin";
 import { playerRef, playersRef, roomRef } from "@/lib/api/paths";
-import { requirePlayer, requireRoom } from "@/lib/game/guards";
-import type { PlayerDoc } from "@/lib/types/game";
+import { assertHost, requirePlayer, requireRoom } from "@/lib/game/guards";
+import { mergeRoomSettings } from "@/lib/game/defaults";
+import type { PlayerDoc, RoomSettings } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 
 interface HostCandidate {
@@ -34,6 +35,41 @@ export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): v
   if (!everyoneReady) {
     throw new AppError("VALIDATION_ERROR", "All players must be ready", false, 409);
   }
+}
+
+export async function updateRoomSettings(params: {
+  roomId: string;
+  uid: string;
+  settings: Pick<RoomSettings, "gameMode" | "totalRounds">;
+}): Promise<RoomSettings> {
+  const [roomSnapshot, playerSnapshot] = await Promise.all([
+    roomRef(params.roomId).get(),
+    playerRef(params.roomId, params.uid).get(),
+  ]);
+
+  const room = requireRoom(roomSnapshot);
+  const player = requirePlayer(playerSnapshot);
+  assertHost(player);
+
+  if (room.status !== "LOBBY") {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "ルーム設定を変更できるのはロビー中だけです。",
+      false,
+      409,
+    );
+  }
+
+  const settings = mergeRoomSettings({
+    ...room.settings,
+    ...params.settings,
+  });
+
+  await roomRef(params.roomId).update({
+    settings,
+  });
+
+  return settings;
 }
 
 export async function pingRoom(roomId: string, uid: string): Promise<void> {

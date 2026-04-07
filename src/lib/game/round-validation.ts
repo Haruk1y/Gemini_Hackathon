@@ -43,6 +43,11 @@ export async function assertRoundOpen(params: {
     throw new AppError("ROUND_CLOSED", "Round already ended", false, 409);
   }
 
+  const promptStartsAt = parseDate(round.promptStartsAt);
+  if (promptStartsAt && Date.now() < promptStartsAt.getTime()) {
+    throw new AppError("ROUND_CLOSED", "まだプロンプト入力開始前です。", false, 409);
+  }
+
   return {
     room,
     round,

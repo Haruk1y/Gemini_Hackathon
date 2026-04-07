@@ -8,6 +8,7 @@ export type RoomStatus =
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
 
 export type AspectRatio = "1:1" | "16:9" | "9:16";
+export type GameMode = "classic" | "memory";
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -33,6 +34,7 @@ export interface RoomSettings {
   imageModel: "flash";
   hintLimit: number;
   totalRounds: number;
+  gameMode: GameMode;
 }
 
 export interface RoomDoc {
@@ -68,6 +70,7 @@ export interface RoundPublicDoc {
   createdAt: Date;
   expiresAt: Date;
   startedAt: Date | null;
+  promptStartsAt: Date | null;
   endsAt: Date | null;
   targetImageUrl: string;
   targetThumbUrl: string;

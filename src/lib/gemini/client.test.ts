@@ -28,6 +28,7 @@ const settings = {
   imageModel: "flash" as const,
   hintLimit: 0,
   totalRounds: 3,
+  gameMode: "classic" as const,
 };
 
 describe("generateGmPrompt", () => {

@@ -11,11 +11,27 @@ describe("api contracts", () => {
       aspectRatio: "1:1",
       hintLimit: 0,
       totalRounds: 3,
+      gameMode: "classic",
     });
 
     expect(parsed.maxAttempts).toBe(1);
     expect(parsed.hintLimit).toBe(0);
     expect(parsed.roundSeconds).toBe(60);
+    expect(parsed.gameMode).toBe("classic");
+  });
+
+  it("accepts supported game modes", () => {
+    expect(
+      roomSettingsSchema.parse({
+        gameMode: "classic",
+      }).gameMode,
+    ).toBe("classic");
+
+    expect(
+      roomSettingsSchema.parse({
+        gameMode: "memory",
+      }).gameMode,
+    ).toBe("memory");
   });
 
   it("accepts minimum and maximum totalRounds values", () => {
@@ -58,6 +74,14 @@ describe("api contracts", () => {
     expect(() =>
       roomSettingsSchema.parse({
         totalRounds: 6,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unsupported game modes", () => {
+    expect(() =>
+      roomSettingsSchema.parse({
+        gameMode: "speedrun",
       }),
     ).toThrow();
   });

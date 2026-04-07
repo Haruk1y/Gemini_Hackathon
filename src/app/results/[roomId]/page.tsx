@@ -21,6 +21,7 @@ import {
   type ScoreEntry,
   useRoomSync,
 } from "@/lib/client/room-sync";
+import { getGameModeDefinition } from "@/lib/game/modes";
 
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
@@ -93,6 +94,7 @@ export default function ResultsPage() {
   const isResultsPhase = room?.status === "RESULTS";
   const roundIndex = room?.roundIndex ?? 0;
   const totalRounds = room?.settings?.totalRounds ?? 0;
+  const currentMode = getGameModeDefinition(room?.settings?.gameMode ?? "classic");
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
   const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const waitingMessage = useMemo(() => {
@@ -127,7 +129,10 @@ export default function ResultsPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
         <div>
           <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
-          <h1 className="text-4xl leading-none md:text-5xl">ランキング発表</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="text-4xl leading-none md:text-5xl">ランキング発表</h1>
+            <Badge className="bg-white">{currentMode.label}</Badge>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           {isFinalRound ? (
