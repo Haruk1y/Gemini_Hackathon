@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { verifyAuthHeader, type AuthContext } from "@/lib/auth/verify-id-token";
+import { verifySessionCookie, type AuthContext } from "@/lib/auth/verify-session";
 import { AppError, toErrorResponse } from "@/lib/utils/errors";
 
 export type ApiHandler<T> = (ctx: {
@@ -16,10 +16,10 @@ export function ok<T extends Record<string, unknown>>(data: T): NextResponse {
 export function withPostHandler<T>(
   schema: z.ZodType<T>,
   handler: ApiHandler<T>,
-): (request: Request) => Promise<NextResponse> {
-  return async function routeHandler(request: Request): Promise<NextResponse> {
+): (request: NextRequest) => Promise<NextResponse> {
+  return async function routeHandler(request: NextRequest): Promise<NextResponse> {
     try {
-      const auth = await verifyAuthHeader(request.headers.get("authorization"));
+      const auth = verifySessionCookie(request.cookies);
       const json = await request.json();
       const body = schema.parse(json);
       return await handler({ body, auth });

@@ -2,30 +2,44 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 
 import { AppError } from "@/lib/utils/errors";
-import { captionPrompt, gmSystemPrompt, gmUserPrompt, hintPrompt } from "@/lib/gemini/prompts";
+import {
+  captionPrompt,
+  gmSystemPrompt,
+  gmUserPrompt,
+} from "@/lib/gemini/prompts";
 import {
   captionSchema,
   gmPromptSchema,
-  hintSchema,
   visualScoreSchema,
   type CaptionSchema,
   type GmPromptSchema,
-  type HintSchema,
   type VisualScoreSchema,
 } from "@/lib/gemini/schemas";
 import type { AspectRatio, RoomSettings } from "@/lib/types/game";
 
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
-const EMBEDDING_MODEL = "gemini-embedding-001";
-
-const ai = process.env.GEMINI_API_KEY
-  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
-  : null;
-
-const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
 const STRUCTURED_PARSE_ATTEMPTS = 2;
+const IMAGE_GENERATION_ATTEMPTS = 3;
+const GM_PROMPT_ATTEMPTS = 2;
 const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
+const DEFAULT_NEGATIVE_PROMPT =
+  "logo, watermark, text, brand name, famous character, trademark";
+const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
+
+function createClient(): GoogleGenAI | null {
+  if (mockMode) {
+    return null;
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+
+  return null;
+}
+
+let ai: GoogleGenAI | null | undefined;
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -87,25 +101,112 @@ function buildStructuredCandidates(parsed: unknown): unknown[] {
   return candidates;
 }
 
-function parseStructuredText<T>(schema: z.ZodType<T>, text: string): T | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
+function parseJsonPayloads(text: string): unknown[] {
+  const candidates: string[] = [];
+  const trimmed = text.trim();
+
+  const pushCandidate = (candidate: string | null | undefined) => {
+    const next = candidate?.trim();
+    if (!next || candidates.includes(next)) return;
+    candidates.push(next);
+  };
+
+  pushCandidate(trimmed);
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  pushCandidate(fencedMatch?.[1]);
+
+  const objectStart = trimmed.indexOf("{");
+  const objectEnd = trimmed.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    pushCandidate(trimmed.slice(objectStart, objectEnd + 1));
   }
 
-  for (const candidate of buildStructuredCandidates(parsed)) {
-    const result = schema.safeParse(candidate);
-    if (result.success) {
-      return result.data;
+  const arrayStart = trimmed.indexOf("[");
+  const arrayEnd = trimmed.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    pushCandidate(trimmed.slice(arrayStart, arrayEnd + 1));
+  }
+
+  return candidates.flatMap((candidate) => {
+    try {
+      return [JSON.parse(candidate)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function normalizeText(value: string, maxLength: number): string {
+  return value.replace(/\s+/g, " ").replace(/^[`"'“”]+|[`"'“”]+$/g, "").trim().slice(0, maxLength);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeText(value, 80);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function deriveTitleFromPrompt(prompt: string): string {
+  const segment =
+    prompt.split(/[.!?。]/)[0]?.split(/,|、/)[0] ??
+    prompt;
+  const normalized = normalizeText(segment, 80);
+  return normalized.length >= 3 ? normalized : "Generated Challenge";
+}
+
+function promptKeywords(prompt: string): string[] {
+  return prompt
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .filter((token) => token.length > 2)
+    .filter((token) => !TOKEN_STOPWORDS.has(token))
+    .slice(0, 6);
+}
+
+function extractPromptText(text: string): string | null {
+  const fenced = text.match(/```(?:text)?\s*([\s\S]*?)```/i)?.[1] ?? text;
+  const withoutPrefix = fenced.replace(/^prompt\s*:\s*/i, "").trim();
+  const normalized = normalizeText(withoutPrefix, 500);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function parseStructuredText<T>(
+  schema: z.ZodType<T>,
+  text: string,
+  coerce?: (candidate: unknown) => T | null,
+): T | null {
+  for (const parsed of parseJsonPayloads(text)) {
+    for (const candidate of buildStructuredCandidates(parsed)) {
+      const result = schema.safeParse(candidate);
+      if (result.success) {
+        return result.data;
+      }
+
+      const normalized = coerce?.(candidate);
+      if (normalized) {
+        return normalized;
+      }
     }
   }
 
   return null;
 }
 
-function responseText(response: { text?: string; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }): string | null {
+function responseText(response: {
+  text?: string;
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+}): string | null {
   const direct = response.text?.trim();
   if (direct) return direct;
 
@@ -118,92 +219,49 @@ function responseText(response: { text?: string; candidates?: Array<{ content?: 
   return combined || null;
 }
 
-function fallbackGmPrompt(): GmPromptSchema {
-  const subjects = [
-    "clockwork owl pilot",
-    "street-food robot chef",
-    "glass-armored knight",
-    "desert fox messenger",
-    "jungle biologist",
-    "floating whale mechanic",
-    "paper samurai",
-    "snowboard penguin racer",
-    "volcanic blacksmith",
-    "tiny astronaut gardener",
-    "festival drummer raccoon",
-    "lantern fish merchant",
-  ];
-  const locations = [
-    "inside an ancient observatory",
-    "at a floating island marketplace",
-    "in a misty bamboo canyon",
-    "on a sunset harbor bridge",
-    "inside a retro train station",
-    "at a crystal cave lake",
-    "in a stormy sky dock",
-    "inside a giant greenhouse",
-    "on a rooftop carnival",
-    "at a snowy mountain outpost",
-  ];
-  const actions = [
-    "repairing a glowing machine",
-    "serving food to travelers",
-    "guiding a small parade",
-    "preparing for a race",
-    "building a wind-powered device",
-    "trading luminous plants",
-    "reading a holographic map",
-    "forging tools with sparks",
-    "conducting a tiny orchestra",
-    "painting a large mural",
-  ];
-  const palettes = [
-    "teal and orange",
-    "magenta and cyan",
-    "lime and red",
-    "cobalt and yellow",
-    "emerald and coral",
-    "indigo and amber",
-  ];
-  const compositions = [
-    "centered medium shot",
-    "wide shot with layered depth",
-    "low-angle heroic framing",
-    "diagonal action composition",
-    "symmetrical front view",
-  ];
+function placeholderUrl(prompt: string): string {
+  const text = encodeURIComponent(prompt.slice(0, 60));
+  return `https://placehold.co/1024x1024/FFF7E6/101010/png?text=${text}`;
+}
 
-  const pick = (values: string[]) => values[Math.floor(Math.random() * values.length)] ?? values[0];
-  const subject = pick(subjects);
-  const location = pick(locations);
-  const action = pick(actions);
-  const palette = pick(palettes);
-  const composition = pick(compositions);
-  const difficulty = 2 + Math.floor(Math.random() * 3);
+function buildGmPromptFromText(promptText: string, aspectRatio: AspectRatio): GmPromptSchema {
+  const prompt =
+    promptText.length >= 30
+      ? promptText
+      : normalizeText(
+          `${promptText}, bold outlines, high saturation palette, clear subject, concrete background, no text, aspect ratio ${aspectRatio}`,
+          500,
+        );
 
-  const title = `${subject.split(" ")[0]} ${location.replace(/^in |^at /, "").split(" ")[0]}`.slice(0, 80);
-  const prompt = [
-    `A ${subject} ${action} ${location}`,
-    "neo-brutal pop sticker illustration",
-    "thick black outlines",
-    `high-saturation ${palette} color palette`,
-    composition,
-    "crisp texture details",
-    "no text",
-  ].join(", ");
+  const tags = uniqueStrings([
+    ...promptKeywords(prompt),
+    "original",
+    aspectRatio.replace(":", "x"),
+  ]).slice(0, 6);
 
-  return {
-    title,
-    difficulty,
-    tags: [subject.split(" ")[0], location.split(" ").slice(-1)[0], palette.split(" and ")[0]]
-      .map((tag) => tag.replace(/[^a-zA-Z0-9_-]/g, ""))
-      .filter(Boolean)
-      .slice(0, 6),
+  return gmPromptSchema.parse({
+    title: deriveTitleFromPrompt(prompt),
+    difficulty: 3,
+    tags: tags.length >= 2 ? tags : ["original", aspectRatio.replace(":", "x")],
     prompt,
-    negativePrompt: "text, logo, watermark, famous characters",
-    mustInclude: ["thick black outlines", "high saturation", "clear main subject"],
-    mustAvoid: ["brand logo", "copyrighted character"],
-  };
+    negativePrompt: DEFAULT_NEGATIVE_PROMPT,
+    mustInclude: [],
+    mustAvoid: [],
+  });
+}
+
+function mockGmPrompt(settings: RoomSettings): GmPromptSchema {
+  return buildGmPromptFromText(
+    [
+      "A playful neo-brutal pop scene of a tiger riding a tiny scooter through a rain-soaked market",
+      "bold outlines",
+      "high saturation palette",
+      "reflective puddles",
+      "layered shop signs",
+      "no text",
+    ].join(", "),
+    settings.aspectRatio,
+  );
 }
 
 function fallbackCaption(fallbackPrompt: string): CaptionSchema {
@@ -231,58 +289,113 @@ function fallbackCaption(fallbackPrompt: string): CaptionSchema {
   };
 }
 
-function fallbackHint(latestPrompt: string): HintSchema {
-  const improvedPrompt = `${latestPrompt}, add clearer main subject, stronger lighting contrast, and more specific background details`.slice(
-    0,
-    500,
-  );
-
-  return {
-    deltaChecklist: [
-      "主役を1つに絞って強調する",
-      "背景の要素を2-3個に具体化する",
-      "光源とコントラストを明示する",
-    ],
-    improvedPrompt:
-      improvedPrompt.length >= 20
-        ? improvedPrompt
-        : "A vivid neo-brutal sticker illustration with clear subject, concrete background details, and strong contrast lighting",
-  };
-}
-
-function fallbackVisualScore(): VisualScoreSchema {
+function mockVisualScore(): VisualScoreSchema {
   return {
     score: 50,
     matchedElements: [],
     missingElements: [],
-    note: "visual scoring fallback",
+    note: "mock visual scoring",
   };
 }
 
-function hashText(text: string): number {
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
+function extractInlineData(data: unknown): string | null {
+  if (!data) return null;
+  if (typeof data === "string") return data;
+  if (data instanceof Uint8Array) {
+    return Buffer.from(data).toString("base64");
   }
-  return Math.abs(hash);
+  if (Buffer.isBuffer(data)) {
+    return data.toString("base64");
+  }
+  return null;
 }
 
-function mockEmbedding(text: string, dimensions = 256): number[] {
-  const vector = new Array<number>(dimensions).fill(0);
-  const tokens = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-
-  for (const token of tokens) {
-    const idx = hashText(token) % dimensions;
-    vector[idx] += 1;
+function extractImageResponse(response: {
+  data?: unknown;
+  generatedImages?: Array<{
+    image?: { imageBytes?: string; mimeType?: string };
+  }>;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: Array<{
+        inlineData?: { data?: unknown; mimeType?: string };
+        fileData?: { fileUri?: string; mimeType?: string };
+      }>;
+    };
+  }>;
+}): GeneratedImage | null {
+  const topLevelInlineData = extractInlineData(response.data);
+  if (topLevelInlineData) {
+    return {
+      mimeType: "image/png",
+      base64Data: topLevelInlineData,
+    };
   }
 
-  return vector;
+  const generatedImage = response.generatedImages?.find((item) => item.image?.imageBytes)?.image;
+  if (generatedImage?.imageBytes) {
+    return {
+      mimeType: generatedImage.mimeType ?? "image/png",
+      base64Data: generatedImage.imageBytes,
+    };
+  }
+
+  for (const candidate of response.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      const inlineData = extractInlineData(part.inlineData?.data);
+      if (inlineData) {
+        return {
+          mimeType: part.inlineData?.mimeType ?? "image/png",
+          base64Data: inlineData,
+        };
+      }
+
+      const fileUri = part.fileData?.fileUri;
+      if (typeof fileUri === "string" && /^https?:\/\//i.test(fileUri)) {
+        return {
+          mimeType: part.fileData?.mimeType ?? "image/png",
+          directUrl: fileUri,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
-function placeholderUrl(prompt: string): string {
-  const text = encodeURIComponent(prompt.slice(0, 60));
-  return `https://placehold.co/1024x1024/FFF7E6/101010/png?text=${text}`;
+function imageGenerationErrorMessage(response: {
+  promptFeedback?: { blockReason?: string };
+  candidates?: Array<{ finishReason?: string }>;
+  text?: string;
+}): string {
+  if (response.promptFeedback?.blockReason) {
+    return "画像生成がブロックされました。表現を少し変えて再試行してください。";
+  }
+
+  const finishReasons = (response.candidates ?? [])
+    .map((candidate) => candidate.finishReason)
+    .filter((reason): reason is string => typeof reason === "string");
+
+  if (finishReasons.some((reason) => reason === "SAFETY" || reason === "IMAGE_SAFETY")) {
+    return "画像生成が安全フィルタで止まりました。表現を少し変えて再試行してください。";
+  }
+
+  if (response.text?.trim()) {
+    return "画像ではなくテキスト応答が返りました。少し待って再試行してください。";
+  }
+
+  return "Gemini did not return image data";
+}
+
+function getAiClient(): GoogleGenAI {
+  if (ai === undefined) {
+    ai = createClient();
+  }
+  if (!ai) {
+    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
+  }
+  return ai;
 }
 
 export interface GeneratedImage {
@@ -291,80 +404,46 @@ export interface GeneratedImage {
   directUrl?: string;
 }
 
-async function generateStructured<T>(params: {
-  schema: z.ZodType<T>;
-  system?: string;
-  user: string;
-  mockValue: T;
-}): Promise<T> {
+export async function generateGmPrompt(params: {
+  settings: RoomSettings;
+}): Promise<GmPromptSchema> {
   if (mockMode) {
-    return params.schema.parse(params.mockValue);
+    return mockGmPrompt(params.settings);
   }
 
-  if (!ai) {
-    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
-  }
-
-  const responseSchema = z.toJSONSchema(params.schema) as unknown as Record<string, unknown>;
-
+  const client = getAiClient();
   let lastError: AppError | null = null;
 
-  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
+  for (let i = 0; i < GM_PROMPT_ATTEMPTS; i += 1) {
     const response = await withRetries(() =>
-      ai.models.generateContent({
+      client.models.generateContent({
         model: TEXT_MODEL,
         contents: [
           {
             role: "user",
             parts: [
-              ...(params.system ? [{ text: params.system }] : []),
-              { text: params.user },
+              { text: gmSystemPrompt(params.settings) },
+              { text: gmUserPrompt({ aspectRatio: params.settings.aspectRatio }) },
             ],
           },
         ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-        },
       }),
     );
 
     const text = responseText(response);
-    if (!text) {
-      lastError = new AppError("GEMINI_ERROR", "Gemini returned empty structured response", true, 502);
-      continue;
+    const promptText = text ? extractPromptText(text) : null;
+    if (promptText) {
+      return buildGmPromptFromText(promptText, params.settings.aspectRatio);
     }
 
-    const parsed = parseStructuredText(params.schema, text);
-    if (parsed) {
-      return parsed;
-    }
-
-    lastError = new AppError(
-      "GEMINI_ERROR",
-      "Gemini returned schema-incompatible structured response",
-      true,
-      502,
-    );
-  }
-
-  throw lastError ?? new AppError("GEMINI_ERROR", "Gemini structured generation failed", true, 502);
-}
-
-export async function generateGmPrompt(settings: RoomSettings): Promise<GmPromptSchema> {
-  const variation = Math.floor(Math.random() * 1_000_000);
-
-  try {
-    return await generateStructured({
-      schema: gmPromptSchema,
-      system: gmSystemPrompt(settings),
-      user: `${gmUserPrompt(settings.aspectRatio)}\nバリエーションID: ${variation}`,
-      mockValue: fallbackGmPrompt(),
+    console.warn("Plain gm prompt generation failed", {
+      attempt: i + 1,
+      text: text?.slice(0, 400) ?? null,
     });
-  } catch (error) {
-    console.warn("generateGmPrompt fallback", error);
-    return fallbackGmPrompt();
+    lastError = new AppError("GEMINI_ERROR", "Gemini returned empty prompt text", true, 502);
   }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
 }
 
 export async function generateImage(params: {
@@ -379,95 +458,93 @@ export async function generateImage(params: {
     };
   }
 
-  if (!ai) {
-    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
-  }
+  const client = getAiClient();
+  const promptVariants = [
+    params.prompt,
+    `${params.prompt}\n\nReturn only the generated image. Do not return explanatory text.`,
+    `${params.prompt}\n\nReturn exactly one generated image. No text, no markdown, no explanation.`,
+  ];
+  let lastError: AppError | null = null;
 
-  const parts: Array<Record<string, unknown>> = [];
-  if (params.sourceImage?.base64Data) {
-    parts.push({
-      inlineData: {
-        data: params.sourceImage.base64Data,
-        mimeType: params.sourceImage.mimeType,
-      },
-    });
-  }
-  parts.push({ text: params.prompt });
-
-  try {
-    const response = await withRetries(() =>
-      ai.models.generateContent({
-        model: IMAGE_MODEL,
-        contents: [{ role: "user", parts }],
-        config: {
-          responseModalities: ["IMAGE"],
-          imageConfig: {
-            aspectRatio: params.aspectRatio,
-          },
+  for (let i = 0; i < IMAGE_GENERATION_ATTEMPTS; i += 1) {
+    const parts: Array<Record<string, unknown>> = [];
+    if (params.sourceImage?.base64Data) {
+      parts.push({
+        inlineData: {
+          data: params.sourceImage.base64Data,
+          mimeType: params.sourceImage.mimeType,
         },
-      }),
-    );
-
-    const inlineData =
-      response.data ??
-      response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData?.data)?.inlineData?.data;
-
-    if (!inlineData) {
-      return {
-        mimeType: "image/png",
-        directUrl: placeholderUrl(params.prompt),
-      };
+      });
     }
+    parts.push({ text: promptVariants[i] ?? params.prompt });
 
-    return {
-      mimeType: "image/png",
-      base64Data: inlineData,
-    };
-  } catch (error) {
-    console.warn("generateImage fallback", error);
-    return {
-      mimeType: "image/png",
-      directUrl: placeholderUrl(params.prompt),
-    };
+    try {
+      const response = await withRetries(() =>
+        client.models.generateContent({
+          model: IMAGE_MODEL,
+          contents: [{ role: "user", parts }],
+          config: {
+            responseModalities: ["IMAGE"],
+            imageConfig: {
+              aspectRatio: params.aspectRatio,
+            },
+          },
+        }),
+      );
+
+      const generatedImage = extractImageResponse(response);
+      if (generatedImage) {
+        return generatedImage;
+      }
+
+      const responsePreview = responseText(response);
+      console.warn("generateImage empty image response", {
+        attempt: i + 1,
+        prompt: params.prompt.slice(0, 160),
+        finishReasons: (response.candidates ?? []).map((candidate) => candidate.finishReason),
+        blockReason: response.promptFeedback?.blockReason ?? null,
+        responsePreview: responsePreview?.slice(0, 240) ?? null,
+      });
+      lastError = new AppError(
+        "GEMINI_ERROR",
+        imageGenerationErrorMessage(response),
+        true,
+        502,
+      );
+      await sleep(250 + i * 150);
+    } catch (error) {
+      console.error("generateImage failed", error);
+      if (error instanceof AppError) {
+        lastError = error;
+        await sleep(250 + i * 150);
+        continue;
+      }
+      throw new AppError("GEMINI_ERROR", "Image generation failed", true, 502);
+    }
   }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Image generation failed", true, 502);
 }
 
 export async function captionFromImage(
   image: GeneratedImage,
   fallbackPrompt: string,
 ): Promise<CaptionSchema> {
-  if (mockMode || !image.base64Data) {
-    try {
-      return await generateStructured({
-        schema: captionSchema,
-        user: `${captionPrompt}\nPrompt hint: ${fallbackPrompt}`,
-        mockValue: {
-          scene: "A playful character in a colorful pop-art scene",
-          mainSubjects: ["cat"],
-          keyObjects: ["sushi", "counter", "neon lights"],
-          colors: ["red", "cyan", "yellow"],
-          style: "neo-brutal sticker illustration with bold outline",
-          composition: "centered medium close-up",
-          textInImage: null,
-        },
-      });
-    } catch (error) {
-      console.warn("captionFromImage fallback (non-image)", error);
-      return fallbackCaption(fallbackPrompt);
-    }
+  if (mockMode) {
+    return fallbackCaption(fallbackPrompt);
   }
 
-  if (!ai) {
-    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
+  if (!image.base64Data) {
+    throw new AppError("GEMINI_ERROR", "Caption input image is missing binary data", true, 502);
   }
 
+  const client = getAiClient();
   const responseSchema = z.toJSONSchema(captionSchema) as unknown as Record<string, unknown>;
-
   let lastError: AppError | null = null;
 
   for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
     const response = await withRetries(() =>
-      ai.models.generateContent({
+      client.models.generateContent({
         model: TEXT_MODEL,
         contents: [
           {
@@ -504,57 +581,32 @@ export async function captionFromImage(
     lastError = new AppError("GEMINI_ERROR", "Caption schema validation failed", true, 502);
   }
 
-  console.warn("captionFromImage fallback", lastError);
+  console.warn("captionFromImage fallback", {
+    error: lastError?.message ?? "Caption generation failed",
+    prompt: fallbackPrompt.slice(0, 160),
+  });
   return fallbackCaption(fallbackPrompt);
-}
-
-export async function generateHint(params: {
-  targetCaption: string;
-  latestCaption: string;
-  latestPrompt: string;
-}): Promise<HintSchema> {
-  try {
-    return await generateStructured({
-      schema: hintSchema,
-      user: hintPrompt(params),
-      mockValue: {
-        deltaChecklist: [
-          "背景に屋台の要素を追加",
-          "猫の表情を自信ありに変更",
-          "サーモン握りを明確化",
-        ],
-        improvedPrompt:
-          "A confident cat eating salmon nigiri at a neon night stall, include wooden counter and lanterns, bold sticker-style outlines, high contrast pop palette, centered framing",
-      },
-    });
-  } catch (error) {
-    console.warn("generateHint fallback", error);
-    return fallbackHint(params.latestPrompt);
-  }
 }
 
 export async function scoreImageSimilarity(params: {
   targetImage: GeneratedImage;
   attemptImage: GeneratedImage;
-  promptHint?: string;
 }): Promise<VisualScoreSchema> {
   if (mockMode) {
-    return fallbackVisualScore();
-  }
-
-  if (!ai) {
-    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
+    return mockVisualScore();
   }
 
   if (!params.targetImage.base64Data || !params.attemptImage.base64Data) {
-    return fallbackVisualScore();
+    throw new AppError("GEMINI_ERROR", "Visual judge input images are incomplete", true, 502);
   }
 
+  const client = getAiClient();
   const responseSchema = z.toJSONSchema(visualScoreSchema) as unknown as Record<string, unknown>;
+  let lastError: AppError | null = null;
 
-  try {
+  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
     const response = await withRetries(() =>
-      ai.models.generateContent({
+      client.models.generateContent({
         model: TEXT_MODEL,
         contents: [
           {
@@ -579,10 +631,7 @@ export async function scoreImageSimilarity(params: {
                 text: [
                   "配点観点: 主題35, 構図20, 色調15, 背景/小物20, スタイル10。",
                   "JSONのみ返し、scoreは整数。",
-                  params.promptHint ? `補足: ${params.promptHint}` : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n"),
+                ].join("\n"),
               },
             ],
           },
@@ -596,44 +645,19 @@ export async function scoreImageSimilarity(params: {
 
     const text = responseText(response);
     if (!text) {
-      return fallbackVisualScore();
+      lastError = new AppError("GEMINI_ERROR", "Gemini returned empty visual score", true, 502);
+      continue;
     }
 
     const parsed = parseStructuredText(visualScoreSchema, text);
-    return parsed ?? fallbackVisualScore();
-  } catch (error) {
-    console.warn("scoreImageSimilarity fallback", error);
-    return fallbackVisualScore();
-  }
-}
-
-export async function embedText(text: string): Promise<number[]> {
-  if (mockMode) {
-    return mockEmbedding(text);
-  }
-
-  if (!ai) {
-    throw new AppError("GEMINI_ERROR", "Gemini client is not initialized", true, 503);
-  }
-
-  try {
-    const response = await withRetries(() =>
-      ai.models.embedContent({
-        model: EMBEDDING_MODEL,
-        contents: [{ role: "user", parts: [{ text }] }],
-      }),
-    );
-
-    const embedding = response.embeddings?.[0]?.values;
-    if (!embedding || embedding.length === 0) {
-      return mockEmbedding(text);
+    if (parsed) {
+      return parsed;
     }
 
-    return embedding;
-  } catch (error) {
-    console.warn("embedText fallback", error);
-    return mockEmbedding(text);
+    lastError = new AppError("GEMINI_ERROR", "Visual score schema validation failed", true, 502);
   }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Visual scoring failed", true, 502);
 }
 
 export function imageToBuffer(image: GeneratedImage): Buffer | null {
@@ -642,5 +666,13 @@ export function imageToBuffer(image: GeneratedImage): Buffer | null {
 }
 
 export function imageToPublicUrl(image: GeneratedImage, fallbackPrompt: string): string | null {
-  return image.directUrl ?? placeholderUrl(fallbackPrompt);
+  if (image.directUrl) {
+    return image.directUrl;
+  }
+
+  if (mockMode) {
+    return placeholderUrl(fallbackPrompt);
+  }
+
+  return null;
 }

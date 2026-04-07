@@ -22,7 +22,7 @@ export type ErrorCode =
   | "HINT_LIMIT_REACHED"
   | "RATE_LIMIT"
   | "GEMINI_ERROR"
-  | "FIREBASE_ERROR"
+  | "GCP_ERROR"
   | "INTERNAL_ERROR";
 
 export interface RoomSettings {
@@ -92,9 +92,6 @@ export interface RoundPrivateDoc {
   gmNegativePrompt?: string;
   targetCaptionJson: unknown;
   targetCaptionText: string;
-  targetEmbedding: number[];
-  targetEmbedModel: "gemini-embedding-001";
-  targetEmbedDim: number;
   safety: {
     blocked: boolean;
     reason?: string;

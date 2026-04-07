@@ -1,4 +1,4 @@
-import type { DocumentSnapshot } from "firebase-admin/firestore";
+import type { DocumentSnapshot } from "@google-cloud/firestore";
 
 import type { PlayerDoc, RoomDoc } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";

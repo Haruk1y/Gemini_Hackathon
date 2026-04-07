@@ -8,19 +8,19 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiPost, ApiClientError } from "@/lib/client/api";
 import { useAuth } from "@/components/providers/auth-provider";
-import { hasFirebaseClientConfig } from "@/lib/firebase/client";
 
 export default function HomePage() {
   const router = useRouter();
-  const { loading, getIdToken } = useAuth();
+  const { loading, error: authError } = useAuth();
 
   const [displayName, setDisplayName] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [totalRounds, setTotalRounds] = useState("3");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const canSubmit =
-    hasFirebaseClientConfig && !loading && !busy && displayName.trim().length >= 1;
+    !loading && !authError && !busy && displayName.trim().length >= 1;
 
   const createRoom = async () => {
     if (!canSubmit) return;
@@ -34,14 +34,13 @@ export default function HomePage() {
           displayName,
           settings: {
             roundSeconds: 60,
-            maxAttempts: 2,
-            totalRounds: 3,
-            hintLimit: 1,
+            maxAttempts: 1,
+            totalRounds: Number(totalRounds),
+            hintLimit: 0,
             maxPlayers: 8,
             aspectRatio: "1:1",
           },
         },
-        getIdToken,
       );
 
       router.push(`/lobby/${response.roomId}`);
@@ -68,7 +67,6 @@ export default function HomePage() {
           code: joinCode.trim().toUpperCase(),
           displayName,
         },
-        getIdToken,
       );
       router.push(`/lobby/${response.roomId}`);
     } catch (e) {
@@ -114,6 +112,23 @@ export default function HomePage() {
               maxLength={6}
             />
           </div>
+          <div className="space-y-1">
+            <p className="text-xs font-bold">ラウンド数</p>
+            <select
+              value={totalRounds}
+              onChange={(event) => setTotalRounds(event.target.value)}
+              className="w-full rounded-[10px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-2 text-sm text-[var(--pmb-ink)] focus:outline-none focus:ring-4 focus:ring-[var(--pmb-blue)]/30"
+            >
+              {[1, 2, 3, 4, 5].map((roundCount) => (
+                <option key={roundCount} value={roundCount}>
+                  {roundCount}ラウンド
+                </option>
+              ))}
+            </select>
+            <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
+              1人でもプレイできます。各ラウンドの生成は1回だけ、ヒントはありません。
+            </p>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={createRoom} disabled={!canSubmit}>
               ルーム作成
@@ -123,9 +138,9 @@ export default function HomePage() {
             </Button>
           </div>
           {error ? <p className="text-sm font-semibold text-[var(--pmb-red)]">{error}</p> : null}
-          {!hasFirebaseClientConfig ? (
+          {authError ? (
             <p className="text-sm font-semibold text-[var(--pmb-red)]">
-              Firebase の環境変数が未設定です。.env.local を設定してください。
+              {authError}
             </p>
           ) : null}
         </Card>

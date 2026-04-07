@@ -29,14 +29,18 @@ describe("room-service", () => {
   });
 
   describe("assertCanStartRound", () => {
-    it("allows start when 2+ players are all ready", () => {
+    it("allows start when one ready player is present", () => {
+      expect(() => assertCanStartRound([{ ready: true }])).not.toThrow();
+    });
+
+    it("allows start when multiple players are all ready", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }, { ready: true }, { ready: true }]),
       ).not.toThrow();
     });
 
-    it("rejects start with fewer than 2 players", () => {
-      expect(() => assertCanStartRound([{ ready: true }])).toThrow(AppError);
+    it("rejects start with no players", () => {
+      expect(() => assertCanStartRound([])).toThrow(AppError);
     });
 
     it("rejects start when someone is not ready", () => {

@@ -3,10 +3,10 @@ import type { RoomSettings } from "@/lib/types/game";
 export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   maxPlayers: 8,
   roundSeconds: 60,
-  maxAttempts: 2,
+  maxAttempts: 1,
   aspectRatio: "1:1",
   imageModel: "flash",
-  hintLimit: 1,
+  hintLimit: 0,
   totalRounds: 3,
 };
 
@@ -14,7 +14,9 @@ export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {
   return {
     ...DEFAULT_ROOM_SETTINGS,
     ...input,
+    maxAttempts: DEFAULT_ROOM_SETTINGS.maxAttempts,
     imageModel: "flash",
+    hintLimit: DEFAULT_ROOM_SETTINGS.hintLimit,
   };
 }
 
