@@ -1,5 +1,7 @@
 import { del, list, put } from "@vercel/blob";
 
+import { AppError } from "@/lib/utils/errors";
+
 interface UploadParams {
   path: string;
   buffer: Buffer;
@@ -10,11 +12,27 @@ function hasBlobToken() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
+function assertBlobTokenConfigured() {
+  if (hasBlobToken()) {
+    return;
+  }
+
+  console.error("BLOB_READ_WRITE_TOKEN is missing for Blob upload");
+  throw new AppError(
+    "INTERNAL_ERROR",
+    "BLOB_READ_WRITE_TOKEN is missing",
+    false,
+    500,
+  );
+}
+
 export async function uploadImageToStorage({
   path,
   buffer,
   mimeType,
 }: UploadParams): Promise<string> {
+  assertBlobTokenConfigured();
+
   const blob = await put(path, buffer, {
     access: "public",
     addRandomSuffix: false,
@@ -46,3 +64,7 @@ export async function deleteStoragePrefix(prefix: string): Promise<void> {
     cursor = result.hasMore ? result.cursor : undefined;
   } while (cursor);
 }
+
+export const __test__ = {
+  assertBlobTokenConfigured,
+};

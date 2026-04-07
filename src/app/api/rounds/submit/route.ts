@@ -93,6 +93,9 @@ async function resolveBestImageUrl(params: {
   } catch (error) {
     console.warn("Best image storage upload fallback", params.roomId, params.roundId, error);
     if (!directUrl) {
+      if (error instanceof AppError) {
+        throw error;
+      }
       throw new AppError("GEMINI_ERROR", "Failed to resolve generated image URL", true, 502);
     }
     return directUrl;
