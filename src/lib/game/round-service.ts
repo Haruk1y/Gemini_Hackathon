@@ -21,6 +21,46 @@ import type { RoundPublicDoc, RoomStatus } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
+function describeRoundGenerationError(error: unknown): AppError {
+  if (error instanceof AppError) {
+    if (/BLOB_READ_WRITE_TOKEN is missing|Vercel Blob: No token found/i.test(error.message)) {
+      return new AppError(
+        "INTERNAL_ERROR",
+        "画像保存の設定が不足しています。BLOB_READ_WRITE_TOKEN を設定して再デプロイしてください。",
+        false,
+        503,
+      );
+    }
+
+    if (error.code === "ROUND_CLOSED" && /Round generation state was replaced/i.test(error.message)) {
+      return new AppError(
+        "ROUND_CLOSED",
+        "お題生成中に状態が競合しました。もう一度お試しください。",
+        false,
+        409,
+      );
+    }
+
+    if (error.code === "GEMINI_ERROR") {
+      return new AppError(
+        "GEMINI_ERROR",
+        "お題画像の生成に失敗しました。Gemini の設定または利用状況を確認して再試行してください。",
+        true,
+        502,
+      );
+    }
+
+    return error;
+  }
+
+  return new AppError(
+    "GEMINI_ERROR",
+    "お題画像の生成に失敗しました。しばらくしてから再試行してください。",
+    true,
+    502,
+  );
+}
+
 async function resolveImageUrl(params: {
   roomId: string;
   roundId: string;
@@ -50,6 +90,9 @@ async function resolveImageUrl(params: {
   } catch (error) {
     console.warn("Image storage upload fallback", params.roomId, params.roundId, error);
     if (!directUrl) {
+      if (error instanceof AppError) {
+        throw error;
+      }
       throw new AppError("GEMINI_ERROR", "No fallback image URL available", true, 502);
     }
     return directUrl;
@@ -243,12 +286,7 @@ export async function startRound(params: {
       await saveRoomState(bumpRoomVersion(state));
     });
 
-    throw new AppError(
-      "GEMINI_ERROR",
-      "お題生成に失敗しました。もう一度お試しください。",
-      true,
-      502,
-    );
+    throw describeRoundGenerationError(error);
   }
 }
 
@@ -327,3 +365,7 @@ export async function resetRoomForReplay(roomId: string): Promise<void> {
     await saveRoomState(bumpRoomVersion(state));
   });
 }
+
+export const __test__ = {
+  describeRoundGenerationError,
+};

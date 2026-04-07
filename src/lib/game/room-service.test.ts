@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { __test__ as roundServiceTest } from "@/lib/game/round-service";
 import { AppError } from "@/lib/utils/errors";
 import { assertCanStartRound, selectNextHost } from "@/lib/game/room-service";
 
@@ -47,6 +48,34 @@ describe("room-service", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }, { ready: false }]),
       ).toThrow(AppError);
+    });
+  });
+
+  describe("describeRoundGenerationError", () => {
+    it("surfaces missing blob token as a configuration error", () => {
+      const error = roundServiceTest.describeRoundGenerationError(
+        new AppError("INTERNAL_ERROR", "BLOB_READ_WRITE_TOKEN is missing", false, 500),
+      );
+
+      expect(error).toMatchObject({
+        code: "INTERNAL_ERROR",
+        status: 503,
+        retryable: false,
+      });
+      expect(error.message).toContain("BLOB_READ_WRITE_TOKEN");
+    });
+
+    it("surfaces generation state conflicts separately", () => {
+      const error = roundServiceTest.describeRoundGenerationError(
+        new AppError("ROUND_CLOSED", "Round generation state was replaced", false, 409),
+      );
+
+      expect(error).toMatchObject({
+        code: "ROUND_CLOSED",
+        status: 409,
+        retryable: false,
+      });
+      expect(error.message).toContain("状態が競合");
     });
   });
 });
