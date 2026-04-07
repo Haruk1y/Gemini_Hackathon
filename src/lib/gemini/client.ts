@@ -1,6 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 
+import {
+  buildPromptFromChallengeSeed,
+  createChallengeSeed,
+  type ChallengeSeed,
+} from "@/lib/gemini/challenge-seed";
 import { AppError } from "@/lib/utils/errors";
 import {
   captionPrompt,
@@ -22,6 +27,7 @@ const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
 const STRUCTURED_PARSE_ATTEMPTS = 2;
 const IMAGE_GENERATION_ATTEMPTS = 3;
 const GM_PROMPT_ATTEMPTS = 2;
+const GM_PROMPT_MAX_LENGTH = 220;
 const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
 const DEFAULT_NEGATIVE_PROMPT =
   "logo, watermark, text, brand name, famous character, trademark";
@@ -141,6 +147,10 @@ function normalizeText(value: string, maxLength: number): string {
   return value.replace(/\s+/g, " ").replace(/^[`"'“”]+|[`"'“”]+$/g, "").trim().slice(0, maxLength);
 }
 
+function normalizeLooseText(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/^[`"'“”]+|[`"'“”]+$/g, "").trim();
+}
+
 function uniqueStrings(values: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -156,14 +166,6 @@ function uniqueStrings(values: string[]): string[] {
   return result;
 }
 
-function deriveTitleFromPrompt(prompt: string): string {
-  const segment =
-    prompt.split(/[.!?。]/)[0]?.split(/,|、/)[0] ??
-    prompt;
-  const normalized = normalizeText(segment, 80);
-  return normalized.length >= 3 ? normalized : "Generated Challenge";
-}
-
 function promptKeywords(prompt: string): string[] {
   return prompt
     .toLowerCase()
@@ -177,8 +179,60 @@ function promptKeywords(prompt: string): string[] {
 function extractPromptText(text: string): string | null {
   const fenced = text.match(/```(?:text)?\s*([\s\S]*?)```/i)?.[1] ?? text;
   const withoutPrefix = fenced.replace(/^prompt\s*:\s*/i, "").trim();
-  const normalized = normalizeText(withoutPrefix, 500);
+  const normalized = normalizeLooseText(withoutPrefix);
   return normalized.length > 0 ? normalized : null;
+}
+
+function trimPromptAtBoundary(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const slice = value.slice(0, maxLength + 1);
+  const punctuationBreak = Math.max(
+    slice.lastIndexOf(", "),
+    slice.lastIndexOf("; "),
+    slice.lastIndexOf(". "),
+  );
+  if (punctuationBreak >= Math.floor(maxLength * 0.55)) {
+    return slice.slice(0, punctuationBreak).replace(/[,\s;:.!?]+$/g, "").trim();
+  }
+
+  const wordBreak = slice.lastIndexOf(" ");
+  if (wordBreak >= Math.floor(maxLength * 0.55)) {
+    return slice.slice(0, wordBreak).replace(/[,\s;:.!?]+$/g, "").trim();
+  }
+
+  return value.slice(0, maxLength).replace(/[,\s;:.!?]+$/g, "").trim();
+}
+
+function compressPromptText(value: string, maxLength: number): string {
+  const normalized = normalizeLooseText(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  const clauses = normalized
+    .split(/\s*(?:,|;|\.(?=\s|$))\s*/g)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+
+  if (clauses.length > 1) {
+    let compact = "";
+    for (const clause of clauses) {
+      const next = compact ? `${compact}, ${clause}` : clause;
+      if (next.length > maxLength) {
+        break;
+      }
+      compact = next;
+    }
+
+    if (compact.length >= 30) {
+      return compact;
+    }
+  }
+
+  return trimPromptAtBoundary(normalized, maxLength);
 }
 
 function parseStructuredText<T>(
@@ -224,44 +278,49 @@ function placeholderUrl(prompt: string): string {
   return `https://placehold.co/1024x1024/FFF7E6/101010/png?text=${text}`;
 }
 
-function buildGmPromptFromText(promptText: string, aspectRatio: AspectRatio): GmPromptSchema {
-  const prompt =
-    promptText.length >= 30
-      ? promptText
-      : normalizeText(
-          `${promptText}, bold outlines, high saturation palette, clear subject, concrete background, no text, aspect ratio ${aspectRatio}`,
-          500,
-        );
+function buildSeedTitle(seed: ChallengeSeed): string {
+  return normalizeText(`${seed.subject} / ${seed.twist}`, 80) || "Generated Challenge";
+}
 
+function seedTags(seed: ChallengeSeed): string[] {
+  return [
+    seed.subjectCategory,
+    seed.subject,
+    seed.setting,
+    seed.twist,
+    seed.styleFamily,
+    seed.lightingColor,
+  ];
+}
+
+function buildGmPromptFromSeed(
+  seed: ChallengeSeed,
+  aspectRatio: AspectRatio,
+  promptText?: string | null,
+): GmPromptSchema {
+  const fallbackPrompt = compressPromptText(
+    buildPromptFromChallengeSeed(seed),
+    GM_PROMPT_MAX_LENGTH,
+  );
+  const promptCandidate = promptText
+    ? compressPromptText(promptText, GM_PROMPT_MAX_LENGTH)
+    : fallbackPrompt;
+  const prompt = promptCandidate.length >= 30 ? promptCandidate : fallbackPrompt;
   const tags = uniqueStrings([
+    ...seedTags(seed),
     ...promptKeywords(prompt),
-    "original",
     aspectRatio.replace(":", "x"),
   ]).slice(0, 6);
 
   return gmPromptSchema.parse({
-    title: deriveTitleFromPrompt(prompt),
+    title: buildSeedTitle(seed),
     difficulty: 3,
-    tags: tags.length >= 2 ? tags : ["original", aspectRatio.replace(":", "x")],
+    tags: tags.length >= 2 ? tags : [seed.subjectCategory, aspectRatio.replace(":", "x")],
     prompt,
     negativePrompt: DEFAULT_NEGATIVE_PROMPT,
     mustInclude: [],
     mustAvoid: [],
   });
-}
-
-function mockGmPrompt(settings: RoomSettings): GmPromptSchema {
-  return buildGmPromptFromText(
-    [
-      "A playful neo-brutal pop scene of a tiger riding a tiny scooter through a rain-soaked market",
-      "bold outlines",
-      "high saturation palette",
-      "reflective puddles",
-      "layered shop signs",
-      "no text",
-    ].join(", "),
-    settings.aspectRatio,
-  );
 }
 
 function fallbackCaption(fallbackPrompt: string): CaptionSchema {
@@ -407,43 +466,73 @@ export interface GeneratedImage {
 export async function generateGmPrompt(params: {
   settings: RoomSettings;
 }): Promise<GmPromptSchema> {
+  const seed = createChallengeSeed();
+  const seedPrompt = buildPromptFromChallengeSeed(seed);
+
   if (mockMode) {
-    return mockGmPrompt(params.settings);
+    return buildGmPromptFromSeed(seed, params.settings.aspectRatio);
   }
 
   const client = getAiClient();
   let lastError: AppError | null = null;
 
   for (let i = 0; i < GM_PROMPT_ATTEMPTS; i += 1) {
-    const response = await withRetries(() =>
-      client.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: gmSystemPrompt(params.settings) },
-              { text: gmUserPrompt({ aspectRatio: params.settings.aspectRatio }) },
-            ],
-          },
-        ],
-      }),
-    );
+    try {
+      const response = await withRetries(() =>
+        client.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: gmSystemPrompt(params.settings) },
+                {
+                  text: gmUserPrompt({
+                    aspectRatio: params.settings.aspectRatio,
+                    seed,
+                    seedPrompt,
+                  }),
+                },
+              ],
+            },
+          ],
+        }),
+      );
 
-    const text = responseText(response);
-    const promptText = text ? extractPromptText(text) : null;
-    if (promptText) {
-      return buildGmPromptFromText(promptText, params.settings.aspectRatio);
+      const text = responseText(response);
+      const promptText = text ? extractPromptText(text) : null;
+      if (promptText) {
+        return buildGmPromptFromSeed(seed, params.settings.aspectRatio, promptText);
+      }
+
+      console.warn("Plain gm prompt generation failed", {
+        attempt: i + 1,
+        seed,
+        text: text?.slice(0, 400) ?? null,
+      });
+      lastError = new AppError("GEMINI_ERROR", "Gemini returned empty prompt text", true, 502);
+    } catch (error) {
+      console.warn("GM prompt generation falling back to local seed prompt", {
+        attempt: i + 1,
+        seed,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (error instanceof AppError) {
+        lastError = error;
+        continue;
+      }
+      lastError = new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
     }
-
-    console.warn("Plain gm prompt generation failed", {
-      attempt: i + 1,
-      text: text?.slice(0, 400) ?? null,
-    });
-    lastError = new AppError("GEMINI_ERROR", "Gemini returned empty prompt text", true, 502);
   }
 
-  throw lastError ?? new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
+  if (lastError) {
+    console.warn("Using local seeded GM prompt fallback", {
+      seed,
+      reason: lastError.message,
+    });
+  }
+
+  return buildGmPromptFromSeed(seed, params.settings.aspectRatio);
 }
 
 export async function generateImage(params: {
@@ -461,8 +550,8 @@ export async function generateImage(params: {
   const client = getAiClient();
   const promptVariants = [
     params.prompt,
-    `${params.prompt}\n\nReturn only the generated image. Do not return explanatory text.`,
-    `${params.prompt}\n\nReturn exactly one generated image. No text, no markdown, no explanation.`,
+    `${params.prompt}\n\nUse a clean vector illustration look with bold outlines and flat colors. The image itself must contain absolutely no text, letters, numbers, signs, labels, captions, speech bubbles, or logos. Return only the generated image.`,
+    `${params.prompt}\n\nReturn exactly one generated image. Keep it as a crisp vector-style illustration with flat cel-shaded colors, bold outlines, and minimal texture. Absolutely no text, letters, numbers, symbols, signage, labels, UI elements, speech bubbles, or logos.`,
   ];
   let lastError: AppError | null = null;
 
@@ -676,3 +765,10 @@ export function imageToPublicUrl(image: GeneratedImage, fallbackPrompt: string):
 
   return null;
 }
+
+export const __test__ = {
+  buildGmPromptFromSeed,
+  buildSeedTitle,
+  compressPromptText,
+  createChallengeSeed,
+};

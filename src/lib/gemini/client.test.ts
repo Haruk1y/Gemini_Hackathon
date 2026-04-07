@@ -32,6 +32,8 @@ const settings = {
 };
 
 describe("generateGmPrompt", () => {
+  let randomSpy: ReturnType<typeof vi.spyOn> | null = null;
+
   beforeEach(() => {
     vi.resetModules();
     generateContent.mockReset();
@@ -41,11 +43,16 @@ describe("generateGmPrompt", () => {
   });
 
   afterEach(() => {
+    randomSpy?.mockRestore();
+    randomSpy = null;
     process.env.GEMINI_API_KEY = originalEnv.GEMINI_API_KEY;
     process.env.MOCK_GEMINI = originalEnv.MOCK_GEMINI;
   });
 
   it("builds a gm prompt shape from plain text output", async () => {
+    const randomValues = [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.2, 0.1, 0.8];
+    let randomIndex = 0;
+    randomSpy = vi.spyOn(Math, "random").mockImplementation(() => randomValues[randomIndex++] ?? 0);
     generateContent.mockResolvedValue({
       text:
         "A floating lantern market at dusk with canal reflections, warm lights, bold outlines, high saturation, and no text",
@@ -57,11 +64,13 @@ describe("generateGmPrompt", () => {
     });
 
     expect(googleGenAICtor).toHaveBeenCalledWith({ apiKey: "test-api-key" });
-    expect(result.title).toContain("floating lantern market");
+    expect(result.title).toContain("axolotl");
+    expect(result.title).toContain("bizarre tool");
     expect(result.difficulty).toBe(3);
-    expect(result.tags).toEqual(expect.arrayContaining(["floating", "lantern", "market"]));
+    expect(result.tags).toEqual(expect.arrayContaining(["animal", "axolotl"]));
     expect(result.prompt).toContain("floating lantern market at dusk");
     expect(result.prompt.length).toBeGreaterThanOrEqual(30);
+    expect(result.prompt.length).toBeLessThanOrEqual(220);
     expect(result.negativePrompt).toContain("watermark");
     expect(result.mustInclude).toEqual([]);
     expect(result.mustAvoid).toEqual([]);
@@ -81,25 +90,90 @@ describe("generateGmPrompt", () => {
       settings,
     });
 
-    expect(result.title).toContain("rainy rooftop duel");
-    expect(result.tags).toEqual(expect.arrayContaining(["rainy", "rooftop", "duel"]));
+    expect(result.prompt).toContain("rainy rooftop duel");
+    expect(result.tags.length).toBeGreaterThanOrEqual(2);
+    expect(result.prompt.length).toBeLessThanOrEqual(220);
   });
 
-  it("fails when Gemini returns empty prompt text", async () => {
+  it("falls back to a seeded prompt when Gemini returns empty prompt text", async () => {
+    const randomValues = [0.2, 0.75, 0.15, 0.85, 0.4, 0.05, 0.65, 0.25, 0.55];
+    let randomIndex = 0;
+    randomSpy = vi.spyOn(Math, "random").mockImplementation(() => randomValues[randomIndex++] ?? 0);
     generateContent.mockResolvedValue({
       text: "   ",
     });
 
     const { generateGmPrompt } = await import("@/lib/gemini/client");
-
-    await expect(
-      generateGmPrompt({
-        settings,
-      }),
-    ).rejects.toMatchObject({
-      code: "GEMINI_ERROR",
-      message: "Gemini returned empty prompt text",
+    const result = await generateGmPrompt({
+      settings,
     });
+
+    expect(result.prompt).toContain("vector");
+    expect(result.prompt).toContain("vector illustration");
+    expect(result.prompt).toContain("no text");
+    expect(result.prompt.length).toBeLessThanOrEqual(220);
+    expect(result.tags.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("generates varied prompts in mock mode instead of reusing one fixed challenge", async () => {
+    process.env.MOCK_GEMINI = "true";
+    const randomValues = [
+      ...Array(9).fill(0),
+      ...Array(9).fill(0.99),
+    ];
+    let randomIndex = 0;
+    randomSpy = vi.spyOn(Math, "random").mockImplementation(() => randomValues[randomIndex++] ?? 0.99);
+
+    const { generateGmPrompt } = await import("@/lib/gemini/client");
+    const first = await generateGmPrompt({ settings });
+    const second = await generateGmPrompt({ settings });
+
+    expect(first.prompt).not.toBe(second.prompt);
+    expect(first.title).not.toBe(second.title);
+  });
+
+  it("creates a broad mix of random challenge seeds", async () => {
+    const { __test__ } = await import("@/lib/gemini/client");
+    let state = 17;
+    const nextRandom = () => {
+      state = (state * 48271) % 2147483647;
+      return state / 2147483647;
+    };
+    const signatures = new Set(
+      Array.from({ length: 80 }, () => {
+        const seed = __test__.createChallengeSeed(nextRandom);
+        return [seed.subject, seed.setting, seed.twist, seed.composition].join("|");
+      }),
+    );
+
+    expect(signatures.size).toBeGreaterThan(55);
+  });
+
+  it("keeps the visual style fixed to the vector illustration direction", async () => {
+    const { __test__ } = await import("@/lib/gemini/client");
+    const first = __test__.createChallengeSeed(() => 0);
+    const second = __test__.createChallengeSeed(() => 0.99);
+
+    expect(first.styleFamily).toBe(second.styleFamily);
+    expect(first.styleFamily).toContain("vector illustration");
+    expect(first.styleFamily).toContain("flat");
+  });
+
+  it("compresses long prompts without cutting through the middle of a word", async () => {
+    const { __test__ } = await import("@/lib/gemini/client");
+    const longPrompt = [
+      "A clumsy shopping basket robot, its optical sensor comically stretched into an overdramatic gasp",
+      "teetering precariously on a glistening, slippery stage",
+      "deep within a glowing, rain-slicked alley under a harsh golden spotlight",
+      "with distorted theatrical faces in the background",
+      "rendered as a clean vector illustration with no text",
+    ].join(", ");
+
+    const result = __test__.compressPromptText(longPrompt, 220);
+
+    expect(result.length).toBeLessThanOrEqual(220);
+    expect(result.endsWith("rende")).toBe(false);
+    expect(result).toContain("shopping basket robot");
   });
 });
 

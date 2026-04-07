@@ -4,7 +4,7 @@ export const gmPromptSchema = z.object({
   title: z.string().min(3).max(80),
   difficulty: z.number().int().min(1).max(5),
   tags: z.array(z.string().min(1)).min(2).max(6),
-  prompt: z.string().min(30).max(500),
+  prompt: z.string().min(30).max(220),
   negativePrompt: z.string().max(300).optional(),
   mustInclude: z.array(z.string().min(1)).max(5).default([]),
   mustAvoid: z.array(z.string().min(1)).max(5).default([]),
