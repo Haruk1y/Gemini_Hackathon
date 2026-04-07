@@ -1,4 +1,4 @@
-import { getAdminDb } from "@/lib/firebase/admin";
+import { getAdminDb } from "@/lib/google-cloud/admin";
 import { playerRef, playersRef, roomRef } from "@/lib/api/paths";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import type { PlayerDoc } from "@/lib/types/game";
@@ -26,8 +26,8 @@ export function selectNextHost(candidates: HostCandidate[]): string | null {
 }
 
 export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): void {
-  if (players.length < 2) {
-    throw new AppError("VALIDATION_ERROR", "At least 2 players are required", false, 409);
+  if (players.length < 1) {
+    throw new AppError("VALIDATION_ERROR", "At least 1 player is required", false, 409);
   }
 
   const everyoneReady = players.every((player) => player.ready);

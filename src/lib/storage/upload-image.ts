@@ -1,4 +1,4 @@
-import { getAdminStorage } from "@/lib/firebase/admin";
+import { getAdminStorage, getStorageBucketName } from "@/lib/google-cloud/admin";
 
 interface UploadParams {
   path: string;
@@ -11,7 +11,7 @@ export async function uploadImageToStorage({
   buffer,
   mimeType,
 }: UploadParams): Promise<string> {
-  const bucket = getAdminStorage().bucket();
+  const bucket = getAdminStorage().bucket(getStorageBucketName());
   const file = bucket.file(path);
 
   await file.save(buffer, {

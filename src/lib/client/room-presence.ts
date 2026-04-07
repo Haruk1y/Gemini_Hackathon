@@ -6,7 +6,6 @@ import { apiPost } from "@/lib/client/api";
 
 export function useRoomPresence(params: {
   roomId: string;
-  getIdToken: () => Promise<string>;
   enabled: boolean;
 }) {
   useEffect(() => {
@@ -22,7 +21,6 @@ export function useRoomPresence(params: {
           {
             roomId: params.roomId,
           },
-          params.getIdToken,
         );
       } catch (error) {
         if (!disposed) {
@@ -40,18 +38,16 @@ export function useRoomPresence(params: {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [params.enabled, params.getIdToken, params.roomId]);
+  }, [params.enabled, params.roomId]);
 }
 
 export async function leaveRoom(params: {
   roomId: string;
-  getIdToken: () => Promise<string>;
 }) {
   await apiPost(
     "/api/rooms/leave",
     {
       roomId: params.roomId,
     },
-    params.getIdToken,
   );
 }

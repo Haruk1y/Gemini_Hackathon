@@ -1,6 +1,4 @@
-import { Timestamp } from "firebase-admin/firestore";
-
-import { getAdminDb } from "@/lib/firebase/admin";
+import { getAdminDb } from "@/lib/google-cloud/admin";
 import {
   roundPrivateRef,
   roundRef,
@@ -10,7 +8,6 @@ import {
 } from "@/lib/api/paths";
 import {
   captionFromImage,
-  embedText,
   generateGmPrompt,
   generateImage,
   imageToBuffer,
@@ -21,10 +18,15 @@ import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
 import { normalizeCaption } from "@/lib/scoring/normalize-caption";
+import { buildRoundTargetImagePath } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
 import type { RoundPublicDoc, RoomStatus } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
+
+function isMissingSigningIdentityError(error: unknown): boolean {
+  return /cannot sign data without `?client_email`?/i.test(String(error));
+}
 
 async function resolveImageUrl(params: {
   roomId: string;
@@ -45,12 +47,23 @@ async function resolveImageUrl(params: {
 
   try {
     return await uploadImageToStorage({
-      path: `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
+      path:
+        params.subPath === "target.png"
+          ? buildRoundTargetImagePath(params.roomId, params.roundId)
+          : `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
       buffer,
       mimeType: params.image.mimeType,
     });
   } catch (error) {
     console.warn("Image storage upload fallback", params.roomId, params.roundId, error);
+    if (isMissingSigningIdentityError(error)) {
+      throw new AppError(
+        "GCP_ERROR",
+        "Cloud Storage の署名付きURLを作れません。ローカル/Vercel では `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` を設定してください。",
+        false,
+        503,
+      );
+    }
     if (!directUrl) {
       throw new AppError("GEMINI_ERROR", "No fallback image URL available", true, 502);
     }
@@ -137,7 +150,9 @@ export async function startRound(params: {
   await roundRef(params.roomId, roundId).set(baseRoundDoc);
 
   try {
-    const gmPrompt = await generateGmPrompt(room.settings);
+    const gmPrompt = await generateGmPrompt({
+      settings: room.settings,
+    });
     const targetImage = await generateImage({
       prompt: gmPrompt.prompt,
       aspectRatio: room.settings.aspectRatio,
@@ -153,7 +168,6 @@ export async function startRound(params: {
 
     const targetCaptionJson = await captionFromImage(targetImage, gmPrompt.prompt);
     const targetCaptionText = normalizeCaption(targetCaptionJson);
-    const targetEmbedding = await embedText(targetCaptionText);
 
     const startedAt = new Date();
     const endsAt = new Date(startedAt.getTime() + room.settings.roundSeconds * 1000);
@@ -178,9 +192,6 @@ export async function startRound(params: {
       gmNegativePrompt: gmPrompt.negativePrompt ?? "",
       targetCaptionJson,
       targetCaptionText,
-      targetEmbedding,
-      targetEmbedModel: "gemini-embedding-001",
-      targetEmbedDim: targetEmbedding.length,
       safety: {
         blocked: false,
       },
@@ -198,13 +209,22 @@ export async function startRound(params: {
     console.error("Round generation failed", error);
 
     const rollbackStatus: RoomStatus = room.status;
-    await roomRef(params.roomId).update({
+    const batch = getAdminDb().batch();
+    batch.update(roomRef(params.roomId), {
       status: rollbackStatus,
       currentRoundId: room.currentRoundId,
       roundIndex: room.roundIndex,
     });
+    batch.delete(roundRef(params.roomId, roundId));
+    batch.delete(roundPrivateRef(params.roomId, roundId));
+    await batch.commit();
 
-    throw new AppError("GEMINI_ERROR", "Failed to prepare round", true, 502);
+    throw new AppError(
+      "GEMINI_ERROR",
+      "お題生成に失敗しました。もう一度お試しください。",
+      true,
+      502,
+    );
   }
 }
 
@@ -255,6 +275,10 @@ export async function endRoundIfNeeded(params: {
   return { status: "RESULTS" };
 }
 
+export const __test__ = {
+  isMissingSigningIdentityError,
+};
+
 export async function endGame(roomId: string): Promise<void> {
   await roomRef(roomId).update({
     status: "FINISHED",
@@ -284,20 +308,4 @@ export async function resetRoomForReplay(roomId: string): Promise<void> {
   }
 
   await batch.commit();
-}
-
-export function computeTotalScoreDelta(
-  currentTotal: number,
-  oldBest: number,
-  newBest: number,
-): number {
-  return Math.max(0, currentTotal - oldBest + newBest);
-}
-
-export function roundedScore(value: number): number {
-  return Math.round(value);
-}
-
-export function nowTimestamp(): Timestamp {
-  return Timestamp.now();
 }

@@ -20,11 +20,6 @@ export const captionSchema = z.object({
   textInImage: z.string().nullable(),
 });
 
-export const hintSchema = z.object({
-  deltaChecklist: z.array(z.string().min(2)).min(1).max(5),
-  improvedPrompt: z.string().min(20).max(500),
-});
-
 export const visualScoreSchema = z.object({
   score: z.number().int().min(0).max(100),
   matchedElements: z.array(z.string().min(1)).max(6).default([]),
@@ -34,5 +29,4 @@ export const visualScoreSchema = z.object({
 
 export type GmPromptSchema = z.infer<typeof gmPromptSchema>;
 export type CaptionSchema = z.infer<typeof captionSchema>;
-export type HintSchema = z.infer<typeof hintSchema>;
 export type VisualScoreSchema = z.infer<typeof visualScoreSchema>;

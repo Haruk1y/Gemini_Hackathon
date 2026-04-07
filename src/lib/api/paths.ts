@@ -1,4 +1,4 @@
-import { getAdminDb } from "@/lib/firebase/admin";
+import { getAdminDb } from "@/lib/google-cloud/admin";
 
 export function roomRef(roomId: string) {
   return getAdminDb().collection("rooms").doc(roomId);

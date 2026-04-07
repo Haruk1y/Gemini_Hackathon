@@ -4,7 +4,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { CountdownTimer } from "@/components/game/countdown-timer";
@@ -15,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiPost, ApiClientError } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
-import { clientDb } from "@/lib/firebase/client";
+import { useRoomSync } from "@/lib/client/room-sync";
 import { millisecondsLeft, parseDate } from "@/lib/utils/time";
 
 interface RoomData {
@@ -24,7 +23,6 @@ interface RoomData {
   settings: {
     roundSeconds: number;
     maxAttempts: number;
-    hintLimit: number;
   };
 }
 
@@ -60,7 +58,6 @@ interface AttemptData {
     score: number | null;
     prompt: string;
     status?: "SCORING" | "DONE";
-    scoreSource?: "semantic" | "visual";
     matchedElements?: string[];
     missingElements?: string[];
     judgeNote?: string;
@@ -78,7 +75,8 @@ export default function RoundPage() {
   const roomId = params.roomId;
   const router = useRouter();
 
-  const { user, getIdToken } = useAuth();
+  const { user } = useAuth();
+  const { snapshot } = useRoomSync({ roomId, view: "round", enabled: Boolean(user) });
 
   const [room, setRoom] = useState<RoomData | null>(null);
   const [round, setRound] = useState<RoundData | null>(null);
@@ -92,6 +90,11 @@ export default function RoundPage() {
   const [resultCountdownSeconds, setResultCountdownSeconds] = useState<number | null>(null);
 
   const endCalled = useRef(false);
+  const derivedRoom = snapshot.room as RoomData | null;
+  const derivedRound = snapshot.round as RoundData | null;
+  const derivedScores = snapshot.scores as ScoreEntry[];
+  const derivedAttempts = snapshot.attempts as AttemptData | null;
+  const derivedPlayerCount = snapshot.playerCount || snapshot.players.length;
 
   const applyImageFallback = (element: HTMLImageElement, label: string) => {
     if (element.dataset.fallbackApplied === "true") return;
@@ -100,77 +103,12 @@ export default function RoundPage() {
   };
 
   useEffect(() => {
-    if (!clientDb) {
-      setFeedback("Firebase設定が見つかりません。環境変数を確認してください。");
-      return;
-    }
-
-    const roomUnsubscribe = onSnapshot(doc(clientDb, "rooms", roomId), (snapshot) => {
-      if (!snapshot.exists()) return;
-      setRoom(snapshot.data() as RoomData);
-    });
-
-    return roomUnsubscribe;
-  }, [roomId]);
-
-  useEffect(() => {
-    if (!clientDb) return;
-
-    const playersUnsubscribe = onSnapshot(
-      collection(clientDb, "rooms", roomId, "players"),
-      (snapshot) => {
-        setPlayerCount(snapshot.size);
-      },
-    );
-
-    return playersUnsubscribe;
-  }, [roomId]);
-
-  useEffect(() => {
-    if (!room?.currentRoundId || !clientDb) return;
-
-    const currentRoundId = room.currentRoundId;
-
-    const roundUnsubscribe = onSnapshot(
-      doc(clientDb, "rooms", roomId, "rounds", currentRoundId),
-      (snapshot) => {
-        if (!snapshot.exists()) return;
-        setRound(snapshot.data() as RoundData);
-      },
-    );
-
-    const scoresQuery = query(
-      collection(clientDb, "rooms", roomId, "rounds", currentRoundId, "scores"),
-      orderBy("bestScore", "desc"),
-    );
-
-    const scoresUnsubscribe = onSnapshot(scoresQuery, (snapshot) => {
-      setScores(snapshot.docs.map((entry) => entry.data() as ScoreEntry));
-    });
-
-    let attemptsUnsubscribe = () => {
-      // noop
-    };
-
-    if (user?.uid) {
-      attemptsUnsubscribe = onSnapshot(
-        doc(clientDb, "rooms", roomId, "rounds", currentRoundId, "attempts_private", user.uid),
-        (snapshot) => {
-          if (!snapshot.exists()) {
-            setAttempts(null);
-            return;
-          }
-          setAttempts(snapshot.data() as AttemptData);
-        },
-      );
-    }
-
-    return () => {
-      roundUnsubscribe();
-      scoresUnsubscribe();
-      attemptsUnsubscribe();
-    };
-  }, [room?.currentRoundId, roomId, user?.uid]);
+    setRoom(derivedRoom);
+    setRound(derivedRound);
+    setScores(derivedScores);
+    setAttempts(derivedAttempts);
+    setPlayerCount(derivedPlayerCount);
+  }, [derivedAttempts, derivedPlayerCount, derivedRound, derivedRoom, derivedScores]);
 
   useEffect(() => {
     if (!round || !room) {
@@ -225,12 +163,11 @@ export default function RoundPage() {
         roomId,
         roundId: round.roundId,
       },
-      getIdToken,
     ).catch((err) => {
       console.error("endIfNeeded failed", err);
       endCalled.current = false;
     });
-  }, [secondsLeft, room, round, roomId, router, getIdToken]);
+  }, [secondsLeft, room, round, roomId, router]);
 
   const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(0, (room?.settings.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0));
@@ -279,18 +216,16 @@ export default function RoundPage() {
           roomId,
           roundId: round.roundId,
         },
-        getIdToken,
       ).catch((err) => {
         console.error("auto endIfNeeded failed", err);
       });
     }, 10_500);
 
     return () => clearTimeout(timeoutId);
-  }, [everyoneScored, room, round, roomId, getIdToken]);
+  }, [everyoneScored, room, round, roomId]);
 
   useRoomPresence({
     roomId,
-    getIdToken,
     enabled: Boolean(room && user),
   });
 
@@ -308,7 +243,6 @@ export default function RoundPage() {
           roundId: round.roundId,
           prompt,
         },
-        getIdToken,
       );
 
       setPrompt("");
@@ -385,6 +319,9 @@ export default function RoundPage() {
             試行残り {attemptsLeft}
           </Card>
         </div>
+        <p className="mt-2 text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
+          このラウンドで画像を生成できるのは1回だけです。
+        </p>
         {feedback ? <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p> : null}
         {!isRoundLive ? (
           <p className="mt-2 text-sm font-semibold">次ラウンド開始準備中です。お題生成が終わると送信できます。</p>

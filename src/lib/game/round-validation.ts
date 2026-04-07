@@ -49,7 +49,6 @@ export async function assertRoundOpen(params: {
     player,
     roundPrivate: roundPrivateSnapshot.data() as {
       targetCaptionText: string;
-      targetEmbedding: number[];
       gmPrompt: string;
     },
   };

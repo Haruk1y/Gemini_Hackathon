@@ -8,60 +8,63 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import {
-  onAuthStateChanged,
-  signInAnonymously,
-  type User,
-} from "firebase/auth";
 
-import { clientAuth } from "@/lib/firebase/client";
+import { bootstrapAnonymousSession, type AnonymousSession } from "@/lib/client/session";
 
 interface AuthContextValue {
-  user: User | null;
+  user: AnonymousSession | null;
   loading: boolean;
-  getIdToken: () => Promise<string>;
+  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(Boolean(clientAuth));
+  const [user, setUser] = useState<AnonymousSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!clientAuth) {
-      return;
-    }
+    let cancelled = false;
 
-    const auth = clientAuth;
-    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
-      if (!nextUser) {
-        try {
-          await signInAnonymously(auth);
-        } catch (error) {
-          console.error("Anonymous sign-in failed", error);
+    const bootstrap = async () => {
+      try {
+        const session = await bootstrapAnonymousSession();
+        if (!cancelled) {
+          setUser(session);
+          setError(null);
         }
-      } else {
-        setUser(nextUser);
+      } catch (bootstrapError) {
+        console.error("Anonymous session bootstrap failed", bootstrapError);
+        if (!cancelled) {
+          setError(
+            bootstrapError instanceof Error
+              ? bootstrapError.message
+              : "セッション初期化に失敗しました",
+          );
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
-    });
+    };
 
-    return unsubscribe;
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       loading,
-      getIdToken: async () => {
-        if (!clientAuth?.currentUser) {
-          throw new Error("Not authenticated yet");
-        }
-        return clientAuth.currentUser.getIdToken();
-      },
+      error,
     }),
-    [loading, user],
+    [error, loading, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

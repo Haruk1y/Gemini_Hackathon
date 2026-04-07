@@ -3,13 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, LoaderCircle, LogOut, Play, Users } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
@@ -17,63 +10,21 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost, ApiClientError } from "@/lib/client/api";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
-import { clientDb } from "@/lib/firebase/client";
-
-interface RoomData {
-  roomId: string;
-  code: string;
-  status: "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
-  currentRoundId: string | null;
-}
-
-interface PlayerData {
-  uid: string;
-  displayName: string;
-  ready: boolean;
-  isHost: boolean;
-  totalScore: number;
-}
+import { useRoomSync } from "@/lib/client/room-sync";
 
 export default function LobbyPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const router = useRouter();
-  const { user, loading, getIdToken } = useAuth();
+  const { user, loading } = useAuth();
+  const { snapshot } = useRoomSync({ roomId, view: "lobby", enabled: Boolean(user) && !loading });
 
-  const [room, setRoom] = useState<RoomData | null>(null);
-  const [players, setPlayers] = useState<PlayerData[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">("idle");
 
-  useEffect(() => {
-    if (!clientDb) {
-      setError("Firebase設定が見つかりません。環境変数を確認してください。");
-      return;
-    }
-
-    const roomUnsubscribe = onSnapshot(doc(clientDb, "rooms", roomId), (snapshot) => {
-      if (!snapshot.exists()) {
-        setError("ルームが見つかりません");
-        return;
-      }
-      setRoom(snapshot.data() as RoomData);
-    });
-
-    const playersQuery = query(
-      collection(clientDb, "rooms", roomId, "players"),
-      orderBy("joinedAt", "asc"),
-    );
-
-    const playersUnsubscribe = onSnapshot(playersQuery, (snapshot) => {
-      setPlayers(snapshot.docs.map((item) => item.data() as PlayerData));
-    });
-
-    return () => {
-      roomUnsubscribe();
-      playersUnsubscribe();
-    };
-  }, [roomId]);
+  const room = snapshot.room;
+  const players = snapshot.players;
 
   useEffect(() => {
     if (!room) return;
@@ -90,12 +41,12 @@ export default function LobbyPage() {
     [players, user?.uid],
   );
   const isGenerating = room?.status === "GENERATING_ROUND";
+  const showGeneratingBanner = isGenerating && !error;
   const everyoneReady = players.length > 0 && players.every((player) => player.ready);
-  const canStartRound = Boolean(me?.isHost) && players.length >= 2 && everyoneReady && !isGenerating && !busy;
+  const canStartRound = Boolean(me?.isHost) && players.length >= 1 && everyoneReady && !isGenerating && !busy;
 
   useRoomPresence({
     roomId,
-    getIdToken,
     enabled: Boolean(room && user),
   });
 
@@ -111,7 +62,6 @@ export default function LobbyPage() {
           roomId,
           ready: true,
         },
-        getIdToken,
       );
     } catch (e) {
       if (e instanceof ApiClientError) {
@@ -135,7 +85,6 @@ export default function LobbyPage() {
         {
           roomId,
         },
-        getIdToken,
       );
       router.push(`/round/${roomId}`);
     } catch (e) {
@@ -165,7 +114,7 @@ export default function LobbyPage() {
     setBusy(true);
     setError(null);
     try {
-      await leaveRoom({ roomId, getIdToken });
+      await leaveRoom({ roomId });
       router.replace("/");
     } catch (e) {
       if (e instanceof ApiClientError) {
@@ -221,7 +170,9 @@ export default function LobbyPage() {
                 <p className="mt-1 text-xs font-semibold text-[var(--pmb-red)]">コピーに失敗しました</p>
               ) : null}
             </div>
-            <p className="text-sm font-semibold">1ラウンド60秒 / 1人2試行</p>
+            <p className="text-sm font-semibold">
+              {room.settings?.totalRounds ?? 3}ラウンド / 1ラウンド60秒 / 1人1回生成 / ヒントなし
+            </p>
           </div>
         </section>
 
@@ -283,9 +234,12 @@ export default function LobbyPage() {
             退出
           </Button>
         </section>
+        <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
+          1人でも全員READYならラウンド開始できます。
+        </p>
       </Card>
 
-      {isGenerating ? (
+      {showGeneratingBanner ? (
         <Card className="flex items-center gap-2 border-[var(--pmb-blue)] bg-white text-sm font-semibold">
           <LoaderCircle className="h-4 w-4 animate-spin" />
           お題画像を生成中です。完了すると自動でラウンド画面へ遷移します。

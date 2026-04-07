@@ -15,20 +15,17 @@ export class ApiClientError extends Error {
 export async function apiPost<T extends Record<string, unknown>>(
   path: string,
   body: Record<string, unknown>,
-  getIdToken: () => Promise<string>,
 ): Promise<T> {
-  const idToken = await getIdToken();
-
   const response = await fetch(path, {
     method: "POST",
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify(body),
   });
 
-  const json = (await response.json()) as {
+  const json = (await response.json().catch(() => null)) as {
     ok: boolean;
     error?: {
       code: ErrorCode;
@@ -36,13 +33,13 @@ export async function apiPost<T extends Record<string, unknown>>(
       retryable: boolean;
     };
     [key: string]: unknown;
-  };
+  } | null;
 
-  if (!response.ok || !json.ok) {
+  if (!response.ok || !json?.ok) {
     throw new ApiClientError(
-      json.error?.code ?? "INTERNAL_ERROR",
-      json.error?.message ?? "Unexpected API error",
-      json.error?.retryable ?? false,
+      json?.error?.code ?? "INTERNAL_ERROR",
+      json?.error?.message ?? "Unexpected API error",
+      json?.error?.retryable ?? false,
       response.status,
     );
   }

@@ -1,10 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { ChevronRight, Flag, LoaderCircle, LogOut } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Podium } from "@/components/game/podium";
@@ -14,50 +13,14 @@ import { Card } from "@/components/ui/card";
 import { apiPost } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
-import { clientDb } from "@/lib/firebase/client";
-
-interface RoomData {
-  status: "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
-  currentRoundId: string | null;
-  roundIndex: number;
-  settings: {
-    totalRounds: number;
-  };
-}
-
-interface RoundData {
-  roundId: string;
-  index: number;
-  targetImageUrl?: string;
-  gmTitle?: string;
-  reveal?: {
-    targetCaption?: string;
-    gmPromptPublic?: string;
-  };
-}
-
-interface ScoreEntry {
-  uid: string;
-  displayName: string;
-  bestScore: number;
-  bestImageUrl: string;
-}
-
-interface PlayerData {
-  uid: string;
-  isHost: boolean;
-}
-
-interface AttemptData {
-  attempts: Array<{
-    attemptNo: number;
-    score: number | null;
-    status?: "SCORING" | "DONE";
-    matchedElements?: string[];
-    missingElements?: string[];
-    judgeNote?: string;
-  }>;
-}
+import {
+  type AttemptData,
+  type PlayerData,
+  type RoomData,
+  type RoundData,
+  type ScoreEntry,
+  useRoomSync,
+} from "@/lib/client/room-sync";
 
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
@@ -66,79 +29,17 @@ export default function ResultsPage() {
   const searchParams = useSearchParams();
   const fromRound = searchParams.get("from") === "round";
 
-  const { user, getIdToken } = useAuth();
-
-  const [room, setRoom] = useState<RoomData | null>(null);
-  const [round, setRound] = useState<RoundData | null>(null);
-  const [scores, setScores] = useState<ScoreEntry[]>([]);
-  const [me, setMe] = useState<PlayerData | null>(null);
-  const [myAttempts, setMyAttempts] = useState<AttemptData | null>(null);
+  const { user } = useAuth();
+  const { snapshot } = useRoomSync({ roomId, view: "results", enabled: Boolean(user) });
+  const room = snapshot.room as RoomData | null;
+  const round = snapshot.round as RoundData | null;
+  const scores = snapshot.scores as ScoreEntry[];
+  const myAttempts = snapshot.attempts as AttemptData | null;
+  const me =
+    user?.uid
+      ? (snapshot.players.find((player) => player.uid === user.uid) as PlayerData | undefined) ?? null
+      : null;
   const allowStayDuringRound = fromRound && room?.status !== "RESULTS";
-
-  useEffect(() => {
-    if (!clientDb) return;
-
-    const unsubRoom = onSnapshot(doc(clientDb, "rooms", roomId), (snapshot) => {
-      if (!snapshot.exists()) return;
-      setRoom(snapshot.data() as RoomData);
-    });
-
-    return unsubRoom;
-  }, [roomId]);
-
-  useEffect(() => {
-    if (!room?.currentRoundId) return;
-    if (!clientDb) return;
-
-    const roundId = room.currentRoundId;
-
-    const unsubRound = onSnapshot(
-      doc(clientDb, "rooms", roomId, "rounds", roundId),
-      (snapshot) => {
-        if (!snapshot.exists()) return;
-        setRound(snapshot.data() as RoundData);
-      },
-    );
-
-    const scoresQuery = query(
-      collection(clientDb, "rooms", roomId, "rounds", roundId, "scores"),
-      orderBy("bestScore", "desc"),
-    );
-
-    const unsubScores = onSnapshot(scoresQuery, (snapshot) => {
-      setScores(snapshot.docs.map((item) => item.data() as ScoreEntry));
-    });
-
-    let unsubMe = () => {
-      // noop
-    };
-    let unsubAttempts = () => {
-      // noop
-    };
-    if (user?.uid) {
-      unsubMe = onSnapshot(doc(clientDb, "rooms", roomId, "players", user.uid), (snapshot) => {
-        if (!snapshot.exists()) return;
-        setMe(snapshot.data() as PlayerData);
-      });
-      unsubAttempts = onSnapshot(
-        doc(clientDb, "rooms", roomId, "rounds", roundId, "attempts_private", user.uid),
-        (snapshot) => {
-          if (!snapshot.exists()) {
-            setMyAttempts(null);
-            return;
-          }
-          setMyAttempts(snapshot.data() as AttemptData);
-        },
-      );
-    }
-
-    return () => {
-      unsubRound();
-      unsubScores();
-      unsubMe();
-      unsubAttempts();
-    };
-  }, [room?.currentRoundId, roomId, user?.uid]);
 
   useEffect(() => {
     if (!room) return;
@@ -166,7 +67,6 @@ export default function ResultsPage() {
             roomId,
             roundId: round.roundId,
           },
-          getIdToken,
         );
       } catch (error) {
         console.error("results wait endIfNeeded failed", error);
@@ -179,11 +79,10 @@ export default function ResultsPage() {
     }, 1_500);
 
     return () => clearInterval(intervalId);
-  }, [allowStayDuringRound, room, round, roomId, getIdToken]);
+  }, [allowStayDuringRound, room, round, roomId]);
 
   useRoomPresence({
     roomId,
-    getIdToken,
     enabled: Boolean(room && user),
   });
 
@@ -192,6 +91,9 @@ export default function ResultsPage() {
     [scores],
   );
   const isResultsPhase = room?.status === "RESULTS";
+  const roundIndex = room?.roundIndex ?? 0;
+  const totalRounds = room?.settings?.totalRounds ?? 0;
+  const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
   const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const waitingMessage = useMemo(() => {
     if (room?.status === "GENERATING_ROUND") {
@@ -228,7 +130,7 @@ export default function ResultsPage() {
           <h1 className="text-4xl leading-none md:text-5xl">ランキング発表</h1>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {room.roundIndex >= room.settings.totalRounds ? (
+          {isFinalRound ? (
             <Badge className="bg-[var(--pmb-red)] text-white">
               <Flag className="mr-1 h-3.5 w-3.5" /> FINAL ROUND
             </Badge>
@@ -243,7 +145,7 @@ export default function ResultsPage() {
                 disabled={!me?.isHost || !isResultsPhase}
               >
                 <ChevronRight className="mr-1 h-4 w-4" />
-                {room.roundIndex >= room.settings.totalRounds ? "ロビーに戻る" : "次ラウンドへ"}
+                {isFinalRound ? "ロビーに戻る" : "次ラウンドへ"}
               </Button>
             <Button type="button" variant="ghost" onClick={onLeave}>
               <LogOut className="mr-2 h-4 w-4" />

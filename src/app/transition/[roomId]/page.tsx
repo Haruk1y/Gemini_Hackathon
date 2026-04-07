@@ -3,56 +3,28 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { doc, onSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Card } from "@/components/ui/card";
 import { apiPost } from "@/lib/client/api";
 import { useRoomPresence } from "@/lib/client/room-presence";
-import { clientDb } from "@/lib/firebase/client";
-
-interface RoomData {
-  status: "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
-}
+import { type RoomData, useRoomSync } from "@/lib/client/room-sync";
 
 export default function TransitionPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, getIdToken } = useAuth();
+  const { user } = useAuth();
+  const { snapshot } = useRoomSync({ roomId, view: "transition", enabled: Boolean(user) });
   const shouldStartNext = searchParams.get("start") === "1";
 
-  const [room, setRoom] = useState<RoomData | null>(null);
-  const [isHost, setIsHost] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const startRequestedRef = useRef(false);
-
-  useEffect(() => {
-    if (!clientDb) return;
-
-    const unsub = onSnapshot(doc(clientDb, "rooms", roomId), (snapshot) => {
-      if (!snapshot.exists()) return;
-      setRoom(snapshot.data() as RoomData);
-    });
-
-    return unsub;
-  }, [roomId]);
-
-  useEffect(() => {
-    if (!clientDb || !user?.uid) return;
-
-    const unsub = onSnapshot(doc(clientDb, "rooms", roomId, "players", user.uid), (snapshot) => {
-      if (!snapshot.exists()) {
-        setIsHost(false);
-        return;
-      }
-      const data = snapshot.data() as { isHost?: boolean };
-      setIsHost(Boolean(data.isHost));
-    });
-
-    return unsub;
-  }, [roomId, user?.uid]);
+  const room = snapshot.room as RoomData | null;
+  const isHost = user?.uid
+    ? Boolean(snapshot.players.find((player) => player.uid === user.uid)?.isHost)
+    : false;
 
   useEffect(() => {
     if (!room) return;
@@ -79,17 +51,15 @@ export default function TransitionPage() {
     void apiPost(
       "/api/rounds/next",
       { roomId },
-      getIdToken,
     ).catch((error) => {
       console.error("rounds/next failed in transition", error);
       setStartError("次ラウンド開始に失敗しました。もう一度お試しください。");
       startRequestedRef.current = false;
     });
-  }, [shouldStartNext, room, isHost, roomId, getIdToken]);
+  }, [shouldStartNext, room, isHost, roomId]);
 
   useRoomPresence({
     roomId,
-    getIdToken,
     enabled: Boolean(room && user),
   });
 
