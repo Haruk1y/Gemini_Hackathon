@@ -786,7 +786,26 @@ export default function LobbyPage() {
             ))}
           </div>
 
-          <div className="mt-3 border-t-4 border-[var(--pmb-ink)] pt-3">
+          <div className="relative mt-3 border-t-4 border-[var(--pmb-ink)] pt-2">
+            {me?.isHost ? (
+              <div className="absolute right-0 bottom-full mb-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onShufflePlayers}
+                  disabled={!canShufflePlayers}
+                  className="h-11 min-w-[168px] px-4 text-sm font-black"
+                >
+                  {actionBusy === "shuffle" ? (
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Shuffle className="mr-2 h-4 w-4" />
+                  )}
+                  並び順をシャッフル
+                </Button>
+              </div>
+            ) : null}
+
             {me?.isHost ? (
               <Button
                 type="button"
@@ -810,25 +829,6 @@ export default function LobbyPage() {
                 ホストの開始を待っています。
               </p>
             )}
-
-            <div className="mt-2 flex justify-end">
-              {me?.isHost ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={onShufflePlayers}
-                  disabled={!canShufflePlayers}
-                  className="h-11 min-w-[168px] px-4 text-sm font-black"
-                >
-                  {actionBusy === "shuffle" ? (
-                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Shuffle className="mr-2 h-4 w-4" />
-                  )}
-                  並び順をシャッフル
-                </Button>
-              ) : null}
-            </div>
 
             {lobbyStatusMessage ? (
               <p
