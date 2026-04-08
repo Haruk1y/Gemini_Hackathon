@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { updateRoomSettings } from "@/lib/game/room-service";
-import { createRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
+import {
+  createRoomState,
+  loadRoomState,
+  saveRoomState,
+  __test__ as roomStateTest,
+} from "@/lib/server/room-state";
 import { dateAfterHours } from "@/lib/utils/time";
 
 function createBaseState() {
@@ -24,6 +29,7 @@ function createBaseState() {
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
+      cpuCount: 0,
     },
     ui: {
       theme: "neo-brutal",
@@ -33,6 +39,7 @@ function createBaseState() {
   state.players.host = {
     uid: "host",
     displayName: "Host",
+    kind: "human",
     isHost: true,
     joinedAt: now,
     expiresAt: dateAfterHours(24),
@@ -44,6 +51,7 @@ function createBaseState() {
   state.players.guest = {
     uid: "guest",
     displayName: "Guest",
+    kind: "human",
     isHost: false,
     joinedAt: now,
     expiresAt: dateAfterHours(24),
@@ -70,6 +78,7 @@ describe("updateRoomSettings", () => {
         gameMode: "memory",
         totalRounds: 3,
         roundSeconds: 45,
+        cpuCount: 0,
       },
     });
 
@@ -78,6 +87,60 @@ describe("updateRoomSettings", () => {
     expect(settings.roundSeconds).toBe(45);
     expect(settings.maxAttempts).toBe(1);
     expect(settings.hintLimit).toBe(0);
+  });
+
+  it("syncs cpu players when impostor mode is enabled", async () => {
+    await saveRoomState(createBaseState());
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "impostor",
+        totalRounds: 3,
+        roundSeconds: 60,
+        cpuCount: 2,
+      },
+    });
+
+    const state = await loadRoomState("ROOM1");
+    const cpuPlayers = Object.values(state?.players ?? {}).filter((player) => player.kind === "cpu");
+
+    expect(state?.room.settings.cpuCount).toBe(2);
+    expect(cpuPlayers).toHaveLength(2);
+    expect(cpuPlayers.every((player) => player.ready)).toBe(true);
+  });
+
+  it("prunes cpu players when leaving impostor mode", async () => {
+    await saveRoomState(createBaseState());
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "impostor",
+        totalRounds: 3,
+        roundSeconds: 60,
+        cpuCount: 2,
+      },
+    });
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "classic",
+        totalRounds: 3,
+        roundSeconds: 60,
+        cpuCount: 0,
+      },
+    });
+
+    const state = await loadRoomState("ROOM1");
+    const cpuPlayers = Object.values(state?.players ?? {}).filter((player) => player.kind === "cpu");
+
+    expect(state?.room.settings.cpuCount).toBe(0);
+    expect(cpuPlayers).toHaveLength(0);
   });
 
   it("rejects non-host players", async () => {
@@ -91,6 +154,7 @@ describe("updateRoomSettings", () => {
           gameMode: "memory",
           totalRounds: 2,
           roundSeconds: 30,
+          cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({
@@ -112,6 +176,7 @@ describe("updateRoomSettings", () => {
           gameMode: "memory",
           totalRounds: 2,
           roundSeconds: 30,
+          cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({

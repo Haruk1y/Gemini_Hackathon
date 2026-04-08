@@ -17,6 +17,7 @@ import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
 import {
   type AttemptData,
+  type PlayerData,
   type RoomData,
   type RoundData,
   type ScoreEntry,
@@ -59,6 +60,7 @@ export default function RoundPage() {
   const derivedRound = snapshot.round as RoundData | null;
   const derivedScores = snapshot.scores as ScoreEntry[];
   const derivedAttempts = snapshot.attempts as AttemptData | null;
+  const derivedPlayers = snapshot.players as PlayerData[];
   const derivedPlayerCount = snapshot.playerCount || snapshot.players.length;
 
   const applyImageFallback = (element: HTMLImageElement, label: string) => {
@@ -77,10 +79,36 @@ export default function RoundPage() {
 
   const currentGameMode = room?.settings?.gameMode ?? "classic";
   const currentMode = getGameModeDefinition(currentGameMode);
+  const impostorModeState =
+    currentGameMode === "impostor" && round?.modeState?.kind === "impostor"
+      ? round.modeState
+      : null;
+  const isImpostorMode = Boolean(impostorModeState);
+  const isMyTurn = Boolean(snapshot.isMyTurn);
+  const myRole = snapshot.myRole;
+  const currentTurnUid = snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
+  const currentTurnPlayer = derivedPlayers.find((player) => player.uid === currentTurnUid) ?? null;
+  const isCpuTurn = Boolean(isImpostorMode && currentTurnPlayer?.kind === "cpu");
+  const completedTurns =
+    impostorModeState?.phase === "CHAIN"
+      ? (impostorModeState.currentTurnIndex ?? 0)
+      : (impostorModeState?.turnOrder?.length ?? 0);
+  const turnTotal = impostorModeState?.turnOrder?.length ?? 0;
   const roundSeconds = room?.settings?.roundSeconds ?? 60;
 
   useEffect(() => {
     if (!round || !room) {
+      setSecondsLeft(0);
+      setPreviewSecondsLeft(null);
+      return;
+    }
+
+    if (
+      isImpostorMode &&
+      room.status === "IN_ROUND" &&
+      round.status === "IN_ROUND" &&
+      isCpuTurn
+    ) {
       setSecondsLeft(0);
       setPreviewSecondsLeft(null);
       return;
@@ -113,11 +141,11 @@ export default function RoundPage() {
     update();
     const id = setInterval(update, 250);
     return () => clearInterval(id);
-  }, [currentGameMode, round, room, roundSeconds]);
+  }, [currentGameMode, isCpuTurn, isImpostorMode, round, room, roundSeconds]);
 
   useEffect(() => {
     endCalled.current = false;
-  }, [round?.roundId, room?.status]);
+  }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
 
   useEffect(() => {
     if (!room || !round) return;
@@ -138,6 +166,7 @@ export default function RoundPage() {
     }
 
     if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
+    if (isCpuTurn || !round.endsAt) return;
     if (secondsLeft > 0 || endCalled.current) return;
 
     endCalled.current = true;
@@ -148,7 +177,7 @@ export default function RoundPage() {
       console.error("endIfNeeded failed", err);
       endCalled.current = false;
     });
-  }, [secondsLeft, room, round, roomId, router]);
+  }, [isCpuTurn, secondsLeft, room, round, roomId, router]);
 
   const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(
@@ -179,6 +208,8 @@ export default function RoundPage() {
     currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
+  const impostorReferenceImageUrl =
+    impostorModeState?.chainImageUrl || round?.targetImageUrl || "";
 
   useEffect(() => {
     if (!autoEndingSoon) {
@@ -260,6 +291,205 @@ export default function RoundPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
         <Card className="bg-white">ラウンド準備中...</Card>
+      </main>
+    );
+  }
+
+  if (isImpostorMode) {
+    const primaryImageUrl = isMyTurn ? impostorReferenceImageUrl : "";
+    const primaryImageHeading = isMyTurn
+      ? "参照画像"
+      : "非公開";
+    const primaryImageDescription = isMyTurn
+      ? "今見えている画像を、次の人が再現しやすい言葉に変換しよう。"
+      : isCpuTurn
+        ? "CPU が生成中です。画像ができ次第すぐ次のプレイヤーへ進みます。"
+        : "現在の担当者だけが直前の画像を見ています。あなたの番になったら、その時点の1枚だけ表示されます。";
+
+    return (
+      <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+        <Card className="bg-white p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-2xl font-black uppercase leading-none md:text-3xl">
+                  Round {round.index}
+                </p>
+                <Badge className="bg-[var(--pmb-yellow)] text-[var(--pmb-ink)]">
+                  Art Impostor
+                </Badge>
+                <Badge className={myRole === "impostor" ? "bg-[var(--pmb-red)] text-white" : ""}>
+                  {myRole === "impostor" ? "IMPOSTOR" : "AGENT"}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm font-semibold">
+                {isMyTurn
+                  ? "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。"
+                  : isCpuTurn
+                    ? `${currentTurnPlayer?.displayName ?? "CPU"} が画像を生成中です。完了次第すぐ進みます。`
+                    : `${currentTurnPlayer?.displayName ?? "他プレイヤー"} のターンを待っています。`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {isCpuTurn ? (
+                <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                  <p className="text-xs font-black uppercase tracking-[0.18em]">CPU Generating</p>
+                  <p className="mt-1 text-sm font-black">完了次第すぐ次へ</p>
+                </Card>
+              ) : (
+                <CountdownTimer secondsLeft={secondsLeft} />
+              )}
+              <Card className="bg-[var(--pmb-base)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                <p className="text-xs font-black uppercase tracking-[0.18em]">Turn Progress</p>
+                <p className="mt-1 font-mono text-2xl font-black">
+                  {completedTurns}/{turnTotal}
+                </p>
+              </Card>
+            </div>
+          </div>
+
+          <h2 className="mt-4 mb-2 text-lg">
+            {isMyTurn ? "プロンプトを入力しよう！" : "順番待ち中"}
+          </h2>
+          <Textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder={
+              isMyTurn
+                ? "見えている画像を次のAIが再現しやすいように具体的に書く"
+                : "あなたのターンになるまで入力はできません。"
+            }
+            maxLength={600}
+            className="min-h-20"
+            disabled={!isMyTurn || !isRoundLive || isBusy}
+          />
+          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+            <Button
+              type="button"
+              onClick={submitPrompt}
+              disabled={isBusy || !isRoundLive || !isMyTurn || prompt.trim().length < 1}
+            >
+              {submitPending ? (
+                <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1 h-4 w-4" />
+              )}
+              {submitPending ? "判定中..." : isMyTurn ? "次の画像を生成" : "順番待ち"}
+            </Button>
+            <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
+              現在の担当 {currentTurnPlayer?.displayName ?? "待機中"}
+            </Card>
+          </div>
+          {feedback ? (
+            <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p>
+          ) : null}
+        </Card>
+
+        <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_0.95fr]">
+          <Card className="bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base">{primaryImageHeading}</h3>
+              <Badge className="bg-white px-2 py-0 text-[10px]">
+                {completedTurns}/{turnTotal} DONE
+              </Badge>
+            </div>
+            {primaryImageUrl ? (
+              <div className={imageFrameClass}>
+                <img
+                  src={primaryImageUrl || placeholderImageUrl(round.gmTitle || "reference")}
+                  alt={primaryImageHeading}
+                  className="h-full w-full object-contain p-1"
+                  onError={(event) =>
+                    applyImageFallback(event.currentTarget, round.gmTitle || "reference")
+                  }
+                />
+              </div>
+            ) : (
+              <div
+                className={`${imageFrameClass} flex flex-col items-center justify-center gap-3 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
+              >
+                <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-5 py-3 text-sm font-black uppercase tracking-[0.16em]">
+                  Waiting
+                </div>
+                <p className="text-lg font-black">
+                  {currentTurnPlayer?.displayName ?? "他プレイヤー"} が画像をつないでいます
+                </p>
+                <p className="max-w-md text-sm font-semibold">
+                  {isCpuTurn
+                    ? "CPU の生成が終わると、すぐ次の担当へ引き継がれます。"
+                    : "進行中の画像は現在の担当者だけが見られます。あなたの番で直前の1枚だけ公開されます。"}
+                </p>
+              </div>
+            )}
+            <div className="mt-3 rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3 text-sm font-semibold">
+              <p>{primaryImageDescription}</p>
+              {!isMyTurn ? (
+                <p className="mt-2">
+                  現在の担当: {currentTurnPlayer?.displayName ?? "待機中"}
+                </p>
+              ) : null}
+            </div>
+          </Card>
+
+          <div className="flex min-h-0 flex-col gap-3">
+            <Card className="min-h-0 bg-white p-3 lg:flex lg:h-full lg:flex-col">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base">ターン順</h3>
+                <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_65%,white)]">
+                  画像は担当者だけが見られ、全体公開は結果画面で行われます。
+                </p>
+              </div>
+              <div className="mt-3 min-h-0 space-y-2 overflow-y-auto pr-1">
+                {impostorModeState?.turnOrder?.map((turnUid, index) => {
+                  const player = derivedPlayers.find((candidate) => candidate.uid === turnUid);
+                  const isCurrent = turnUid === currentTurnUid;
+                  const isDone = index < completedTurns;
+
+                  return (
+                    <div
+                      key={turnUid}
+                      className={[
+                        "rounded-lg border-2 border-[var(--pmb-ink)] px-3 py-3",
+                        isCurrent
+                          ? "bg-[var(--pmb-yellow)]"
+                          : isDone
+                            ? "bg-[var(--pmb-green)]"
+                            : "bg-[var(--pmb-base)]",
+                      ].join(" ")}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-black">
+                            {index + 1}. {player?.displayName ?? turnUid}
+                          </p>
+                          {player?.kind === "cpu" ? (
+                            <Badge className="bg-white px-2 py-0 text-[10px]">CPU</Badge>
+                          ) : null}
+                          {player?.uid === user?.uid ? (
+                            <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
+                          ) : null}
+                          <Badge className="bg-white px-2 py-0 text-[10px]">
+                            {isCurrent ? "NOW" : isDone ? "DONE" : "WAIT"}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 flex items-start gap-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white/80 px-3 py-2 text-xs font-semibold">
+                          <EyeOff className="mt-0.5 h-4 w-4 shrink-0" />
+                          <p>
+                            {isCurrent
+                              ? "このターンの担当者だけが直前の画像を確認しています。"
+                              : isDone
+                                ? "このターンの画像は結果画面で全体公開されます。"
+                                : "あなたの番になるまで画像は非公開です。"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+        </section>
       </main>
     );
   }

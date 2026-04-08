@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { GameMode } from "@/lib/types/game";
+import type { GameMode, ImpostorRole, PlayerKind } from "@/lib/types/game";
 
 export type RoomStatus = "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
+export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
 
 export interface RoomData {
   roomId?: string;
@@ -20,12 +21,14 @@ export interface RoomData {
     aspectRatio?: "1:1" | "16:9" | "9:16";
     hintLimit?: number;
     totalRounds?: number;
+    cpuCount?: number;
   };
 }
 
 export interface PlayerData {
   uid: string;
   displayName: string;
+  kind: PlayerKind;
   ready: boolean;
   isHost: boolean;
   totalScore: number;
@@ -49,6 +52,19 @@ export interface RoundData {
     topScore?: number;
   };
   difficulty?: 1 | 2 | 3 | 4 | 5;
+  modeState?: {
+    kind?: "impostor";
+    phase?: ImpostorRoundPhase;
+    turnOrder?: string[];
+    currentTurnIndex?: number;
+    currentTurnUid?: string | null;
+    chainImageUrl?: string;
+    similarityThreshold?: number;
+    finalSimilarityScore?: number | null;
+    voteCount?: number;
+    voteTarget?: string | null;
+    revealedTurns?: number;
+  };
 }
 
 export interface ScoreEntry {
@@ -76,6 +92,21 @@ export interface AttemptData {
   }>;
 }
 
+export interface TurnTimelineEntry {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  imageUrl: string;
+  similarityScore: number;
+  matchedElements?: string[];
+  missingElements?: string[];
+  judgeNote?: string;
+  prompt?: string;
+  role?: ImpostorRole;
+  timedOut?: boolean;
+  votedForUid?: string | null;
+}
+
 export interface RoomSyncSnapshot {
   room: RoomData | null;
   players: PlayerData[];
@@ -83,6 +114,17 @@ export interface RoomSyncSnapshot {
   scores: ScoreEntry[];
   attempts: AttemptData | null;
   playerCount: number;
+  myRole?: ImpostorRole | null;
+  isMyTurn?: boolean;
+  currentTurnUid?: string | null;
+  voteProgress?: {
+    submitted: number;
+    total: number;
+    meTargetUid?: string | null;
+  } | null;
+  finalSimilarityScore?: number | null;
+  turnTimeline: TurnTimelineEntry[];
+  revealLocked?: boolean;
 }
 
 type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
@@ -98,6 +140,13 @@ const EMPTY_SNAPSHOT: RoomSyncSnapshot = {
   scores: [],
   attempts: null,
   playerCount: 0,
+  myRole: null,
+  isMyTurn: false,
+  currentTurnUid: null,
+  voteProgress: null,
+  finalSimilarityScore: null,
+  turnTimeline: [],
+  revealLocked: false,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -127,7 +176,19 @@ function normalizeRoundStatus(value: unknown): RoundStatus | null {
 }
 
 function normalizeGameMode(value: unknown): GameMode | null {
-  return value === "classic" || value === "memory" ? value : null;
+  return value === "classic" || value === "memory" || value === "impostor" ? value : null;
+}
+
+function normalizePlayerKind(value: unknown): PlayerKind | null {
+  return value === "human" || value === "cpu" ? value : null;
+}
+
+function normalizeImpostorRole(value: unknown): ImpostorRole | null {
+  return value === "agent" || value === "impostor" ? value : null;
+}
+
+function normalizeImpostorPhase(value: unknown): ImpostorRoundPhase | null {
+  return value === "CHAIN" || value === "VOTING" || value === "REVEAL" ? value : null;
 }
 
 function normalizeRoomData(value: unknown): RoomData | null {
@@ -155,6 +216,7 @@ function normalizeRoomData(value: unknown): RoomData | null {
               : undefined,
           hintLimit: asNumber(value.settings.hintLimit) ?? undefined,
           totalRounds: asNumber(value.settings.totalRounds) ?? undefined,
+          cpuCount: asNumber(value.settings.cpuCount) ?? undefined,
         }
       : undefined,
   };
@@ -167,6 +229,7 @@ function normalizePlayers(value: unknown): PlayerData[] {
     .map((player) => ({
       uid: asString(player.uid) ?? "",
       displayName: asString(player.displayName) ?? "",
+      kind: normalizePlayerKind(player.kind) ?? "human",
       ready: Boolean(player.ready),
       isHost: Boolean(player.isHost),
       totalScore: asNumber(player.totalScore) ?? 0,
@@ -213,6 +276,28 @@ function normalizeRoundData(value: unknown): RoundData | null {
       value.difficulty === 5
         ? value.difficulty
         : undefined,
+    modeState: isRecord(value.modeState)
+      ? {
+          kind: value.modeState.kind === "impostor" ? "impostor" : undefined,
+          phase: normalizeImpostorPhase(value.modeState.phase) ?? undefined,
+          turnOrder: Array.isArray(value.modeState.turnOrder)
+            ? value.modeState.turnOrder.filter((item): item is string => typeof item === "string")
+            : undefined,
+          currentTurnIndex: asNumber(value.modeState.currentTurnIndex) ?? undefined,
+          currentTurnUid: asString(value.modeState.currentTurnUid),
+          chainImageUrl: asString(value.modeState.chainImageUrl) ?? undefined,
+          similarityThreshold: asNumber(value.modeState.similarityThreshold) ?? undefined,
+          finalSimilarityScore:
+            typeof value.modeState.finalSimilarityScore === "number"
+              ? value.modeState.finalSimilarityScore
+              : value.modeState.finalSimilarityScore === null
+                ? null
+                : undefined,
+          voteCount: asNumber(value.modeState.voteCount) ?? undefined,
+          voteTarget: asString(value.modeState.voteTarget),
+          revealedTurns: asNumber(value.modeState.revealedTurns) ?? undefined,
+        }
+      : undefined,
   };
 }
 
@@ -263,6 +348,44 @@ function normalizeAttempts(value: unknown): AttemptData | null {
   };
 }
 
+function normalizeVoteProgress(value: unknown) {
+  if (!isRecord(value)) return null;
+  const submitted = asNumber(value.submitted);
+  const total = asNumber(value.total);
+  if (submitted == null || total == null) return null;
+
+  return {
+    submitted,
+    total,
+    meTargetUid: asString(value.meTargetUid),
+  };
+}
+
+function normalizeTurnTimeline(value: unknown): TurnTimelineEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      uid: asString(entry.uid) ?? "",
+      displayName: asString(entry.displayName) ?? "",
+      kind: normalizePlayerKind(entry.kind) ?? "human",
+      imageUrl: asString(entry.imageUrl) ?? "",
+      similarityScore: asNumber(entry.similarityScore) ?? 0,
+      matchedElements: Array.isArray(entry.matchedElements)
+        ? entry.matchedElements.filter((item): item is string => typeof item === "string")
+        : undefined,
+      missingElements: Array.isArray(entry.missingElements)
+        ? entry.missingElements.filter((item): item is string => typeof item === "string")
+        : undefined,
+      judgeNote: asString(entry.judgeNote) ?? undefined,
+      prompt: asString(entry.prompt) ?? undefined,
+      role: normalizeImpostorRole(entry.role) ?? undefined,
+      timedOut: typeof entry.timedOut === "boolean" ? entry.timedOut : undefined,
+      votedForUid: asString(entry.votedForUid),
+    }))
+    .filter((entry) => entry.uid.length > 0);
+}
+
 export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
   if (!isRecord(value)) {
     return { ...EMPTY_SNAPSHOT };
@@ -280,8 +403,19 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
     round,
     scores,
     attempts,
-    playerCount:
-      asNumber(value.playerCount) ?? players.length,
+    playerCount: asNumber(value.playerCount) ?? players.length,
+    myRole: normalizeImpostorRole(value.myRole),
+    isMyTurn: Boolean(value.isMyTurn),
+    currentTurnUid: asString(value.currentTurnUid),
+    voteProgress: normalizeVoteProgress(value.voteProgress),
+    finalSimilarityScore:
+      typeof value.finalSimilarityScore === "number"
+        ? value.finalSimilarityScore
+        : value.finalSimilarityScore === null
+          ? null
+          : undefined,
+    turnTimeline: normalizeTurnTimeline(value.turnTimeline),
+    revealLocked: typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,
   };
 }
 

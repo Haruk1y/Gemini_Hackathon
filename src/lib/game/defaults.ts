@@ -9,6 +9,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   hintLimit: 0,
   totalRounds: 3,
   gameMode: "classic",
+  cpuCount: 0,
 };
 
 export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {

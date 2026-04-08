@@ -1,28 +1,31 @@
 import { requirePlayer, requireRoom, assertHost } from "@/lib/game/guards";
 import { mergeRoomSettings } from "@/lib/game/defaults";
+import { sortPlayersBySeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
 import {
   bumpRoomVersion,
   loadRoomState,
   saveRoomState,
   withRoomLock,
 } from "@/lib/server/room-state";
-import type { PlayerDoc, RoomSettings } from "@/lib/types/game";
+import type { PlayerDoc, PlayerKind, RoomSettings } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { parseDate } from "@/lib/utils/time";
 
 interface HostCandidate {
   uid: string;
   isHost: boolean;
+  kind: PlayerKind;
   joinedAt?: Date;
 }
 
 export function selectNextHost(candidates: HostCandidate[]): string | null {
-  if (!candidates.length) return null;
+  const humans = candidates.filter((candidate) => candidate.kind === "human");
+  if (!humans.length) return null;
 
-  const existingHost = candidates.find((candidate) => candidate.isHost);
+  const existingHost = humans.find((candidate) => candidate.isHost);
   if (existingHost) return existingHost.uid;
 
-  const sorted = [...candidates].sort((a, b) => {
+  const sorted = [...humans].sort((a, b) => {
     const at = parseDate(a.joinedAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const bt = parseDate(b.joinedAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     return at - bt;
@@ -41,10 +44,21 @@ export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): v
   }
 }
 
+export function shufflePlayers<T>(players: T[], random = Math.random): T[] {
+  const next = [...players];
+
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex]!, next[index]!];
+  }
+
+  return next;
+}
+
 export async function updateRoomSettings(params: {
   roomId: string;
   uid: string;
-  settings: Pick<RoomSettings, "gameMode" | "totalRounds" | "roundSeconds">;
+  settings: Pick<RoomSettings, "gameMode" | "totalRounds" | "roundSeconds" | "cpuCount">;
 }): Promise<RoomSettings> {
   return withRoomLock(params.roomId, async () => {
     const state = await loadRoomState(params.roomId);
@@ -65,6 +79,7 @@ export async function updateRoomSettings(params: {
       ...room.settings,
       ...params.settings,
     });
+    syncCpuPlayers(state!);
 
     await saveRoomState(bumpRoomVersion(state!));
     return room.settings;
@@ -83,6 +98,41 @@ export async function pingRoom(roomId: string, uid: string): Promise<void> {
   });
 }
 
+export async function shufflePlayerOrder(params: {
+  roomId: string;
+  uid: string;
+}): Promise<string[]> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const player = requirePlayer(state?.players[params.uid]);
+    assertHost(player);
+
+    if (room.status !== "LOBBY") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "プレイヤー順をシャッフルできるのはロビー中だけです。",
+        false,
+        409,
+      );
+    }
+
+    const orderedPlayers = sortPlayersBySeatOrder(Object.values(state!.players));
+    const shuffledPlayers = shufflePlayers(orderedPlayers);
+
+    shuffledPlayers.forEach((candidate, index) => {
+      const target = state!.players[candidate.uid];
+      if (target) {
+        target.seatOrder = index;
+        target.lastSeenAt = new Date();
+      }
+    });
+
+    await saveRoomState(bumpRoomVersion(state!));
+    return shuffledPlayers.map((candidate) => candidate.uid);
+  });
+}
+
 export async function leaveRoom(roomId: string, uid: string): Promise<void> {
   await withRoomLock(roomId, async () => {
     const state = await loadRoomState(roomId);
@@ -92,7 +142,8 @@ export async function leaveRoom(roomId: string, uid: string): Promise<void> {
     delete state!.players[uid];
 
     const players = Object.values(state!.players);
-    if (!players.length) {
+    const humanPlayers = players.filter((player) => player.kind === "human");
+    if (!humanPlayers.length) {
       room.status = "FINISHED";
       room.currentRoundId = null;
       await saveRoomState(bumpRoomVersion(state!));
@@ -108,6 +159,7 @@ export async function leaveRoom(roomId: string, uid: string): Promise<void> {
       players.map((player) => ({
         uid: player.uid,
         isHost: player.isHost,
+        kind: player.kind,
         joinedAt: parseDate(player.joinedAt) ?? undefined,
       })),
     );

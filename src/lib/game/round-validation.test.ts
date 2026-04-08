@@ -27,6 +27,7 @@ function createRoundState(promptStartsAt: Date, endsAt: Date) {
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "memory",
+      cpuCount: 0,
     },
     ui: {
       theme: "neo-brutal",
@@ -36,6 +37,7 @@ function createRoundState(promptStartsAt: Date, endsAt: Date) {
   state.players.anon_1 = {
     uid: "anon_1",
     displayName: "Player",
+    kind: "human",
     isHost: false,
     joinedAt: now,
     expiresAt: dateAfterHours(24),

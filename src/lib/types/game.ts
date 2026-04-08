@@ -8,7 +8,10 @@ export type RoomStatus =
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
 
 export type AspectRatio = "1:1" | "16:9" | "9:16";
-export type GameMode = "classic" | "memory";
+export type GameMode = "classic" | "memory" | "impostor";
+export type PlayerKind = "human" | "cpu";
+export type ImpostorRole = "agent" | "impostor";
+export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -35,6 +38,7 @@ export interface RoomSettings {
   hintLimit: number;
   totalRounds: number;
   gameMode: GameMode;
+  cpuCount: number;
 }
 
 export interface RoomDoc {
@@ -55,12 +59,28 @@ export interface RoomDoc {
 export interface PlayerDoc {
   uid: string;
   displayName: string;
+  kind: PlayerKind;
+  seatOrder?: number;
   isHost: boolean;
   joinedAt: Date;
   expiresAt: Date;
   lastSeenAt: Date;
   ready: boolean;
   totalScore: number;
+}
+
+export interface ImpostorRoundModeState {
+  kind: "impostor";
+  phase: ImpostorRoundPhase;
+  turnOrder: string[];
+  currentTurnIndex: number;
+  currentTurnUid: string | null;
+  chainImageUrl: string;
+  similarityThreshold: number;
+  finalSimilarityScore: number | null;
+  voteCount: number;
+  voteTarget: string | null;
+  revealedTurns: number;
 }
 
 export interface RoundPublicDoc {
@@ -84,6 +104,45 @@ export interface RoundPublicDoc {
     submissions: number;
     topScore: number;
   };
+  modeState?: ImpostorRoundModeState;
+}
+
+export interface ImpostorTurnRecord {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  role: ImpostorRole;
+  prompt: string;
+  imageUrl: string;
+  referenceImageUrl: string;
+  similarityScore: number;
+  matchedElements: string[];
+  missingElements: string[];
+  judgeNote: string;
+  createdAt: Date;
+  timedOut?: boolean;
+}
+
+export interface ImpostorFinalJudge {
+  score: number;
+  matchedElements: string[];
+  missingElements: string[];
+  note: string;
+}
+
+export interface CpuVoteMeta {
+  uid: string;
+  targetUid: string;
+  reason: string;
+  createdAt: Date;
+}
+
+export interface ImpostorRoundPrivateState {
+  rolesByUid: Record<string, ImpostorRole>;
+  turnRecords: ImpostorTurnRecord[];
+  votesByUid: Record<string, string>;
+  finalJudge: ImpostorFinalJudge | null;
+  cpuVoteMeta: CpuVoteMeta[];
 }
 
 export interface RoundPrivateDoc {
@@ -96,6 +155,7 @@ export interface RoundPrivateDoc {
     blocked: boolean;
     reason?: string;
   };
+  modeState?: ImpostorRoundPrivateState;
 }
 
 export interface AttemptItem {

@@ -26,6 +26,13 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinition> = {
     description: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
     lobbyHint: "最初の10秒だけ見て、その後は記憶で勝負",
   },
+  impostor: {
+    mode: "impostor",
+    label: "Art Impostor",
+    shortLabel: "人狼",
+    description: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
+    lobbyHint: "順番に伝言して、人狼を投票で見抜く",
+  },
 };
 
 export const GAME_MODE_OPTIONS = Object.values(GAME_MODE_DEFINITIONS);

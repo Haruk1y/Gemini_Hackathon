@@ -7,7 +7,7 @@ const safeDisplayName = z
   .max(24)
   .regex(/^[\p{L}\p{N}_\-\s]+$/u, "Display name includes invalid characters");
 
-export const gameModeSchema = z.enum(["classic", "memory"]);
+export const gameModeSchema = z.enum(["classic", "memory", "impostor"]);
 
 export const roomSettingsSchema = z
   .object({
@@ -18,6 +18,7 @@ export const roomSettingsSchema = z
     hintLimit: z.number().int().min(0).max(0),
     totalRounds: z.number().int().min(1).max(3).default(3),
     gameMode: gameModeSchema,
+    cpuCount: z.number().int().min(0).max(6).default(0),
   })
   .partial();
 
@@ -46,6 +47,7 @@ export const roomSettingsUpdateSchema = z.object({
     gameMode: gameModeSchema,
     totalRounds: z.number().int().min(1).max(3),
     roundSeconds: z.number().int().min(30).max(60),
+    cpuCount: z.number().int().min(0).max(6),
   }),
 });
 
@@ -58,4 +60,10 @@ export const submitSchema = z.object({
 export const roundSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
+});
+
+export const voteSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
+  targetUid: z.string().trim().min(1),
 });

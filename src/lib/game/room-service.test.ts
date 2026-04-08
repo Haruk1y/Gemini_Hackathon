@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { __test__ as roundServiceTest } from "@/lib/game/round-service";
 import { AppError } from "@/lib/utils/errors";
-import { assertCanStartRound, selectNextHost } from "@/lib/game/room-service";
+import { assertCanStartRound, selectNextHost, shufflePlayers } from "@/lib/game/room-service";
 
 describe("room-service", () => {
   describe("selectNextHost", () => {
     it("returns existing host when present", () => {
       const host = selectNextHost([
-        { uid: "u1", isHost: true },
-        { uid: "u2", isHost: false },
+        { uid: "u1", isHost: true, kind: "human" },
+        { uid: "u2", isHost: false, kind: "human" },
       ]);
 
       expect(host).toBe("u1");
@@ -17,8 +17,8 @@ describe("room-service", () => {
 
     it("returns oldest player when no host exists", () => {
       const host = selectNextHost([
-        { uid: "u2", isHost: false, joinedAt: new Date("2026-02-21T10:00:00Z") },
-        { uid: "u1", isHost: false, joinedAt: new Date("2026-02-21T09:00:00Z") },
+        { uid: "u2", isHost: false, kind: "human", joinedAt: new Date("2026-02-21T10:00:00Z") },
+        { uid: "u1", isHost: false, kind: "human", joinedAt: new Date("2026-02-21T09:00:00Z") },
       ]);
 
       expect(host).toBe("u1");
@@ -48,6 +48,16 @@ describe("room-service", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }, { ready: false }]),
       ).toThrow(AppError);
+    });
+  });
+
+  describe("shufflePlayers", () => {
+    it("returns a shuffled copy without mutating the original array", () => {
+      const original = ["host", "guest", "cpu-1"];
+      const shuffled = shufflePlayers(original, () => 0);
+
+      expect(original).toEqual(["host", "guest", "cpu-1"]);
+      expect(shuffled).toEqual(["guest", "cpu-1", "host"]);
     });
   });
 

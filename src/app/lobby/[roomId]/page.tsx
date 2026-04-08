@@ -9,15 +9,18 @@ import {
   type WheelEvent,
 } from "react";
 import {
+  Bot,
   Brain,
   Check,
   ChevronsUpDown,
   Copy,
   Eye,
+  Ghost,
   LoaderCircle,
   LogOut,
   Play,
   Settings2,
+  Shuffle,
   Users,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
@@ -32,7 +35,7 @@ import { useRoomSync } from "@/lib/client/room-sync";
 import { GAME_MODE_OPTIONS, getGameModeDefinition } from "@/lib/game/modes";
 import type { GameMode } from "@/lib/types/game";
 
-type ActionBusy = "ready" | "start" | "leave" | null;
+type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
 type SettingsStatus = "idle" | "saving" | "saved" | "error";
 
 interface PickerOption {
@@ -95,8 +98,13 @@ const ROUND_TIME_OPTIONS: readonly PickerOption[] = [
   },
 ];
 
-function formatSettingsKey(gameMode: GameMode, totalRounds: number, roundSeconds: number) {
-  return `${gameMode}:${totalRounds}:${roundSeconds}`;
+function formatSettingsKey(
+  gameMode: GameMode,
+  totalRounds: number,
+  roundSeconds: number,
+  cpuCount: number,
+) {
+  return `${gameMode}:${totalRounds}:${roundSeconds}:${cpuCount}`;
 }
 
 function SwipeValuePicker({
@@ -314,6 +322,7 @@ export default function LobbyPage() {
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
   const [draftTotalRounds, setDraftTotalRounds] = useState(3);
   const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
+  const [draftCpuCount, setDraftCpuCount] = useState(0);
   const [draftsReady, setDraftsReady] = useState(false);
   const [optimisticReady, setOptimisticReady] = useState<boolean | null>(null);
   const saveSequenceRef = useRef(0);
@@ -329,13 +338,23 @@ export default function LobbyPage() {
   const currentGameMode = room?.settings?.gameMode ?? "classic";
   const currentTotalRounds = room?.settings?.totalRounds ?? 3;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
+  const currentCpuCount = room?.settings?.cpuCount ?? 0;
   const displayGameMode = me?.isHost && draftsReady ? draftGameMode : currentGameMode;
   const displayTotalRounds = me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
   const displayRoundSeconds =
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
+  const displayCpuCount = me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
   const currentMode = getGameModeDefinition(displayGameMode);
   const readyCount = displayPlayers.filter((player) => player.ready).length;
   const everyoneReady = displayPlayers.length > 0 && readyCount === displayPlayers.length;
+  const humanPlayerCount = displayPlayers.filter((player) => player.kind === "human").length;
+  const maxPlayers = room?.settings?.maxPlayers ?? 8;
+  const maxCpuCount = Math.max(0, Math.min(6, maxPlayers - humanPlayerCount));
+  const cpuOptions = Array.from({ length: maxCpuCount + 1 }, (_, index) => ({
+    value: index,
+    label: String(index),
+    unitLabel: "CPU",
+  }));
   const roomStatus = room?.status ?? null;
   const isGenerating = roomStatus === "GENERATING_ROUND";
   const hostCanEdit = Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
@@ -343,21 +362,29 @@ export default function LobbyPage() {
     currentGameMode,
     currentTotalRounds,
     currentRoundSeconds,
+    currentCpuCount,
   );
   const draftSettingsKey = formatSettingsKey(
     draftGameMode,
     draftTotalRounds,
     draftRoundSeconds,
+    draftGameMode === "impostor" ? draftCpuCount : 0,
   );
   const settingsDirty = currentSettingsKey !== draftSettingsKey;
   const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
     Boolean(me?.isHost) &&
-    displayPlayers.length >= 1 &&
+    displayPlayers.length >= (displayGameMode === "impostor" ? 2 : 1) &&
     everyoneReady &&
     !isGenerating &&
     actionBusy === null &&
     !settingsPending;
+  const canShufflePlayers =
+    Boolean(me?.isHost) &&
+    roomStatus === "LOBBY" &&
+    !isGenerating &&
+    actionBusy === null &&
+    displayPlayers.length >= 2;
 
   useEffect(() => {
     if (!roomStatus) return;
@@ -391,6 +418,7 @@ export default function LobbyPage() {
       setDraftGameMode(currentGameMode);
       setDraftTotalRounds(currentTotalRounds);
       setDraftRoundSeconds(currentRoundSeconds);
+      setDraftCpuCount(currentCpuCount);
       setDraftsReady(true);
       return;
     }
@@ -402,7 +430,9 @@ export default function LobbyPage() {
     setDraftGameMode(currentGameMode);
     setDraftTotalRounds(currentTotalRounds);
     setDraftRoundSeconds(currentRoundSeconds);
+    setDraftCpuCount(currentCpuCount);
   }, [
+    currentCpuCount,
     currentGameMode,
     currentRoundSeconds,
     currentTotalRounds,
@@ -425,6 +455,7 @@ export default function LobbyPage() {
           gameMode: draftGameMode,
           totalRounds: draftTotalRounds,
           roundSeconds: draftRoundSeconds,
+          cpuCount: draftGameMode === "impostor" ? draftCpuCount : 0,
         },
       })
         .then(() => {
@@ -446,6 +477,7 @@ export default function LobbyPage() {
       window.clearTimeout(timerId);
     };
   }, [
+    draftCpuCount,
     draftGameMode,
     draftRoundSeconds,
     draftTotalRounds,
@@ -455,6 +487,12 @@ export default function LobbyPage() {
     roomStatus,
     settingsDirty,
   ]);
+
+  useEffect(() => {
+    if (!draftsReady || !hostCanEdit) return;
+    if (draftCpuCount <= maxCpuCount) return;
+    setDraftCpuCount(maxCpuCount);
+  }, [draftCpuCount, draftsReady, hostCanEdit, maxCpuCount]);
 
   useEffect(() => {
     if (settingsDirty) return;
@@ -536,6 +574,26 @@ export default function LobbyPage() {
         setActionError(error.message);
       } else {
         setActionError("退出に失敗しました");
+      }
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const onShufflePlayers = async () => {
+    if (!canShufflePlayers) return;
+
+    setActionBusy("shuffle");
+    setActionError(null);
+    try {
+      await apiPost("/api/rooms/shuffle-order", {
+        roomId,
+      });
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setActionError(error.message);
+      } else {
+        setActionError("並び順のシャッフルに失敗しました");
       }
     } finally {
       setActionBusy(null);
@@ -703,6 +761,11 @@ export default function LobbyPage() {
                       {player.displayName}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
+                      {player.kind === "cpu" ? (
+                        <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
+                          <Bot className="mr-1 h-3 w-3" /> CPU
+                        </Badge>
+                      ) : null}
                       {player.uid === user?.uid ? (
                         <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
                       ) : null}
@@ -748,6 +811,25 @@ export default function LobbyPage() {
               </p>
             )}
 
+            <div className="mt-2 flex justify-end">
+              {me?.isHost ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onShufflePlayers}
+                  disabled={!canShufflePlayers}
+                  className="h-11 min-w-[168px] px-4 text-sm font-black"
+                >
+                  {actionBusy === "shuffle" ? (
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Shuffle className="mr-2 h-4 w-4" />
+                  )}
+                  並び順をシャッフル
+                </Button>
+              ) : null}
+            </div>
+
             {lobbyStatusMessage ? (
               <p
                 className={[
@@ -761,7 +843,7 @@ export default function LobbyPage() {
           </div>
         </Card>
 
-        <Card className="flex min-h-0 flex-col bg-white p-3 md:p-3.5">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
               <Settings2 className="h-5 w-5" /> ゲーム設定
@@ -774,6 +856,11 @@ export default function LobbyPage() {
               <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
                 {displayRoundSeconds} SEC
               </Badge>
+              {displayGameMode === "impostor" ? (
+                <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
+                  {displayCpuCount} CPU
+                </Badge>
+              ) : null}
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                 {displayPlayers.length} PLAYERS
               </Badge>
@@ -795,10 +882,12 @@ export default function LobbyPage() {
             <h3 className="text-lg leading-none md:text-xl">ゲームモード</h3>
           </div>
 
-          <div className="mt-2 grid gap-2 md:grid-cols-2">
+          <div className="mt-2 -mx-1 overflow-x-auto px-1 pb-1">
+            <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
             {GAME_MODE_OPTIONS.map((mode) => {
               const selected = draftGameMode === mode.mode;
-              const Icon = mode.mode === "classic" ? Eye : Brain;
+              const Icon =
+                mode.mode === "classic" ? Eye : mode.mode === "memory" ? Brain : Ghost;
 
               return (
                 <button
@@ -807,7 +896,7 @@ export default function LobbyPage() {
                   onClick={() => setDraftGameMode(mode.mode)}
                   disabled={!hostCanEdit}
                   className={[
-                    "flex h-full flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150",
+                    "flex min-h-[154px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[148px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
                     "disabled:cursor-not-allowed disabled:opacity-70",
                     selected
                       ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
@@ -817,7 +906,11 @@ export default function LobbyPage() {
                   <div className="flex min-h-[68px] items-start justify-between gap-3">
                     <div className="flex min-h-[52px] flex-col justify-start">
                       <p className="text-[11px] font-black uppercase tracking-[0.18em]">
-                        {mode.mode === "classic" ? "Classic" : "Memory"}
+                        {mode.mode === "classic"
+                          ? "Classic"
+                          : mode.mode === "memory"
+                            ? "Memory"
+                            : "Impostor"}
                       </p>
                       <h3 className="mt-1 text-lg font-black leading-tight">{mode.label}</h3>
                     </div>
@@ -831,13 +924,14 @@ export default function LobbyPage() {
                 </button>
               );
             })}
+            </div>
           </div>
 
           <div className="mt-3">
             <h3 className="text-lg leading-none md:text-xl">詳細な設定</h3>
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <SwipeValuePicker
               label="Rounds"
               options={ROUND_OPTIONS}
@@ -853,6 +947,15 @@ export default function LobbyPage() {
               onChange={setDraftRoundSeconds}
               disabled={!hostCanEdit}
             />
+            {draftGameMode === "impostor" ? (
+              <SwipeValuePicker
+                label="CPU"
+                options={cpuOptions}
+                value={draftCpuCount}
+                onChange={setDraftCpuCount}
+                disabled={!hostCanEdit}
+              />
+            ) : null}
           </div>
 
           {settingsStatus === "saving" ? (

@@ -1,6 +1,7 @@
 import { createRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { mergeRoomSettings } from "@/lib/game/defaults";
+import { nextSeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
 import {
   createRoomState,
   getRoomStateBackendInfo,
@@ -49,6 +50,8 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
   state.players[auth.uid] = {
     uid: auth.uid,
     displayName: body.displayName,
+    kind: "human",
+    seatOrder: nextSeatOrder(state.players),
     isHost: true,
     joinedAt: now,
     expiresAt,
@@ -56,6 +59,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     ready: false,
     totalScore: 0,
   };
+  syncCpuPlayers(state);
 
   await saveRoomState(state);
   const backend = getRoomStateBackendInfo();
