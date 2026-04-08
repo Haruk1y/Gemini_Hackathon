@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { IMPOSTOR_TIMEOUT_PROMPT } from "@/lib/game/impostor";
 import { createRoomState, loadRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
@@ -151,6 +152,84 @@ describe("impostor round lifecycle", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("passes a human prompt through to generateImage and stores the same prompt on the turn record", async () => {
+    const lobbyState = createLobbyState(0);
+    await saveRoomState(lobbyState);
+
+    const distinctivePrompt =
+      "neon koi swimming through a glass subway tunnel under tokyo, cinematic rain, ultra detailed";
+
+    const { startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    await submitImpostorTurn({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "host",
+      prompt: distinctivePrompt,
+    });
+
+    const state = await loadRoomState("ROOM1");
+    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+
+    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
+    expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
+      prompt: distinctivePrompt,
+      aspectRatio: "1:1",
+    });
+    expect(turnRecord?.uid).toBe("host");
+    expect(turnRecord?.prompt).toBe(distinctivePrompt);
+    expect(turnRecord?.imageUrl).toBe(dataUrl(distinctivePrompt));
+    expect(turnRecord?.timedOut).not.toBe(true);
+    expect(turnRecord?.prompt).not.toBe(IMPOSTOR_TIMEOUT_PROMPT);
+  });
+
+  it("uses the dreamlike fallback only when a human turn times out", async () => {
+    const lobbyState = createLobbyState(0);
+    await saveRoomState(lobbyState);
+
+    const { endRoundIfNeeded, startRound } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const activeState = await loadRoomState("ROOM1");
+    const activeRound = activeState?.rounds["round-1"];
+    expect(activeRound?.modeState?.currentTurnUid).toBe("host");
+
+    if (!activeState || !activeRound) {
+      throw new Error("round-1 should exist after startRound");
+    }
+
+    activeRound.endsAt = new Date(Date.now() - 1_000);
+    await saveRoomState(activeState);
+
+    const result = await endRoundIfNeeded({
+      roomId: "ROOM1",
+      roundId: "round-1",
+    });
+
+    const nextState = await loadRoomState("ROOM1");
+    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const round = nextState?.rounds["round-1"];
+
+    expect(result.status).toBe("IN_ROUND");
+    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
+    expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
+      prompt: IMPOSTOR_TIMEOUT_PROMPT,
+      aspectRatio: "1:1",
+    });
+    expect(turnRecord?.uid).toBe("host");
+    expect(turnRecord?.prompt).toBe(IMPOSTOR_TIMEOUT_PROMPT);
+    expect(turnRecord?.imageUrl).toBe(dataUrl(IMPOSTOR_TIMEOUT_PROMPT));
+    expect(turnRecord?.timedOut).toBe(true);
+    expect(round?.modeState?.currentTurnUid).toBe("guest");
   });
 
   it("auto-runs the first cpu turn and hands the chain to the next human", async () => {
