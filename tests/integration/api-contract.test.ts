@@ -12,6 +12,7 @@ describe("api contracts", () => {
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
+      cpuCount: 0,
     });
 
     expect(parsed.maxAttempts).toBe(1);
@@ -32,6 +33,20 @@ describe("api contracts", () => {
         gameMode: "memory",
       }).gameMode,
     ).toBe("memory");
+
+    expect(
+      roomSettingsSchema.parse({
+        gameMode: "impostor",
+      }).gameMode,
+    ).toBe("impostor");
+  });
+
+  it("accepts cpuCount within the supported range", () => {
+    expect(
+      roomSettingsSchema.parse({
+        cpuCount: 2,
+      }).cpuCount,
+    ).toBe(2);
   });
 
   it("accepts minimum and maximum totalRounds values", () => {
@@ -110,6 +125,20 @@ describe("api contracts", () => {
     expect(() =>
       roomSettingsSchema.parse({
         gameMode: "speedrun",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects cpuCount outside the supported range", () => {
+    expect(() =>
+      roomSettingsSchema.parse({
+        cpuCount: -1,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      roomSettingsSchema.parse({
+        cpuCount: 7,
       }),
     ).toThrow();
   });

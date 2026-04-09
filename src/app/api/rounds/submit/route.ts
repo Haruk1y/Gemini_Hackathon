@@ -4,6 +4,7 @@ import {
   assertRoundOpen,
   assertRoundSubmissionWindow,
 } from "@/lib/game/round-validation";
+import { submitImpostorTurn } from "@/lib/game/round-service";
 import {
   generateImage,
   imageToBuffer,
@@ -107,6 +108,38 @@ export async function rollbackReservedAttempt() {
 }
 
 export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
+  const currentState = await loadRoomState(body.roomId);
+  const currentRoom = currentState?.room;
+
+  if (currentRoom?.settings.gameMode === "impostor") {
+    await submitImpostorTurn({
+      roomId: body.roomId,
+      roundId: body.roundId,
+      uid: auth.uid,
+      prompt: body.prompt,
+    });
+
+    const updatedState = await loadRoomState(body.roomId);
+    const turnRecords = updatedState?.roundPrivates[body.roundId]?.modeState?.turnRecords ?? [];
+    const turnRecord = [...turnRecords]
+      .reverse()
+      .find((record) => record.uid === auth.uid);
+
+    if (!turnRecord) {
+      throw new AppError("INTERNAL_ERROR", "Failed to resolve impostor turn result", true, 500);
+    }
+
+    return ok({
+      attemptNo: 1,
+      score: turnRecord.similarityScore,
+      imageUrl: turnRecord.imageUrl,
+      bestScore: turnRecord.similarityScore,
+      matchedElements: turnRecord.matchedElements,
+      missingElements: turnRecord.missingElements,
+      judgeNote: turnRecord.judgeNote,
+    });
+  }
+
   const submitStartedAt = new Date();
   const result = await withSubmitLock(
     body.roomId,

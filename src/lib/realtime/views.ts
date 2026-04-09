@@ -1,6 +1,11 @@
 import { isMemoryPreviewActive } from "@/lib/game/modes";
 import type { RoomState } from "@/lib/server/room-state";
-import type { GameMode, RoundStatus } from "@/lib/types/game";
+import type {
+  GameMode,
+  ImpostorRoundModeState,
+  ImpostorTurnRecord,
+  RoundStatus,
+} from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export type RoomViewName = "lobby" | "round" | "results" | "transition";
@@ -103,7 +108,17 @@ export function shouldConcealRoundTarget(params: {
 
 function getSortedPlayers(state: RoomState) {
   return Object.values(state.players).sort(
-    (a, b) => (parseDate(a.joinedAt)?.getTime() ?? 0) - (parseDate(b.joinedAt)?.getTime() ?? 0),
+    (a, b) => {
+      const seatA = typeof a.seatOrder === "number" ? a.seatOrder : Number.MAX_SAFE_INTEGER;
+      const seatB = typeof b.seatOrder === "number" ? b.seatOrder : Number.MAX_SAFE_INTEGER;
+      if (seatA !== seatB) {
+        return seatA - seatB;
+      }
+
+      const joinedA = parseDate(a.joinedAt)?.getTime() ?? 0;
+      const joinedB = parseDate(b.joinedAt)?.getTime() ?? 0;
+      return joinedA - joinedB;
+    },
   );
 }
 
@@ -115,6 +130,44 @@ function getSortedScores(state: RoomState, roundId: string | null) {
 function getAttempts(state: RoomState, roundId: string | null, uid: string) {
   if (!roundId) return null;
   return state.attempts[roundId]?.[uid] ?? null;
+}
+
+function getImpostorModeState(state: RoomState, roundId: string | null) {
+  if (!roundId) return null;
+  const round = state.rounds[roundId];
+  const roundPrivate = state.roundPrivates[roundId];
+
+  if (round?.modeState?.kind !== "impostor" || !roundPrivate?.modeState) {
+    return null;
+  }
+
+  return {
+    round: round as typeof round & { modeState: ImpostorRoundModeState },
+    roundPrivate: roundPrivate as typeof roundPrivate & {
+      modeState: NonNullable<typeof roundPrivate.modeState>;
+    },
+  };
+}
+
+function getOrderedImpostorTurnRecords(params: {
+  turnOrder: string[];
+  turnRecords: ImpostorTurnRecord[];
+}) {
+  const recordsByUid = new Map<string, ImpostorTurnRecord>();
+
+  for (const record of params.turnRecords) {
+    recordsByUid.set(record.uid, record);
+  }
+
+  const orderedRecords = params.turnOrder.flatMap((uid) => {
+    const record = recordsByUid.get(uid);
+    return record ? [record] : [];
+  });
+
+  const orderedUidSet = new Set(params.turnOrder);
+  const extraRecords = params.turnRecords.filter((record) => !orderedUidSet.has(record.uid));
+
+  return [...orderedRecords, ...extraRecords];
 }
 
 export function buildRoomViewSnapshot(params: {
@@ -145,10 +198,12 @@ function buildLobbySnapshot(state: RoomState, uid: string) {
       currentRoundId: state.room.currentRoundId,
       settings: {
         gameMode: state.room.settings.gameMode,
+        maxPlayers: state.room.settings.maxPlayers,
         roundSeconds: state.room.settings.roundSeconds,
         maxAttempts: state.room.settings.maxAttempts,
         hintLimit: state.room.settings.hintLimit,
         totalRounds: state.room.settings.totalRounds,
+        cpuCount: state.room.settings.cpuCount,
       },
     },
     players: getSortedPlayers(state).map((player) => serializeForClient(player)),
@@ -160,11 +215,37 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
   const currentRoundId = state.room.currentRoundId;
   const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
   const attemptData = getAttempts(state, currentRoundId, uid);
-  const shouldConcealTarget = round
+  const impostor = getImpostorModeState(state, currentRoundId);
+
+  let roundData = round;
+  let myRole: string | null = null;
+  let isMyTurn = false;
+  let currentTurnUid: string | null = null;
+
+  if (impostor) {
+    currentTurnUid = impostor.round.modeState.currentTurnUid;
+    isMyTurn =
+      impostor.round.modeState.phase === "CHAIN" && impostor.round.modeState.currentTurnUid === uid;
+    myRole = impostor.roundPrivate.modeState.rolesByUid[uid] ?? null;
+
+    if (!isMyTurn && impostor.round.modeState.phase === "CHAIN") {
+      roundData = {
+        ...impostor.round,
+        targetImageUrl: "",
+        targetThumbUrl: "",
+        modeState: {
+          ...impostor.round.modeState,
+          chainImageUrl: "",
+        },
+      };
+    }
+  }
+
+  const shouldConcealTarget = roundData
     ? shouldConcealRoundTarget({
         gameMode: state.room.settings.gameMode,
-        roundStatus: round.status,
-        promptStartsAt: round.promptStartsAt,
+        roundStatus: roundData.status,
+        promptStartsAt: roundData.promptStartsAt,
         attemptData,
       })
     : false;
@@ -178,25 +259,51 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
         roundSeconds: state.room.settings.roundSeconds,
         maxAttempts: state.room.settings.maxAttempts,
         hintLimit: state.room.settings.hintLimit,
+        cpuCount: state.room.settings.cpuCount,
       },
     },
-    round: round
+    round: roundData
       ? serializeForClient({
-          ...round,
-          targetImageUrl: shouldConcealTarget ? "" : round.targetImageUrl,
-          targetThumbUrl: shouldConcealTarget ? "" : round.targetThumbUrl,
+          ...roundData,
+          targetImageUrl: shouldConcealTarget ? "" : roundData.targetImageUrl,
+          targetThumbUrl: shouldConcealTarget ? "" : roundData.targetThumbUrl,
         })
       : null,
     scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
     attempts: attemptData ? serializeForClient(attemptData) : null,
+    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
     playerCount: getSortedPlayers(state).length,
+    myRole,
+    isMyTurn,
+    currentTurnUid,
+    turnTimeline: impostor && impostor.round.modeState.phase !== "CHAIN"
+      ? serializeForClient(
+          getOrderedImpostorTurnRecords({
+            turnOrder: impostor.round.modeState.turnOrder,
+            turnRecords: impostor.roundPrivate.modeState.turnRecords,
+          }).map((record) => ({
+            uid: record.uid,
+            displayName: record.displayName,
+            kind: record.kind,
+            imageUrl: record.imageUrl,
+            similarityScore: record.similarityScore,
+            matchedElements: record.matchedElements,
+            missingElements: record.missingElements,
+            judgeNote: record.judgeNote,
+            timedOut: record.timedOut ?? false,
+          })),
+        )
+      : [],
   };
 }
 
 function buildResultsSnapshot(state: RoomState, uid: string) {
   const currentRoundId = state.room.currentRoundId;
   const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
-  const me = state.players[uid] ?? null;
+  const attempts = currentRoundId ? state.attempts[currentRoundId]?.[uid] ?? null : null;
+  const impostor = getImpostorModeState(state, currentRoundId);
+  const revealLocked = impostor ? impostor.round.modeState.phase !== "REVEAL" : false;
+  const votesByUid = impostor?.roundPrivate.modeState.votesByUid ?? {};
 
   return {
     room: {
@@ -206,12 +313,45 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
       settings: {
         gameMode: state.room.settings.gameMode,
         totalRounds: state.room.settings.totalRounds,
+        cpuCount: state.room.settings.cpuCount,
       },
     },
     round: round ? serializeForClient(round) : null,
     scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
-    players: me ? [serializeForClient(me)] : [],
-    myAttempts: currentRoundId ? serializeForClient(state.attempts[currentRoundId]?.[uid] ?? null) : null,
+    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
+    myAttempts: attempts ? serializeForClient(attempts) : null,
+    myRole: impostor?.roundPrivate.modeState.rolesByUid[uid] ?? null,
+    voteProgress: impostor
+      ? {
+          submitted: Object.keys(votesByUid).length,
+          total: Object.keys(state.players).length,
+          meTargetUid: votesByUid[uid] ?? null,
+        }
+      : null,
+    finalSimilarityScore:
+      impostor?.roundPrivate.modeState.finalJudge?.score ?? impostor?.round.modeState.finalSimilarityScore ?? null,
+    turnTimeline: impostor
+      ? serializeForClient(
+          getOrderedImpostorTurnRecords({
+            turnOrder: impostor.round.modeState.turnOrder,
+            turnRecords: impostor.roundPrivate.modeState.turnRecords,
+          }).map((record) => ({
+            uid: record.uid,
+            displayName: record.displayName,
+            kind: record.kind,
+            imageUrl: record.imageUrl,
+            similarityScore: record.similarityScore,
+            matchedElements: record.matchedElements,
+            missingElements: record.missingElements,
+            judgeNote: record.judgeNote,
+            prompt: revealLocked ? undefined : record.prompt,
+            role: revealLocked ? undefined : record.role,
+            timedOut: record.timedOut ?? false,
+            votedForUid: revealLocked ? undefined : votesByUid[record.uid] ?? null,
+          })),
+        )
+      : [],
+    revealLocked,
   };
 }
 

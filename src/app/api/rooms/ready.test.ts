@@ -28,6 +28,7 @@ function createLobbyState() {
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
+      cpuCount: 0,
     },
     ui: {
       theme: "neo-brutal",
@@ -37,6 +38,7 @@ function createLobbyState() {
   state.players.anon_1 = {
     uid: "anon_1",
     displayName: "Alice",
+    kind: "human",
     isHost: true,
     joinedAt: now,
     expiresAt: dateAfterHours(24),

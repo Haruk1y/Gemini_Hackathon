@@ -29,6 +29,7 @@ const settings = {
   hintLimit: 0,
   totalRounds: 3,
   gameMode: "classic" as const,
+  cpuCount: 0,
 };
 
 describe("generateGmPrompt", () => {

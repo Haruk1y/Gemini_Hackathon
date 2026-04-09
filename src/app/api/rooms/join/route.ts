@@ -1,6 +1,7 @@
 import { joinRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { requireRoom } from "@/lib/game/guards";
+import { nextSeatOrder } from "@/lib/game/impostor";
 import {
   bumpRoomVersion,
   loadRoomState,
@@ -33,6 +34,8 @@ export const POST = withPostHandler(joinRoomSchema, async ({ body, auth }) => {
     state!.players[auth.uid] = {
       uid: auth.uid,
       displayName: body.displayName,
+      kind: "human",
+      seatOrder: state!.players[auth.uid]?.seatOrder ?? nextSeatOrder(state!.players),
       isHost: state!.players[auth.uid]?.isHost ?? false,
       joinedAt: state!.players[auth.uid]?.joinedAt ?? now,
       expiresAt,
