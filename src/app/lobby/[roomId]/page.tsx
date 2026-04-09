@@ -26,13 +26,15 @@ import {
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLanguage } from "@/components/providers/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { apiPost, ApiClientError } from "@/lib/client/api";
+import { apiPost } from "@/lib/client/api";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
+import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
 import { useRoomSync } from "@/lib/client/room-sync";
-import { GAME_MODE_OPTIONS, getGameModeDefinition } from "@/lib/game/modes";
+import { getGameModeDefinition, getGameModeOptions } from "@/lib/game/modes";
 import type { GameMode } from "@/lib/types/game";
 
 type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
@@ -114,6 +116,7 @@ function SwipeValuePicker({
   onChange,
   disabled = false,
 }: SwipeValuePickerProps) {
+  const { copy } = useLanguage();
   const currentIndex = Math.max(
     0,
     options.findIndex((option) => option.value === value),
@@ -239,7 +242,7 @@ function SwipeValuePicker({
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)]",
           "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
-        aria-label={`${label} を変更`}
+        aria-label={copy.lobby.changePickerAria(label)}
         aria-valuemin={options[0]!.value}
         aria-valuemax={options[options.length - 1]!.value}
         aria-valuenow={selectedOption.value}
@@ -275,6 +278,7 @@ function PlayerReadyChip({
   disabled = false,
   onClick,
 }: PlayerReadyChipProps) {
+  const { copy } = useLanguage();
   const toneClass = ready
     ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
     : "bg-[var(--pmb-red)] text-white";
@@ -295,18 +299,29 @@ function PlayerReadyChip({
           "disabled:cursor-not-allowed disabled:shadow-[2px_2px_0_var(--pmb-ink)] disabled:opacity-80",
         ].join(" ")}
       >
-        {pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : ready ? "READY" : "WAIT"}
+        {pending ? (
+          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+        ) : ready ? (
+          copy.common.ready
+        ) : (
+          copy.common.wait
+        )}
       </button>
     );
   }
 
-  return <span className={[baseClass, toneClass].join(" ")}>{ready ? "READY" : "WAIT"}</span>;
+  return (
+    <span className={[baseClass, toneClass].join(" ")}>
+      {ready ? copy.common.ready : copy.common.wait}
+    </span>
+  );
 }
 
 export default function LobbyPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const router = useRouter();
+  const { language, copy } = useLanguage();
   const { user, loading, error: authError } = useAuth();
   const { snapshot, error: snapshotError, isConnecting } = useRoomSync({
     roomId,
@@ -315,9 +330,9 @@ export default function LobbyPage() {
   });
 
   const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<UiError | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>("idle");
-  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<UiError | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">("idle");
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
   const [draftTotalRounds, setDraftTotalRounds] = useState(3);
@@ -344,7 +359,8 @@ export default function LobbyPage() {
   const displayRoundSeconds =
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
   const displayCpuCount = me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
-  const currentMode = getGameModeDefinition(displayGameMode);
+  const currentMode = getGameModeDefinition(displayGameMode, language);
+  const gameModeOptions = getGameModeOptions(language);
   const readyCount = displayPlayers.filter((player) => player.ready).length;
   const everyoneReady = displayPlayers.length > 0 && readyCount === displayPlayers.length;
   const humanPlayerCount = displayPlayers.filter((player) => player.kind === "human").length;
@@ -465,11 +481,7 @@ export default function LobbyPage() {
         .catch((error) => {
           if (saveSequenceRef.current !== sequence) return;
           setSettingsStatus("error");
-          if (error instanceof ApiClientError) {
-            setSettingsError(error.message);
-            return;
-          }
-          setSettingsError("ルール更新に失敗しました");
+          setSettingsError(toUiError(error, "updateRulesFailed"));
         });
     }, 220);
 
@@ -532,11 +544,7 @@ export default function LobbyPage() {
       });
     } catch (error) {
       setOptimisticReady(null);
-      if (error instanceof ApiClientError) {
-        setActionError(error.message);
-      } else {
-        setActionError("READY 更新に失敗しました");
-      }
+      setActionError(toUiError(error, "readyUpdateFailed"));
     } finally {
       setActionBusy(null);
     }
@@ -553,11 +561,7 @@ export default function LobbyPage() {
       });
       router.push(`/round/${roomId}`);
     } catch (error) {
-      if (error instanceof ApiClientError) {
-        setActionError(error.message);
-      } else {
-        setActionError("ラウンド開始に失敗しました");
-      }
+      setActionError(toUiError(error, "startRoundFailed"));
     } finally {
       setActionBusy(null);
     }
@@ -570,11 +574,7 @@ export default function LobbyPage() {
       await leaveRoom({ roomId });
       router.replace("/");
     } catch (error) {
-      if (error instanceof ApiClientError) {
-        setActionError(error.message);
-      } else {
-        setActionError("退出に失敗しました");
-      }
+      setActionError(toUiError(error, "leaveRoomFailed"));
     } finally {
       setActionBusy(null);
     }
@@ -590,11 +590,7 @@ export default function LobbyPage() {
         roomId,
       });
     } catch (error) {
-      if (error instanceof ApiClientError) {
-        setActionError(error.message);
-      } else {
-        setActionError("並び順のシャッフルに失敗しました");
-      }
+      setActionError(toUiError(error, "shufflePlayersFailed"));
     } finally {
       setActionBusy(null);
     }
@@ -615,7 +611,7 @@ export default function LobbyPage() {
 
   const settingsStatusMessage = (() => {
     if (settingsError) {
-      return settingsError;
+      return resolveUiErrorMessage(language, settingsError);
     }
 
     return null;
@@ -623,7 +619,7 @@ export default function LobbyPage() {
 
   const lobbyStatusMessage = (() => {
     if (actionError) {
-      return actionError;
+      return resolveUiErrorMessage(language, actionError);
     }
 
     return null;
@@ -632,7 +628,7 @@ export default function LobbyPage() {
   if (loading || (isConnecting && !snapshotError && !room)) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
-        <Card className="bg-white">読み込み中...</Card>
+        <Card className="bg-white">{copy.lobby.loading}</Card>
       </main>
     );
   }
@@ -641,7 +637,9 @@ export default function LobbyPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">
-          <p className="text-sm font-semibold text-[var(--pmb-red)]">{authError}</p>
+          <p className="text-sm font-semibold text-[var(--pmb-red)]">
+            {resolveUiErrorMessage(language, authError)}
+          </p>
         </Card>
       </main>
     );
@@ -652,7 +650,7 @@ export default function LobbyPage() {
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
-            ルーム情報の取得に失敗しました: {snapshotError}
+            {copy.lobby.roomInfoFetchFailed(snapshotError.message)}
           </p>
         </Card>
       </main>
@@ -664,7 +662,7 @@ export default function LobbyPage() {
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
-            ルーム情報を取得できませんでした。Vercel の Redis 設定と runtime logs を確認してください。
+            {copy.lobby.roomInfoUnavailable}
           </p>
         </Card>
       </main>
@@ -676,7 +674,7 @@ export default function LobbyPage() {
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
-            セッションがルーム参加情報と一致しませんでした。ページを再読み込みしてください。
+            {copy.lobby.roomSessionMismatch}
           </p>
         </Card>
       </main>
@@ -688,7 +686,9 @@ export default function LobbyPage() {
       <Card className="overflow-hidden bg-white p-0">
         <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.24em]">Room Code</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em]">
+              {copy.lobby.roomCode}
+            </p>
             <div className="mt-1 flex items-center gap-2">
               <h1 className="font-mono text-[1.75rem] font-black tracking-[0.28em] md:text-[2.15rem]">
                 {room.code}
@@ -698,7 +698,7 @@ export default function LobbyPage() {
                 onClick={copyCode}
                 type="button"
                 variant="ghost"
-                aria-label={copyStatus === "done" ? "コピー済み" : "ルームコードをコピー"}
+                aria-label={copyStatus === "done" ? copy.lobby.copied : copy.lobby.copyRoomCode}
                 className={[
                   "h-10 w-10 p-0",
                   "hover:translate-x-0 hover:-translate-y-0 hover:shadow-[6px_6px_0_var(--pmb-ink)]",
@@ -726,7 +726,7 @@ export default function LobbyPage() {
                 className="h-full min-h-[62px] px-5 text-base"
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                退出
+                {copy.lobby.leave}
               </Button>
             </div>
           </div>
@@ -737,7 +737,7 @@ export default function LobbyPage() {
         <Card className="relative flex min-h-0 flex-col bg-white p-3 md:p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
-              <Users className="h-5 w-5" /> プレイヤー
+              <Users className="h-5 w-5" /> {copy.lobby.players}
             </h2>
             <Badge
               className={
@@ -746,7 +746,9 @@ export default function LobbyPage() {
                   : "bg-[var(--pmb-base)] text-[var(--pmb-ink)]"
               }
             >
-              {displayPlayers.length > 0 ? `${readyCount}/${displayPlayers.length} READY` : "0 READY"}
+              {displayPlayers.length > 0
+                ? copy.lobby.readyCount(readyCount, displayPlayers.length)
+                : copy.lobby.readyCount(0, 0)}
             </Badge>
           </div>
 
@@ -763,14 +765,14 @@ export default function LobbyPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {player.kind === "cpu" ? (
                         <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
-                          <Bot className="mr-1 h-3 w-3" /> CPU
+                          <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
                         </Badge>
                       ) : null}
                       {player.uid === user?.uid ? (
-                        <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
+                        <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.you}</Badge>
                       ) : null}
                       {player.isHost ? (
-                        <Badge className="px-2 py-0 text-[10px]">HOST</Badge>
+                        <Badge className="px-2 py-0 text-[10px]">{copy.common.host}</Badge>
                       ) : null}
                     </div>
                   </div>
@@ -801,7 +803,7 @@ export default function LobbyPage() {
                   ) : (
                     <Shuffle className="mr-2 h-4 w-4" />
                   )}
-                  並び順をシャッフル
+                  {copy.lobby.shufflePlayers}
                 </Button>
               </div>
             ) : null}
@@ -822,11 +824,11 @@ export default function LobbyPage() {
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                {isGenerating ? "お題生成中..." : "ラウンド開始"}
+                {isGenerating ? copy.lobby.generatingTheme : copy.lobby.startRound}
               </Button>
             ) : (
               <p className="flex items-center rounded-[12px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 text-sm font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_70%,white)]">
-                ホストの開始を待っています。
+                {copy.lobby.waitingForHost}
               </p>
             )}
 
@@ -846,23 +848,23 @@ export default function LobbyPage() {
         <Card className="flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
-              <Settings2 className="h-5 w-5" /> ゲーム設定
+              <Settings2 className="h-5 w-5" /> {copy.lobby.gameSettings}
             </h2>
             <div className="flex flex-wrap justify-end gap-1.5">
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">{currentMode.label}</Badge>
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayTotalRounds} ROUNDS
+                {displayTotalRounds} {copy.common.rounds}
               </Badge>
               <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
-                {displayRoundSeconds} SEC
+                {displayRoundSeconds} {copy.common.seconds}
               </Badge>
               {displayGameMode === "impostor" ? (
                 <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                  {displayCpuCount} CPU
+                  {displayCpuCount} {copy.common.cpu}
                 </Badge>
               ) : null}
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayPlayers.length} PLAYERS
+                {displayPlayers.length} {copy.common.players}
               </Badge>
             </div>
           </div>
@@ -879,12 +881,12 @@ export default function LobbyPage() {
           ) : null}
 
           <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">ゲームモード</h3>
+            <h3 className="text-lg leading-none md:text-xl">{copy.lobby.gameMode}</h3>
           </div>
 
-          <div className="mt-2 -mx-1 overflow-x-auto px-1 pb-1">
+          <div className="mt-2 -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-0.5">
             <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
-            {GAME_MODE_OPTIONS.map((mode) => {
+            {gameModeOptions.map((mode) => {
               const selected = draftGameMode === mode.mode;
               const Icon =
                 mode.mode === "classic" ? Eye : mode.mode === "memory" ? Brain : Ghost;
@@ -896,21 +898,17 @@ export default function LobbyPage() {
                   onClick={() => setDraftGameMode(mode.mode)}
                   disabled={!hostCanEdit}
                   className={[
-                    "flex min-h-[154px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[148px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
+                    "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
                     "disabled:cursor-not-allowed disabled:opacity-70",
                     selected
                       ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
                       : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
                   ].join(" ")}
                 >
-                  <div className="flex min-h-[68px] items-start justify-between gap-3">
-                    <div className="flex min-h-[52px] flex-col justify-start">
+                  <div className="flex min-h-[60px] items-start justify-between gap-3">
+                    <div className="flex min-h-[46px] flex-col justify-start">
                       <p className="text-[11px] font-black uppercase tracking-[0.18em]">
-                        {mode.mode === "classic"
-                          ? "Classic"
-                          : mode.mode === "memory"
-                            ? "Memory"
-                            : "Impostor"}
+                        {mode.englishName}
                       </p>
                       <h3 className="mt-1 text-lg font-black leading-tight">{mode.label}</h3>
                     </div>
@@ -918,7 +916,7 @@ export default function LobbyPage() {
                       <Icon className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="mt-2 min-h-[2.7rem] text-[13px] font-semibold leading-[1.35]">
+                  <p className="mt-2 min-h-[2.45rem] text-[13px] font-semibold leading-[1.3]">
                     {mode.description}
                   </p>
                 </button>
@@ -928,7 +926,7 @@ export default function LobbyPage() {
           </div>
 
           <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">詳細な設定</h3>
+            <h3 className="text-lg leading-none md:text-xl">{copy.lobby.advancedSettings}</h3>
           </div>
 
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

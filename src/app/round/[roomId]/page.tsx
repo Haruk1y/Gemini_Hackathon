@@ -6,15 +6,17 @@ import { EyeOff, LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLanguage } from "@/components/providers/language-provider";
 import { CountdownTimer } from "@/components/game/countdown-timer";
 import { Scoreboard } from "@/components/game/scoreboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiPost, ApiClientError } from "@/lib/client/api";
+import { apiPost } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
+import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
 import {
   type AttemptData,
   type PlayerData,
@@ -40,6 +42,7 @@ export default function RoundPage() {
   const roomId = params.roomId;
   const router = useRouter();
 
+  const { language, copy } = useLanguage();
   const { user } = useAuth();
   const { snapshot } = useRoomSync({ roomId, view: "round", enabled: Boolean(user) });
 
@@ -49,7 +52,7 @@ export default function RoundPage() {
   const [attempts, setAttempts] = useState<AttemptData | null>(null);
   const [playerCount, setPlayerCount] = useState(0);
   const [prompt, setPrompt] = useState("");
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<UiError | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number | null>(null);
@@ -78,7 +81,7 @@ export default function RoundPage() {
   }, [derivedAttempts, derivedPlayerCount, derivedRound, derivedRoom, derivedScores]);
 
   const currentGameMode = room?.settings?.gameMode ?? "classic";
-  const currentMode = getGameModeDefinition(currentGameMode);
+  const currentMode = getGameModeDefinition(currentGameMode, language);
   const impostorModeState =
     currentGameMode === "impostor" && round?.modeState?.kind === "impostor"
       ? round.modeState
@@ -89,6 +92,9 @@ export default function RoundPage() {
   const currentTurnUid = snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
   const currentTurnPlayer = derivedPlayers.find((player) => player.uid === currentTurnUid) ?? null;
   const isCpuTurn = Boolean(isImpostorMode && currentTurnPlayer?.kind === "cpu");
+  const currentTurnName =
+    currentTurnPlayer?.displayName ??
+    (isCpuTurn ? copy.common.cpu : copy.common.otherPlayer);
   const completedTurns =
     impostorModeState?.phase === "CHAIN"
       ? (impostorModeState.currentTurnIndex ?? 0)
@@ -273,11 +279,7 @@ export default function RoundPage() {
       setPrompt("");
       setFeedback(null);
     } catch (e) {
-      if (e instanceof ApiClientError) {
-        setFeedback(e.message);
-      } else {
-        setFeedback("投稿に失敗しました");
-      }
+      setFeedback(toUiError(e, "submitPromptFailed"));
     } finally {
       setSubmitPending(false);
     }
@@ -290,21 +292,19 @@ export default function RoundPage() {
   if (!room || !round) {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
-        <Card className="bg-white">ラウンド準備中...</Card>
+        <Card className="bg-white">{copy.round.loading}</Card>
       </main>
     );
   }
 
   if (isImpostorMode) {
     const primaryImageUrl = isMyTurn ? impostorReferenceImageUrl : "";
-    const primaryImageHeading = isMyTurn
-      ? "参照画像"
-      : "非公開";
+    const primaryImageHeading = isMyTurn ? copy.round.referenceImage : copy.round.hidden;
     const primaryImageDescription = isMyTurn
-      ? "今見えている画像を、次の人が再現しやすい言葉に変換しよう。"
+      ? copy.round.referenceDescription
       : isCpuTurn
-        ? "CPU が生成中です。画像ができ次第すぐ次のプレイヤーへ進みます。"
-        : "現在の担当者だけが直前の画像を見ています。あなたの番になったら、その時点の1枚だけ表示されます。";
+        ? copy.round.cpuPassMessage
+        : copy.round.hiddenImageDescription;
 
     return (
       <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
@@ -319,28 +319,30 @@ export default function RoundPage() {
                   Art Impostor
                 </Badge>
                 <Badge className={myRole === "impostor" ? "bg-[var(--pmb-red)] text-white" : ""}>
-                  {myRole === "impostor" ? "IMPOSTOR" : "AGENT"}
+                  {myRole === "impostor" ? copy.common.impostor : copy.common.agent}
                 </Badge>
               </div>
               <p className="mt-2 text-sm font-semibold">
                 {isMyTurn
-                  ? "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。"
+                  ? copy.round.yourTurnMessage
                   : isCpuTurn
-                    ? `${currentTurnPlayer?.displayName ?? "CPU"} が画像を生成中です。完了次第すぐ進みます。`
-                    : `${currentTurnPlayer?.displayName ?? "他プレイヤー"} のターンを待っています。`}
+                    ? copy.round.cpuTurnMessage(currentTurnName)
+                    : copy.round.waitingTurnMessage(currentTurnName)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {isCpuTurn ? (
                 <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
                   <p className="text-xs font-black uppercase tracking-[0.18em]">CPU Generating</p>
-                  <p className="mt-1 text-sm font-black">完了次第すぐ次へ</p>
+                  <p className="mt-1 text-sm font-black">{copy.round.cpuGeneratingShort}</p>
                 </Card>
               ) : (
                 <CountdownTimer secondsLeft={secondsLeft} />
               )}
               <Card className="bg-[var(--pmb-base)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
-                <p className="text-xs font-black uppercase tracking-[0.18em]">Turn Progress</p>
+                <p className="text-xs font-black uppercase tracking-[0.18em]">
+                  {copy.round.turnProgress}
+                </p>
                 <p className="mt-1 font-mono text-2xl font-black">
                   {completedTurns}/{turnTotal}
                 </p>
@@ -349,15 +351,15 @@ export default function RoundPage() {
           </div>
 
           <h2 className="mt-4 mb-2 text-lg">
-            {isMyTurn ? "プロンプトを入力しよう！" : "順番待ち中"}
+            {isMyTurn ? copy.round.promptInputTitle : copy.round.waitingTitle}
           </h2>
           <Textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={
               isMyTurn
-                ? "見えている画像を次のAIが再現しやすいように具体的に書く"
-                : "あなたのターンになるまで入力はできません。"
+                ? copy.round.promptPlaceholder
+                : copy.round.promptDisabledPlaceholder
             }
             maxLength={600}
             className="min-h-20"
@@ -374,14 +376,20 @@ export default function RoundPage() {
               ) : (
                 <Send className="mr-1 h-4 w-4" />
               )}
-              {submitPending ? "判定中..." : isMyTurn ? "次の画像を生成" : "順番待ち"}
+              {submitPending
+                ? copy.round.evaluating
+                : isMyTurn
+                  ? copy.round.generateNextImage
+                  : copy.round.waitingTurn}
             </Button>
             <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
-              現在の担当 {currentTurnPlayer?.displayName ?? "待機中"}
+              {copy.common.currentTurn(currentTurnPlayer?.displayName ?? copy.common.idle)}
             </Card>
           </div>
           {feedback ? (
-            <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p>
+            <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">
+              {resolveUiErrorMessage(language, feedback)}
+            </p>
           ) : null}
         </Card>
 
@@ -409,15 +417,13 @@ export default function RoundPage() {
                 className={`${imageFrameClass} flex flex-col items-center justify-center gap-3 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
               >
                 <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-5 py-3 text-sm font-black uppercase tracking-[0.16em]">
-                  Waiting
+                  {copy.round.hiddenWaiting}
                 </div>
                 <p className="text-lg font-black">
-                  {currentTurnPlayer?.displayName ?? "他プレイヤー"} が画像をつないでいます
+                  {copy.round.hiddenImageMessage(currentTurnName)}
                 </p>
                 <p className="max-w-md text-sm font-semibold">
-                  {isCpuTurn
-                    ? "CPU の生成が終わると、すぐ次の担当へ引き継がれます。"
-                    : "進行中の画像は現在の担当者だけが見られます。あなたの番で直前の1枚だけ公開されます。"}
+                  {isCpuTurn ? copy.round.cpuPassMessage : copy.round.hiddenImageDescription}
                 </p>
               </div>
             )}
@@ -425,7 +431,9 @@ export default function RoundPage() {
               <p>{primaryImageDescription}</p>
               {!isMyTurn ? (
                 <p className="mt-2">
-                  現在の担当: {currentTurnPlayer?.displayName ?? "待機中"}
+                  {copy.common.currentTurnWithColon(
+                    currentTurnPlayer?.displayName ?? copy.common.idle,
+                  )}
                 </p>
               ) : null}
             </div>
@@ -434,9 +442,9 @@ export default function RoundPage() {
           <div className="flex min-h-0 flex-col gap-3">
             <Card className="min-h-0 bg-white p-3 lg:flex lg:h-full lg:flex-col">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-base">ターン順</h3>
+                <h3 className="text-base">{copy.round.turnOrder}</h3>
                 <p className="text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_65%,white)]">
-                  画像は担当者だけが見られ、全体公開は結果画面で行われます。
+                  {copy.round.turnOrderHint}
                 </p>
               </div>
               <div className="mt-3 min-h-0 space-y-2 overflow-y-auto pr-1">
@@ -463,23 +471,27 @@ export default function RoundPage() {
                             {index + 1}. {player?.displayName ?? turnUid}
                           </p>
                           {player?.kind === "cpu" ? (
-                            <Badge className="bg-white px-2 py-0 text-[10px]">CPU</Badge>
+                            <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.cpu}</Badge>
                           ) : null}
                           {player?.uid === user?.uid ? (
-                            <Badge className="bg-white px-2 py-0 text-[10px]">YOU</Badge>
+                            <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.you}</Badge>
                           ) : null}
                           <Badge className="bg-white px-2 py-0 text-[10px]">
-                            {isCurrent ? "NOW" : isDone ? "DONE" : "WAIT"}
+                            {isCurrent
+                              ? copy.common.now
+                              : isDone
+                                ? copy.common.done
+                                : copy.common.wait}
                           </Badge>
                         </div>
                         <div className="mt-2 flex items-start gap-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white/80 px-3 py-2 text-xs font-semibold">
                           <EyeOff className="mt-0.5 h-4 w-4 shrink-0" />
                           <p>
                             {isCurrent
-                              ? "このターンの担当者だけが直前の画像を確認しています。"
+                              ? copy.round.currentTurnOnly
                               : isDone
-                                ? "このターンの画像は結果画面で全体公開されます。"
-                                : "あなたの番になるまで画像は非公開です。"}
+                                ? copy.round.revealedInResults
+                                : copy.round.hiddenUntilTurn}
                           </p>
                         </div>
                       </div>
@@ -512,7 +524,7 @@ export default function RoundPage() {
             {isPreviewPhase ? (
               <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
                 <p className="text-xs font-black uppercase tracking-[0.18em]">
-                  Memory Preview
+                  {copy.round.memoryPreview}
                 </p>
                 <p className="mt-1 font-mono text-2xl font-black">
                   {formatSeconds(previewSecondsLeft ?? MEMORY_PREVIEW_SECONDS)}
@@ -534,19 +546,19 @@ export default function RoundPage() {
             >
               <LogOut className="mr-2 h-4 w-4" />
               {autoEndingSoon
-                ? `リザルト画面へ（残り${resultCountdownSeconds ?? 10}秒）`
-                : "リザルト画面へ"}
+                ? copy.round.resultsScreenCountdown(resultCountdownSeconds ?? 10)
+                : copy.round.resultsScreen}
             </Button>
           </div>
         </div>
-        <h2 className="mt-4 mb-2 text-lg">プロンプトを入力しよう！</h2>
+        <h2 className="mt-4 mb-2 text-lg">{copy.round.memoryPromptTitle}</h2>
         <Textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder={
             isPreviewPhase
-              ? "記憶タイム中は入力できません。画像をよく覚えよう。"
-              : "例: A playful neon cat eating salmon sushi..."
+              ? copy.round.memoryLockedPlaceholder
+              : copy.round.promptExample
           }
           maxLength={600}
           className="min-h-20"
@@ -570,28 +582,30 @@ export default function RoundPage() {
               <Send className="mr-1 h-4 w-4" />
             )}
             {submitPending
-              ? "判定中..."
+              ? copy.round.evaluating
               : isPreviewPhase
-                ? "記憶タイム終了待ち"
-                : "画像を生成"}
+                ? copy.round.waitingForMemory
+                : copy.round.generateImage}
           </Button>
           <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
-            試行残り {attemptsLeft}
+            {copy.round.attemptsLeft(attemptsLeft)}
           </Card>
         </div>
         {feedback ? (
-          <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">{feedback}</p>
+          <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">
+            {resolveUiErrorMessage(language, feedback)}
+          </p>
         ) : null}
         {!isRoundLive ? (
           <p className="mt-2 text-sm font-semibold">
-            次ラウンド開始準備中です。お題生成が終わると送信できます。
+            {copy.round.roundPreparing}
           </p>
         ) : null}
       </Card>
 
       <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_0.95fr]">
         <Card className="bg-white p-3">
-          <h3 className="mb-2 text-base">お題画像</h3>
+          <h3 className="mb-2 text-base">{copy.round.targetImage}</h3>
           {shouldShowTargetImage ? (
             round.targetImageUrl ? (
               <div className={imageFrameClass}>
@@ -608,7 +622,7 @@ export default function RoundPage() {
               <div
                 className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-center text-sm font-semibold`}
               >
-                お題画像を同期中です...
+                {copy.round.syncingTargetImage}
               </div>
             )
           ) : (
@@ -618,13 +632,13 @@ export default function RoundPage() {
               <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4">
                 <EyeOff className="h-8 w-8" />
               </div>
-              <p className="text-lg font-black">ここからは記憶だけで勝負</p>
+              <p className="text-lg font-black">{copy.round.memoryOnly}</p>
             </div>
           )}
         </Card>
 
         <Card className="bg-white p-3">
-          <h3 className="mb-2 text-base">あなたの生成画像</h3>
+          <h3 className="mb-2 text-base">{copy.round.generatedImage}</h3>
           {latestAttempt ? (
             <div className="space-y-2">
               <div className={imageFrameClass}>
@@ -639,7 +653,7 @@ export default function RoundPage() {
                 {latestAttemptScoring ? (
                   <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
                     <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
-                      <LoaderCircle className="h-4 w-4 animate-spin" /> 採点中...
+                      <LoaderCircle className="h-4 w-4 animate-spin" /> {copy.round.scoring}
                     </p>
                   </div>
                 ) : null}
@@ -650,22 +664,22 @@ export default function RoundPage() {
                 ) : null}
               </div>
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
-                <p>判断根拠</p>
+                <p>{copy.common.judgeNote}</p>
                 {!latestAttemptScoring && latestAttempt.matchedElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-green)]">
-                    一致: {latestAttempt.matchedElements.join(" / ")}
+                    {copy.common.matched(latestAttempt.matchedElements.join(" / "))}
                   </p>
                 ) : null}
                 {!latestAttemptScoring && latestAttempt.missingElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-red)]">
-                    不足: {latestAttempt.missingElements.join(" / ")}
+                    {copy.common.missing(latestAttempt.missingElements.join(" / "))}
                   </p>
                 ) : null}
                 {!latestAttemptScoring && latestAttempt.judgeNote ? (
                   <p className="mt-1">{latestAttempt.judgeNote}</p>
                 ) : null}
                 {latestAttemptScoring ? (
-                  <p className="mt-1">採点完了後に根拠を表示します。</p>
+                  <p className="mt-1">{copy.round.judgeNotesAfterScoring}</p>
                 ) : null}
               </Card>
             </div>
@@ -674,11 +688,11 @@ export default function RoundPage() {
               <div
                 className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}
               >
-                まだ画像がありません。
+                {copy.round.noImageYet}
               </div>
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
-                <p>判断根拠</p>
-                <p className="mt-1">画像生成後に採点根拠を表示します。</p>
+                <p>{copy.common.judgeNote}</p>
+                <p className="mt-1">{copy.round.judgeNotesAfterGeneration}</p>
               </Card>
             </div>
           )}
@@ -688,7 +702,7 @@ export default function RoundPage() {
           <Scoreboard entries={scores} myUid={user?.uid} />
 
           <Card className="min-h-0 bg-white p-3">
-            <h3 className="mb-2 text-sm">みんなのベスト画像</h3>
+            <h3 className="mb-2 text-sm">{copy.round.everyoneBestImages}</h3>
             {otherBestImages.length > 0 ? (
               <div className="grid grid-cols-2 gap-2">
                 {otherBestImages.map((entry) => (
@@ -711,7 +725,7 @@ export default function RoundPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm font-semibold">他プレイヤーの投稿を待っています。</p>
+              <p className="text-sm font-semibold">{copy.round.waitingForOthers}</p>
             )}
           </Card>
         </div>

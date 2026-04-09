@@ -1,5 +1,8 @@
+"use client";
+
 import { Trophy } from "lucide-react";
 
+import { useLanguage } from "@/components/providers/language-provider";
 import { Card } from "@/components/ui/card";
 
 interface ScoreEntry {
@@ -14,12 +17,13 @@ interface ScoreboardProps {
 }
 
 export function Scoreboard({ entries, myUid }: ScoreboardProps) {
+  const { copy } = useLanguage();
   const sorted = [...entries].sort((a, b) => b.bestScore - a.bestScore);
 
   return (
     <Card className="space-y-2 bg-white/80">
       <h3 className="flex items-center gap-2 text-lg font-bold">
-        <Trophy className="h-5 w-5" /> ランキング
+        <Trophy className="h-5 w-5" /> {copy.scoreboard.title}
       </h3>
       <div className="space-y-2">
         {sorted.map((entry, index) => (

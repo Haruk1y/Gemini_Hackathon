@@ -3,24 +3,28 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { useLanguage } from "@/components/providers/language-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiPost, ApiClientError } from "@/lib/client/api";
+import { LanguageToggle } from "@/components/ui/language-toggle";
+import { apiPost } from "@/lib/client/api";
+import { type UiError, resolveUiErrorMessage, toUiError } from "@/lib/i18n/errors";
 
 type BusyAction = "create" | "join" | null;
 
 export default function HomePage() {
   const router = useRouter();
+  const { language, copy } = useLanguage();
   const { loading, error: authError } = useAuth();
 
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [joinDisplayName, setJoinDisplayName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [joinError, setJoinError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<UiError | null>(null);
+  const [joinError, setJoinError] = useState<UiError | null>(null);
 
   const createDisabled =
     loading || Boolean(authError) || busyAction !== null || createDisplayName.trim().length < 1;
@@ -45,11 +49,7 @@ export default function HomePage() {
 
       router.push(`/lobby/${response.roomId}`);
     } catch (e) {
-      if (e instanceof ApiClientError) {
-        setCreateError(e.message);
-      } else {
-        setCreateError("ルーム作成に失敗しました");
-      }
+      setCreateError(toUiError(e, "createRoomFailed"));
     } finally {
       setBusyAction(null);
     }
@@ -69,11 +69,7 @@ export default function HomePage() {
       });
       router.push(`/lobby/${response.roomId}`);
     } catch (e) {
-      if (e instanceof ApiClientError) {
-        setJoinError(e.message);
-      } else {
-        setJoinError("ルーム参加に失敗しました");
-      }
+      setJoinError(toUiError(e, "joinRoomFailed"));
     } finally {
       setBusyAction(null);
     }
@@ -85,10 +81,13 @@ export default function HomePage() {
         <Card className="bg-[var(--pmb-yellow)] p-6 md:p-8">
           <h1 className="text-3xl leading-tight md:text-5xl">PrompDojo</h1>
           <p className="mt-3 max-w-xl text-base font-semibold leading-relaxed md:text-xl">
-            お題画像を見てプロンプトを推理しよう！
+            {copy.home.heroLine1}
             <br />
-            最も近い画像を生成したプレイヤーが勝利！
+            {copy.home.heroLine2}
           </p>
+          <div className="mt-5">
+            <LanguageToggle />
+          </div>
         </Card>
 
         <div className="grid gap-4">
@@ -96,14 +95,14 @@ export default function HomePage() {
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--pmb-ink)_68%,white)]">
               Create Room
             </p>
-            <h2 className="mt-2 text-2xl">ルームを作成</h2>
+            <h2 className="mt-2 text-2xl">{copy.home.createRoomTitle}</h2>
 
             <div className="mt-4 space-y-1">
-              <p className="text-xs font-bold">表示名</p>
+              <p className="text-xs font-bold">{copy.home.displayNameLabel}</p>
               <Input
                 value={createDisplayName}
                 onChange={(event) => setCreateDisplayName(event.target.value)}
-                placeholder="表示名（1文字以上）"
+                placeholder={copy.home.displayNamePlaceholder}
                 maxLength={24}
               />
             </div>
@@ -113,11 +112,13 @@ export default function HomePage() {
               disabled={createDisabled}
               className="mt-5 w-full"
             >
-              {busyAction === "create" ? "作成中..." : "ルーム作成"}
+              {busyAction === "create" ? copy.home.creatingRoom : copy.home.createRoom}
             </Button>
 
             {createError ? (
-              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">{createError}</p>
+              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">
+                {resolveUiErrorMessage(language, createError)}
+              </p>
             ) : null}
           </Card>
 
@@ -125,25 +126,25 @@ export default function HomePage() {
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--pmb-ink)_68%,white)]">
               Join Room
             </p>
-            <h2 className="mt-2 text-2xl">ルームに参加</h2>
+            <h2 className="mt-2 text-2xl">{copy.home.joinRoomTitle}</h2>
 
             <div className="mt-4 space-y-3">
               <div className="space-y-1">
-                <p className="text-xs font-bold">表示名</p>
+                <p className="text-xs font-bold">{copy.home.displayNameLabel}</p>
                 <Input
                   value={joinDisplayName}
                   onChange={(event) => setJoinDisplayName(event.target.value)}
-                  placeholder="表示名（1文字以上）"
+                  placeholder={copy.home.displayNamePlaceholder}
                   maxLength={24}
                 />
               </div>
 
               <div className="space-y-1">
-                <p className="text-xs font-bold">ルームコード</p>
+                <p className="text-xs font-bold">{copy.home.roomCodeLabel}</p>
                 <Input
                   value={joinCode}
                   onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-                  placeholder="ルームコード（6文字）"
+                  placeholder={copy.home.roomCodePlaceholder}
                   maxLength={6}
                 />
               </div>
@@ -155,18 +156,22 @@ export default function HomePage() {
               disabled={joinDisabled}
               className="mt-5 w-full"
             >
-              {busyAction === "join" ? "参加中..." : "ルーム参加"}
+              {busyAction === "join" ? copy.home.joiningRoom : copy.home.joinRoom}
             </Button>
 
             {joinError ? (
-              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">{joinError}</p>
+              <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">
+                {resolveUiErrorMessage(language, joinError)}
+              </p>
             ) : null}
           </Card>
         </div>
       </header>
 
       {authError ? (
-        <p className="text-sm font-semibold text-[var(--pmb-red)]">{authError}</p>
+        <p className="text-sm font-semibold text-[var(--pmb-red)]">
+          {resolveUiErrorMessage(language, authError)}
+        </p>
       ) : null}
     </main>
   );

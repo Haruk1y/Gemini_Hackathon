@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { GameMode, ImpostorRole, PlayerKind } from "@/lib/types/game";
+import type { ErrorCode, GameMode, ImpostorRole, PlayerKind } from "@/lib/types/game";
 
 export type RoomStatus = "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
@@ -128,6 +128,21 @@ export interface RoomSyncSnapshot {
 }
 
 type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
+
+export interface RoomSyncErrorInfo {
+  code?: ErrorCode;
+  message: string;
+}
+
+class RoomSyncError extends Error {
+  constructor(
+    message: string,
+    public code?: ErrorCode,
+  ) {
+    super(message);
+    this.name = "RoomSyncError";
+  }
+}
 
 function normalizeAttemptStatus(value: unknown): "SCORING" | "DONE" | undefined {
   return value === "SCORING" || value === "DONE" ? value : undefined;
@@ -427,7 +442,7 @@ export function useRoomSync(params: {
   const enabled = params.enabled ?? true;
   const [snapshot, setSnapshot] = useState<RoomSyncSnapshot>(EMPTY_SNAPSHOT);
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<RoomSyncErrorInfo | null>(null);
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") {
@@ -466,15 +481,21 @@ export function useRoomSync(params: {
               ok?: boolean;
               version?: unknown;
               snapshot?: unknown;
-              error?: { message?: unknown };
+              error?: {
+                code?: unknown;
+                message?: unknown;
+              };
             }
           | null;
 
         if (!response.ok || !payload?.ok) {
-          throw new Error(
+          throw new RoomSyncError(
             typeof payload?.error?.message === "string"
               ? payload.error.message
               : "snapshot polling failed",
+            typeof payload?.error?.code === "string"
+              ? (payload.error.code as ErrorCode)
+              : undefined,
           );
         }
 
@@ -485,7 +506,17 @@ export function useRoomSync(params: {
       } catch (pollError) {
         if (disposed) return;
         setConnectionState((current) => (current === "open" ? "reconnecting" : "connecting"));
-        setError(pollError instanceof Error ? pollError.message : "reconnecting");
+        if (pollError instanceof RoomSyncError) {
+          setError({
+            code: pollError.code,
+            message: pollError.message,
+          });
+          return;
+        }
+
+        setError({
+          message: pollError instanceof Error ? pollError.message : "reconnecting",
+        });
       } finally {
         if (!disposed) {
           timerId = window.setTimeout(() => {
