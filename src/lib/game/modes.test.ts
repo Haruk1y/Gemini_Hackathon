@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getRoundSchedule } from "@/lib/game/modes";
+import { getGameModeDefinition, getRoundSchedule } from "@/lib/game/modes";
 
 describe("game modes", () => {
   it("starts classic prompts immediately", () => {
@@ -25,5 +25,11 @@ describe("game modes", () => {
 
     expect(schedule.promptStartsAt.getTime() - startedAt.getTime()).toBe(10_000);
     expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(60_000);
+  });
+
+  it("returns localized game mode copy", () => {
+    expect(getGameModeDefinition("memory", "ja").label).toBe("記憶勝負");
+    expect(getGameModeDefinition("memory", "en").label).toBe("Memory Match");
+    expect(getGameModeDefinition("impostor", "en").shortLabel).toBe("Impostor");
   });
 });

@@ -1,9 +1,12 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 /* eslint-disable @next/next/no-img-element */
 
 import { Crown } from "lucide-react";
 
+import { useLanguage } from "@/components/providers/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { placeholderImageUrl } from "@/lib/client/image";
 
@@ -22,6 +25,7 @@ interface PodiumProps {
 }
 
 export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
+  const { copy } = useLanguage();
   const sorted = [...entries].sort((a, b) => b.bestScore - a.bestScore);
 
   if (!sorted.length) {
@@ -52,13 +56,13 @@ export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
             <p className="text-2xl font-black">#{index + 1}</p>
             <p className="mt-1 flex items-center justify-center gap-1 text-xl font-extrabold">
               {entry.displayName}
-              {entry.uid === myUid ? <Badge className="bg-white">YOU</Badge> : null}
+              {entry.uid === myUid ? <Badge className="bg-white">{copy.common.you}</Badge> : null}
             </p>
             <p className="font-mono text-3xl font-black">{entry.bestScore}</p>
             <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 text-left">
-              <p className="text-[10px] font-black uppercase tracking-wide">Prompt</p>
+              <p className="text-[10px] font-black uppercase tracking-wide">{copy.common.prompt}</p>
               <p className="mt-1 h-16 overflow-y-auto font-mono text-[11px] font-semibold leading-tight">
-                {entry.bestPromptPublic || "未記録"}
+                {entry.bestPromptPublic || copy.podium.notRecorded}
               </p>
             </div>
             {entry.uid === myUid && myEntryFooter ? <div className="mt-2">{myEntryFooter}</div> : null}

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { JetBrains_Mono, Mochiy_Pop_One, Zen_Kaku_Gothic_New } from "next/font/google";
 
 import { RootProviders } from "@/components/providers/root-providers";
+import { LANGUAGE_COOKIE_NAME, normalizeLanguage } from "@/lib/i18n/language";
 import "./globals.css";
 
 const displayFont = Mochiy_Pop_One({
@@ -26,17 +28,20 @@ export const metadata: Metadata = {
   description: "マルチプレイ画像生成プロンプトクイズ",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const initialLanguage = normalizeLanguage(cookieStore.get(LANGUAGE_COOKIE_NAME)?.value);
+
   return (
-    <html lang="ja">
+    <html lang={initialLanguage}>
       <body
         className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable} bg-[var(--pmb-base)] font-sans text-[var(--pmb-ink)] antialiased`}
       >
-        <RootProviders>{children}</RootProviders>
+        <RootProviders initialLanguage={initialLanguage}>{children}</RootProviders>
       </body>
     </html>
   );

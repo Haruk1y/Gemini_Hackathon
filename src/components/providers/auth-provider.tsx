@@ -10,11 +10,12 @@ import {
 } from "react";
 
 import { bootstrapAnonymousSession, type AnonymousSession } from "@/lib/client/session";
+import { type UiError, toUiError } from "@/lib/i18n/errors";
 
 interface AuthContextValue {
   user: AnonymousSession | null;
   loading: boolean;
-  error: string | null;
+  error: UiError | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -22,7 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AnonymousSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiError | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,11 +38,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       } catch (bootstrapError) {
         console.error("Anonymous session bootstrap failed", bootstrapError);
         if (!cancelled) {
-          setError(
-            bootstrapError instanceof Error
-              ? bootstrapError.message
-              : "セッション初期化に失敗しました",
-          );
+          setError(toUiError(bootstrapError, "sessionInitializationFailed"));
           setUser(null);
         }
       } finally {

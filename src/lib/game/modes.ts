@@ -1,44 +1,97 @@
+import type { Language } from "@/lib/i18n/language";
 import type { GameMode, RoomSettings } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
 
-interface GameModeDefinition {
+interface LocalizedLabel {
+  ja: string;
+  en: string;
+}
+
+interface GameModeDefinitionSource {
   mode: GameMode;
+  englishName: string;
+  label: LocalizedLabel;
+  shortLabel: LocalizedLabel;
+  description: LocalizedLabel;
+  lobbyHint: LocalizedLabel;
+}
+
+export interface GameModeDefinition {
+  mode: GameMode;
+  englishName: string;
   label: string;
   shortLabel: string;
   description: string;
   lobbyHint: string;
 }
 
-export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinition> = {
+export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> = {
   classic: {
     mode: "classic",
-    label: "クラシック",
-    shortLabel: "通常",
-    description: "お題画像をみながらプロンプトを作る基本モード。",
-    lobbyHint: "お題画像をずっと見ながら推理",
+    englishName: "Classic",
+    label: { ja: "クラシック", en: "Classic" },
+    shortLabel: { ja: "通常", en: "Classic" },
+    description: {
+      ja: "お題画像をみながらプロンプトを作る基本モード。",
+      en: "The standard mode where you create prompts while looking at the target image.",
+    },
+    lobbyHint: {
+      ja: "お題画像をずっと見ながら推理",
+      en: "Infer while keeping the target image visible",
+    },
   },
   memory: {
     mode: "memory",
-    label: "記憶勝負",
-    shortLabel: "記憶",
-    description: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
-    lobbyHint: "最初の10秒だけ見て、その後は記憶で勝負",
+    englishName: "Memory",
+    label: { ja: "記憶勝負", en: "Memory Match" },
+    shortLabel: { ja: "記憶", en: "Memory" },
+    description: {
+      ja: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
+      en: "You can only see the target for the first 10 seconds. Win with memory alone.",
+    },
+    lobbyHint: {
+      ja: "最初の10秒だけ見て、その後は記憶で勝負",
+      en: "See it for 10 seconds, then rely on memory",
+    },
   },
   impostor: {
     mode: "impostor",
-    label: "Art Impostor",
-    shortLabel: "人狼",
-    description: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
-    lobbyHint: "順番に伝言して、人狼を投票で見抜く",
+    englishName: "Impostor",
+    label: { ja: "Art Impostor", en: "Art Impostor" },
+    shortLabel: { ja: "人狼", en: "Impostor" },
+    description: {
+      ja: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
+      en: "One hidden impostor quietly tries to break the image relay while everyone else plays normally.",
+    },
+    lobbyHint: {
+      ja: "順番に伝言して、人狼を投票で見抜く",
+      en: "Relay the image and expose the impostor by voting",
+    },
   },
 };
 
-export const GAME_MODE_OPTIONS = Object.values(GAME_MODE_DEFINITIONS);
+export function getGameModeOptions(language: Language): GameModeDefinition[] {
+  return Object.values(GAME_MODE_DEFINITIONS).map((definition) =>
+    getGameModeDefinition(definition.mode, language),
+  );
+}
 
-export function getGameModeDefinition(mode: GameMode): GameModeDefinition {
-  return GAME_MODE_DEFINITIONS[mode];
+export function getGameModeDefinition(
+  mode: GameMode,
+  language: Language,
+): GameModeDefinition {
+  const definition = GAME_MODE_DEFINITIONS[mode];
+
+  return {
+    mode: definition.mode,
+    englishName: definition.englishName,
+    label: definition.label[language],
+    shortLabel: definition.shortLabel[language],
+    description: definition.description[language],
+    lobbyHint: definition.lobbyHint[language],
+  };
 }
 
 export function summarizeRoomSettings(
@@ -46,13 +99,29 @@ export function summarizeRoomSettings(
     RoomSettings,
     "gameMode" | "totalRounds" | "roundSeconds" | "maxAttempts" | "hintLimit"
   >,
+  language: Language,
 ): string {
+  const labels =
+    language === "ja"
+      ? {
+          rounds: `${settings.totalRounds}ラウンド`,
+          roundSeconds: `1ラウンド${settings.roundSeconds}秒`,
+          maxAttempts: `1人${settings.maxAttempts}回生成`,
+          hint: settings.hintLimit > 0 ? `ヒント${settings.hintLimit}回` : "ヒントなし",
+        }
+      : {
+          rounds: `${settings.totalRounds} rounds`,
+          roundSeconds: `${settings.roundSeconds}s per round`,
+          maxAttempts: `${settings.maxAttempts} generations each`,
+          hint: settings.hintLimit > 0 ? `${settings.hintLimit} hints` : "No hints",
+        };
+
   return [
-    `${settings.totalRounds}ラウンド`,
-    getGameModeDefinition(settings.gameMode).lobbyHint,
-    `1ラウンド${settings.roundSeconds}秒`,
-    `1人${settings.maxAttempts}回生成`,
-    settings.hintLimit > 0 ? `ヒント${settings.hintLimit}回` : "ヒントなし",
+    labels.rounds,
+    getGameModeDefinition(settings.gameMode, language).lobbyHint,
+    labels.roundSeconds,
+    labels.maxAttempts,
+    labels.hint,
   ].join(" / ");
 }
 
