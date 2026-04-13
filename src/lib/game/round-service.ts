@@ -4,6 +4,7 @@ import {
   generateImage,
   imageToBuffer,
   imageToPublicUrl,
+  rewriteCpuPrompt,
   scoreImageSimilarity,
   type GeneratedImage,
 } from "@/lib/gemini/client";
@@ -45,6 +46,8 @@ import type {
 } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
+
+type CpuTurnScheduler = (params: { roomId: string; roundId: string }) => void | Promise<void>;
 
 function describeRoundGenerationError(error: unknown): AppError {
   if (error instanceof AppError) {
@@ -205,7 +208,10 @@ function requireImpostorRoundState(
   };
 }
 
-function currentTurnPlayer(players: Record<string, PlayerDoc>, round: RoundPublicDoc & { modeState: ImpostorRoundModeState }) {
+function currentTurnPlayer(
+  players: Record<string, PlayerDoc>,
+  round: RoundPublicDoc & { modeState: ImpostorRoundModeState },
+) {
   const currentUid = round.modeState.currentTurnUid;
   return currentUid ? players[currentUid] ?? null : null;
 }
@@ -299,6 +305,25 @@ function applyCpuVotes(params: {
   }
 }
 
+async function continueImpostorCpuTurns(params: {
+  roomId: string;
+  roundId: string;
+  scheduleCpuTurns?: CpuTurnScheduler;
+}) {
+  if (params.scheduleCpuTurns) {
+    await params.scheduleCpuTurns({
+      roomId: params.roomId,
+      roundId: params.roundId,
+    });
+    return;
+  }
+
+  await runImpostorCpuTurns({
+    roomId: params.roomId,
+    roundId: params.roundId,
+  });
+}
+
 async function executeImpostorTurn(params: {
   roomId: string;
   roundId: string;
@@ -348,10 +373,16 @@ async function executeImpostorTurn(params: {
     if (player.kind === "cpu") {
       const caption = await captionFromImage(referenceImage, "reconstruct the image");
       const reconstructedPrompt = reconstructPromptFromCaption(caption);
-      prompt = buildTelephonePrompt({
-        role,
-        reconstructedPrompt,
-      });
+      prompt =
+        (await rewriteCpuPrompt({
+          role,
+          caption,
+          reconstructedPrompt,
+        })) ??
+        buildTelephonePrompt({
+          role,
+          reconstructedPrompt,
+        });
     } else if (!prompt) {
       prompt = IMPOSTOR_TIMEOUT_PROMPT;
     }
@@ -487,7 +518,10 @@ async function executeImpostorTurn(params: {
   });
 }
 
-async function runImpostorCpuTurns(params: { roomId: string; roundId: string }): Promise<void> {
+export async function runImpostorCpuTurns(params: {
+  roomId: string;
+  roundId: string;
+}): Promise<void> {
   for (let index = 0; index < 12; index += 1) {
     const state = await loadRoomState(params.roomId);
     const room = state?.room;
@@ -595,6 +629,7 @@ function createBaseRoundDoc(params: {
 export async function startRound(params: {
   roomId: string;
   uid: string;
+  scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<{ roundId: string; roundIndex: number }> {
   const reservation = await withRoomLock(params.roomId, async () => {
     const state = await loadRoomState(params.roomId);
@@ -773,9 +808,10 @@ export async function startRound(params: {
     });
 
     if (reservation.settings.gameMode === "impostor") {
-      await runImpostorCpuTurns({
+      await continueImpostorCpuTurns({
         roomId: params.roomId,
         roundId: reservation.roundId,
+        scheduleCpuTurns: params.scheduleCpuTurns,
       });
     }
 
@@ -807,6 +843,7 @@ export async function startRound(params: {
 export async function endRoundIfNeeded(params: {
   roomId: string;
   roundId: string;
+  scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<{ status: "IN_ROUND" | "RESULTS" }> {
   const state = await loadRoomState(params.roomId);
   const room = requireRoom(state?.room);
@@ -882,9 +919,10 @@ export async function endRoundIfNeeded(params: {
     submittedPrompt: player.kind === "human" ? IMPOSTOR_TIMEOUT_PROMPT : undefined,
     timedOut: player.kind === "human",
   });
-  await runImpostorCpuTurns({
+  await continueImpostorCpuTurns({
     roomId: params.roomId,
     roundId: params.roundId,
+    scheduleCpuTurns: params.scheduleCpuTurns,
   });
 
   const nextState = await loadRoomState(params.roomId);
@@ -933,6 +971,7 @@ export async function submitImpostorTurn(params: {
   roundId: string;
   uid: string;
   prompt: string;
+  scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<void> {
   await executeImpostorTurn({
     roomId: params.roomId,
@@ -940,9 +979,10 @@ export async function submitImpostorTurn(params: {
     uid: params.uid,
     submittedPrompt: params.prompt,
   });
-  await runImpostorCpuTurns({
+  await continueImpostorCpuTurns({
     roomId: params.roomId,
     roundId: params.roundId,
+    scheduleCpuTurns: params.scheduleCpuTurns,
   });
 }
 

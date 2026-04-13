@@ -4,6 +4,8 @@ import { z } from "zod";
 import { AppError } from "@/lib/utils/errors";
 import {
   captionPrompt,
+  cpuRewriteSystemPrompt,
+  cpuRewriteUserPrompt,
   gmSystemPrompt,
   gmUserPrompt,
 } from "@/lib/gemini/prompts";
@@ -15,13 +17,14 @@ import {
   type GmPromptSchema,
   type VisualScoreSchema,
 } from "@/lib/gemini/schemas";
-import type { AspectRatio, RoomSettings } from "@/lib/types/game";
+import type { AspectRatio, ImpostorRole, RoomSettings } from "@/lib/types/game";
 
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
 const STRUCTURED_PARSE_ATTEMPTS = 2;
 const IMAGE_GENERATION_ATTEMPTS = 3;
 const GM_PROMPT_ATTEMPTS = 2;
+const CPU_PROMPT_REWRITE_ATTEMPTS = 2;
 const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
 const DEFAULT_NEGATIVE_PROMPT =
   "logo, watermark, text, brand name, famous character, trademark";
@@ -289,6 +292,21 @@ function fallbackCaption(fallbackPrompt: string): CaptionSchema {
   };
 }
 
+function mockCpuPromptRewrite(params: {
+  role: ImpostorRole;
+  reconstructedPrompt: string;
+}): string {
+  return params.role === "impostor"
+    ? normalizeText(
+        `${params.reconstructedPrompt}, subtle human drift, slightly altered props, shifted color emphasis, plausible reinterpretation, no text, no watermark`,
+        500,
+      )
+    : normalizeText(
+        `${params.reconstructedPrompt}, different human phrasing, slightly varied framing, small prop differences, moderate randomness, no text, no watermark`,
+        500,
+      );
+}
+
 function mockVisualScore(): VisualScoreSchema {
   return {
     score: 50,
@@ -444,6 +462,68 @@ export async function generateGmPrompt(params: {
   }
 
   throw lastError ?? new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
+}
+
+export async function rewriteCpuPrompt(params: {
+  role: ImpostorRole;
+  caption: CaptionSchema;
+  reconstructedPrompt: string;
+}): Promise<string | null> {
+  if (mockMode) {
+    return mockCpuPromptRewrite({
+      role: params.role,
+      reconstructedPrompt: params.reconstructedPrompt,
+    });
+  }
+
+  const client = getAiClient();
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < CPU_PROMPT_REWRITE_ATTEMPTS; i += 1) {
+    const response = await withRetries(() =>
+      client.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: cpuRewriteSystemPrompt({ role: params.role }) },
+              {
+                text: cpuRewriteUserPrompt({
+                  role: params.role,
+                  caption: params.caption,
+                  reconstructedPrompt: params.reconstructedPrompt,
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const text = responseText(response);
+    const promptText = text ? extractPromptText(text) : null;
+    if (promptText) {
+      return promptText;
+    }
+
+    console.warn("CPU prompt rewrite failed", {
+      attempt: i + 1,
+      role: params.role,
+      text: text?.slice(0, 400) ?? null,
+    });
+    lastError = new AppError("GEMINI_ERROR", "Gemini returned empty CPU prompt text", true, 502);
+  }
+
+  if (lastError) {
+    console.warn("rewriteCpuPrompt fallback", {
+      role: params.role,
+      error: lastError.message,
+      reconstructedPrompt: params.reconstructedPrompt.slice(0, 160),
+    });
+  }
+
+  return null;
 }
 
 export async function generateImage(params: {

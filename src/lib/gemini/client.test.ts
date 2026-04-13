@@ -140,6 +140,51 @@ describe("captionFromImage", () => {
   });
 });
 
+describe("rewriteCpuPrompt", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    generateContent.mockReset();
+    googleGenAICtor.mockReset();
+    process.env.GEMINI_API_KEY = "test-api-key";
+    delete process.env.MOCK_GEMINI;
+  });
+
+  afterEach(() => {
+    process.env.GEMINI_API_KEY = originalEnv.GEMINI_API_KEY;
+    process.env.MOCK_GEMINI = originalEnv.MOCK_GEMINI;
+  });
+
+  it("accepts prompt-only text output for cpu rewrites", async () => {
+    generateContent.mockResolvedValue({
+      text: [
+        "```text",
+        "A sticker-like night market scene with a glowing lantern fox, teal umbrellas, bright puddle reflections, slightly off-center framing, and no text",
+        "```",
+      ].join("\n"),
+    });
+
+    const { rewriteCpuPrompt } = await import("@/lib/gemini/client");
+    const result = await rewriteCpuPrompt({
+      role: "agent",
+      reconstructedPrompt:
+        "night market scene, main subject: lantern fox, key objects: umbrellas, puddles, color palette: teal, gold, style: sticker illustration, composition: centered composition, no text, no watermark",
+      caption: {
+        scene: "A lantern fox walking through a neon night market",
+        mainSubjects: ["lantern fox"],
+        keyObjects: ["umbrellas", "puddles"],
+        colors: ["teal", "gold"],
+        style: "sticker illustration",
+        composition: "centered composition",
+        textInImage: null,
+      },
+    });
+
+    expect(result).toContain("night market");
+    expect(result).toContain("lantern fox");
+    expect(result).not.toContain("```");
+  });
+});
+
 describe("generateImage", () => {
   beforeEach(() => {
     vi.resetModules();

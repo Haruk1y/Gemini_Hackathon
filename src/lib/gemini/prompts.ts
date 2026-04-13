@@ -1,4 +1,5 @@
-import type { AspectRatio, RoomSettings } from "@/lib/types/game";
+import type { CaptionSchema } from "@/lib/gemini/schemas";
+import type { AspectRatio, ImpostorRole, RoomSettings } from "@/lib/types/game";
 
 export function gmSystemPrompt(settings: RoomSettings): string {
   return [
@@ -27,3 +28,53 @@ export const captionPrompt = [
   "主役・小物・配色・構図・スタイルを具体的に分解。",
   "推測ではなく見えている内容を優先。",
 ].join("\n");
+
+function joinCaptionList(values: string[]) {
+  return values.filter(Boolean).join(", ") || "none";
+}
+
+export function cpuRewriteSystemPrompt(params: { role: ImpostorRole }): string {
+  const roleInstruction =
+    params.role === "impostor"
+      ? "Keep the image believable, but introduce subtle drift that feels like a human misunderstanding."
+      : "Keep the main scene recognizable, but allow moderate human-like variation instead of perfect copying.";
+
+  return [
+    "You rewrite a visual description into one English image-generation prompt.",
+    "Return exactly one English prompt.",
+    "Do not return JSON, markdown, bullets, labels, or explanation.",
+    "Preserve the main scene and main subject.",
+    "Allow moderate variation in secondary props, color emphasis, framing, lighting, and texture wording.",
+    roleInstruction,
+    "Do not mention the game, sabotage, hidden roles, or AI.",
+    "Do not add text, logos, trademarks, or watermarks.",
+  ].join("\n");
+}
+
+export function cpuRewriteUserPrompt(params: {
+  role: ImpostorRole;
+  caption: CaptionSchema;
+  reconstructedPrompt: string;
+}): string {
+  const roleInstruction =
+    params.role === "impostor"
+      ? "Quietly alter a few plausible details so the drift is noticeable over time, but not obvious in one step."
+      : "Make it feel like a different human described and redrew the same image from memory.";
+
+  return [
+    "Visible image breakdown:",
+    `scene: ${params.caption.scene}`,
+    `main subjects: ${joinCaptionList(params.caption.mainSubjects)}`,
+    `key objects: ${joinCaptionList(params.caption.keyObjects)}`,
+    `colors: ${joinCaptionList(params.caption.colors)}`,
+    `style: ${params.caption.style}`,
+    `composition: ${params.caption.composition}`,
+    `text in image: ${params.caption.textInImage ?? "none"}`,
+    "",
+    "Current reconstructed base prompt:",
+    params.reconstructedPrompt,
+    "",
+    roleInstruction,
+    "Write a polished English prompt for a single generated image only.",
+  ].join("\n");
+}
