@@ -16,6 +16,8 @@ interface GameModeDefinitionSource {
   shortLabel: LocalizedLabel;
   description: LocalizedLabel;
   lobbyHint: LocalizedLabel;
+  /** Set to true to hide this mode from the UI and reject it at the API layer. */
+  disabled?: boolean;
 }
 
 export interface GameModeDefinition {
@@ -27,55 +29,57 @@ export interface GameModeDefinition {
   lobbyHint: string;
 }
 
-export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> = {
-  classic: {
-    mode: "classic",
-    englishName: "Classic",
-    label: { ja: "クラシック", en: "Classic" },
-    shortLabel: { ja: "通常", en: "Classic" },
-    description: {
-      ja: "お題画像をみながらプロンプトを作る基本モード。",
-      en: "The standard mode where you create prompts while looking at the target image.",
+export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
+  {
+    classic: {
+      mode: "classic",
+      englishName: "Classic",
+      label: { ja: "クラシック", en: "Classic" },
+      shortLabel: { ja: "通常", en: "Classic" },
+      description: {
+        ja: "お題画像をみながらプロンプトを作る基本モード。",
+        en: "The standard mode where you create prompts while looking at the target image.",
+      },
+      lobbyHint: {
+        ja: "お題画像をずっと見ながら推理",
+        en: "Infer while keeping the target image visible",
+      },
     },
-    lobbyHint: {
-      ja: "お題画像をずっと見ながら推理",
-      en: "Infer while keeping the target image visible",
+    memory: {
+      mode: "memory",
+      englishName: "Memory",
+      label: { ja: "記憶勝負", en: "Memory Match" },
+      shortLabel: { ja: "記憶", en: "Memory" },
+      description: {
+        ja: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
+        en: "You can only see the target for the first 10 seconds. Win with memory alone.",
+      },
+      lobbyHint: {
+        ja: "最初の10秒だけ見て、その後は記憶で勝負",
+        en: "See it for 10 seconds, then rely on memory",
+      },
     },
-  },
-  memory: {
-    mode: "memory",
-    englishName: "Memory",
-    label: { ja: "記憶勝負", en: "Memory Match" },
-    shortLabel: { ja: "記憶", en: "Memory" },
-    description: {
-      ja: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
-      en: "You can only see the target for the first 10 seconds. Win with memory alone.",
+    impostor: {
+      mode: "impostor",
+      englishName: "Impostor",
+      label: { ja: "Art Impostor", en: "Art Impostor" },
+      shortLabel: { ja: "人狼", en: "Impostor" },
+      description: {
+        ja: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
+        en: "One hidden impostor quietly tries to break the image relay while everyone else plays normally.",
+      },
+      lobbyHint: {
+        ja: "順番に伝言して、人狼を投票で見抜く",
+        en: "Relay the image and expose the impostor by voting",
+      },
+      disabled: true,
     },
-    lobbyHint: {
-      ja: "最初の10秒だけ見て、その後は記憶で勝負",
-      en: "See it for 10 seconds, then rely on memory",
-    },
-  },
-  impostor: {
-    mode: "impostor",
-    englishName: "Impostor",
-    label: { ja: "Art Impostor", en: "Art Impostor" },
-    shortLabel: { ja: "人狼", en: "Impostor" },
-    description: {
-      ja: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
-      en: "One hidden impostor quietly tries to break the image relay while everyone else plays normally.",
-    },
-    lobbyHint: {
-      ja: "順番に伝言して、人狼を投票で見抜く",
-      en: "Relay the image and expose the impostor by voting",
-    },
-  },
-};
+  };
 
 export function getGameModeOptions(language: Language): GameModeDefinition[] {
-  return Object.values(GAME_MODE_DEFINITIONS).map((definition) =>
-    getGameModeDefinition(definition.mode, language),
-  );
+  return Object.values(GAME_MODE_DEFINITIONS)
+    .filter((definition) => !definition.disabled)
+    .map((definition) => getGameModeDefinition(definition.mode, language));
 }
 
 export function getGameModeDefinition(
@@ -107,13 +111,17 @@ export function summarizeRoomSettings(
           rounds: `${settings.totalRounds}ラウンド`,
           roundSeconds: `1ラウンド${settings.roundSeconds}秒`,
           maxAttempts: `1人${settings.maxAttempts}回生成`,
-          hint: settings.hintLimit > 0 ? `ヒント${settings.hintLimit}回` : "ヒントなし",
+          hint:
+            settings.hintLimit > 0
+              ? `ヒント${settings.hintLimit}回`
+              : "ヒントなし",
         }
       : {
           rounds: `${settings.totalRounds} rounds`,
           roundSeconds: `${settings.roundSeconds}s per round`,
           maxAttempts: `${settings.maxAttempts} generations each`,
-          hint: settings.hintLimit > 0 ? `${settings.hintLimit} hints` : "No hints",
+          hint:
+            settings.hintLimit > 0 ? `${settings.hintLimit} hints` : "No hints",
         };
 
   return [
@@ -133,9 +141,14 @@ export function getRoundSchedule(params: {
   promptStartsAt: Date;
   endsAt: Date;
 } {
-  const previewSeconds = params.gameMode === "memory" ? MEMORY_PREVIEW_SECONDS : 0;
-  const promptStartsAt = new Date(params.startedAt.getTime() + previewSeconds * 1000);
-  const endsAt = new Date(promptStartsAt.getTime() + params.roundSeconds * 1000);
+  const previewSeconds =
+    params.gameMode === "memory" ? MEMORY_PREVIEW_SECONDS : 0;
+  const promptStartsAt = new Date(
+    params.startedAt.getTime() + previewSeconds * 1000,
+  );
+  const endsAt = new Date(
+    promptStartsAt.getTime() + params.roundSeconds * 1000,
+  );
 
   return {
     promptStartsAt,
