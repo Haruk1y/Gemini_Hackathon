@@ -7,7 +7,7 @@ const safeDisplayName = z
   .max(24)
   .regex(/^[\p{L}\p{N}_\-\s]+$/u, "Display name includes invalid characters");
 
-export const gameModeSchema = z.enum(["classic", "memory", "impostor"]);
+export const gameModeSchema = z.enum(["classic", "memory"]);
 
 export const roomSettingsSchema = z
   .object({
