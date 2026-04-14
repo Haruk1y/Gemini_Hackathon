@@ -7,12 +7,14 @@ import { dateAfterHours, parseDate } from "@/lib/utils/time";
 const mockGenerateGmPrompt = vi.fn();
 const mockGenerateImage = vi.fn();
 const mockCaptionFromImage = vi.fn();
+const mockRewriteCpuPrompt = vi.fn();
 const mockScoreImageSimilarity = vi.fn();
 
 vi.mock("@/lib/gemini/client", () => ({
   generateGmPrompt: mockGenerateGmPrompt,
   generateImage: mockGenerateImage,
   captionFromImage: mockCaptionFromImage,
+  rewriteCpuPrompt: mockRewriteCpuPrompt,
   scoreImageSimilarity: mockScoreImageSimilarity,
   imageToBuffer: vi.fn(() => null),
   imageToPublicUrl: vi.fn((image: { directUrl?: string }) => image.directUrl ?? null),
@@ -118,6 +120,7 @@ describe("impostor round lifecycle", () => {
     mockGenerateGmPrompt.mockReset();
     mockGenerateImage.mockReset();
     mockCaptionFromImage.mockReset();
+    mockRewriteCpuPrompt.mockReset();
     mockScoreImageSimilarity.mockReset();
 
     mockGenerateGmPrompt.mockResolvedValue({
@@ -142,6 +145,7 @@ describe("impostor round lifecycle", () => {
       composition: "balanced composition",
       textInImage: null,
     });
+    mockRewriteCpuPrompt.mockResolvedValue("cpu rewritten prompt with moderate human drift");
     mockScoreImageSimilarity.mockResolvedValue({
       score: 58,
       matchedElements: ["subject"],
@@ -232,6 +236,96 @@ describe("impostor round lifecycle", () => {
     expect(round?.modeState?.currentTurnUid).toBe("guest");
   });
 
+  it("falls back to the local reconstructed prompt when cpu rewrite returns nothing", async () => {
+    const lobbyState = createLobbyState();
+    lobbyState.players.host.seatOrder = 1;
+    lobbyState.players.guest.seatOrder = 2;
+    seedCpuPlayer(lobbyState, 1, 0);
+    await saveRoomState(lobbyState);
+    mockRewriteCpuPrompt.mockResolvedValueOnce(null);
+
+    const { startRound } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const state = await loadRoomState("ROOM1");
+    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const cpuGenerateCall = mockGenerateImage.mock.calls[1]?.[0];
+
+    expect(cpuGenerateCall).toMatchObject({
+      aspectRatio: "1:1",
+    });
+    expect(cpuGenerateCall).not.toHaveProperty("sourceImage");
+    expect(cpuGenerateCall?.prompt).toContain("image scene");
+    expect(turnRecord?.prompt).toContain("image scene");
+  });
+
+  it("returns from startRound before the first cpu turn completes when a scheduler is provided", async () => {
+    const lobbyState = createLobbyState();
+    lobbyState.players.host.seatOrder = 1;
+    lobbyState.players.guest.seatOrder = 2;
+    seedCpuPlayer(lobbyState, 1, 0);
+    await saveRoomState(lobbyState);
+
+    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
+    let imageCallCount = 0;
+    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
+      imageCallCount += 1;
+      if (imageCallCount === 1) {
+        return {
+          mimeType: "image/png",
+          directUrl: dataUrl(prompt),
+        };
+      }
+
+      return deferredCpuImage.promise;
+    });
+
+    const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
+    const { runImpostorCpuTurns, startRound } = await import("@/lib/game/round-service");
+    const result = await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+      scheduleCpuTurns: async (scheduled) => {
+        scheduledRuns.push(scheduled);
+      },
+    });
+
+    expect(result).toEqual({
+      roundId: "round-1",
+      roundIndex: 1,
+    });
+    expect(scheduledRuns).toEqual([
+      {
+        roomId: "ROOM1",
+        roundId: "round-1",
+      },
+    ]);
+
+    const scheduledState = await loadRoomState("ROOM1");
+    const scheduledRound = scheduledState?.rounds["round-1"];
+
+    expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
+    expect(scheduledRound?.endsAt).toBeNull();
+    expect(scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords).toHaveLength(0);
+
+    const cpuRunPromise = runImpostorCpuTurns(scheduledRuns[0]!);
+
+    deferredCpuImage.resolve({
+      mimeType: "image/png",
+      directUrl: dataUrl("cpu scheduled"),
+    });
+    await cpuRunPromise;
+
+    const completedState = await loadRoomState("ROOM1");
+    const completedRound = completedState?.rounds["round-1"];
+
+    expect(completedRound?.modeState?.currentTurnUid).toBe("host");
+    expect(completedState?.roundPrivates["round-1"]?.modeState?.turnRecords).toHaveLength(1);
+  });
+
   it("auto-runs the first cpu turn and hands the chain to the next human", async () => {
     const lobbyState = createLobbyState();
     lobbyState.players.host.seatOrder = 1;
@@ -289,13 +383,87 @@ describe("impostor round lifecycle", () => {
 
     expect(state?.room.status).toBe("IN_ROUND");
     expect(state?.players["cpu-1"]?.kind).toBe("cpu");
+    expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
+      prompt: "cpu rewritten prompt with moderate human drift",
+      aspectRatio: "1:1",
+    });
+    expect(mockGenerateImage.mock.calls[1]?.[0]).not.toHaveProperty("sourceImage");
     expect(round?.modeState?.kind).toBe("impostor");
     expect(round?.modeState?.turnOrder).toEqual(["cpu-1", "host", "guest"]);
     expect(round?.modeState?.currentTurnIndex).toBe(1);
     expect(round?.modeState?.currentTurnUid).toBe("host");
     expect(roundPrivate?.modeState?.turnRecords).toHaveLength(1);
     expect(roundPrivate?.modeState?.turnRecords[0]?.uid).toBe("cpu-1");
+    expect(roundPrivate?.modeState?.turnRecords[0]?.prompt).toBe("cpu rewritten prompt with moderate human drift");
     expect(parseDate(round?.endsAt)?.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("returns from submitImpostorTurn before the next cpu turn completes when a scheduler is provided", async () => {
+    const lobbyState = createLobbyState();
+    lobbyState.players.guest.seatOrder = 2;
+    seedCpuPlayer(lobbyState, 1, 1);
+    await saveRoomState(lobbyState);
+
+    let imageCallCount = 0;
+    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
+    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
+      imageCallCount += 1;
+      if (imageCallCount < 3) {
+        return {
+          mimeType: "image/png",
+          directUrl: dataUrl(prompt),
+        };
+      }
+
+      return deferredCpuImage.promise;
+    });
+
+    const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
+    const { runImpostorCpuTurns, startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    await submitImpostorTurn({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "host",
+      prompt: "human pass to cpu",
+      scheduleCpuTurns: async (scheduled) => {
+        scheduledRuns.push(scheduled);
+      },
+    });
+
+    expect(scheduledRuns).toEqual([
+      {
+        roomId: "ROOM1",
+        roundId: "round-1",
+      },
+    ]);
+
+    const scheduledState = await loadRoomState("ROOM1");
+    const scheduledRound = scheduledState?.rounds["round-1"];
+    const scheduledRecords = scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+
+    expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
+    expect(scheduledRecords).toHaveLength(1);
+    expect(scheduledRecords[0]?.uid).toBe("host");
+
+    const cpuRunPromise = runImpostorCpuTurns(scheduledRuns[0]!);
+
+    deferredCpuImage.resolve({
+      mimeType: "image/png",
+      directUrl: dataUrl("cpu after submit"),
+    });
+    await cpuRunPromise;
+
+    const completedState = await loadRoomState("ROOM1");
+    const completedRound = completedState?.rounds["round-1"];
+    const completedRecords = completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+
+    expect(completedRound?.modeState?.currentTurnUid).toBe("guest");
+    expect(completedRecords.map((record) => record.uid)).toEqual(["host", "cpu-1"]);
   });
 
   it("auto-runs the next cpu turn immediately after a human submit", async () => {
@@ -333,6 +501,83 @@ describe("impostor round lifecycle", () => {
     expect(turnRecords[0]?.uid).toBe("host");
     expect(turnRecords[1]?.uid).toBe("cpu-1");
     expect(parseDate(round?.endsAt)?.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("returns from endRoundIfNeeded before the scheduled cpu follow-up completes", async () => {
+    const lobbyState = createLobbyState();
+    lobbyState.players.guest.seatOrder = 2;
+    seedCpuPlayer(lobbyState, 1, 1);
+    await saveRoomState(lobbyState);
+
+    let imageCallCount = 0;
+    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
+    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
+      imageCallCount += 1;
+      if (imageCallCount < 3) {
+        return {
+          mimeType: "image/png",
+          directUrl: dataUrl(prompt),
+        };
+      }
+
+      return deferredCpuImage.promise;
+    });
+
+    const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
+    const { endRoundIfNeeded, runImpostorCpuTurns, startRound } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const activeState = await loadRoomState("ROOM1");
+    const activeRound = activeState?.rounds["round-1"];
+    if (!activeState || !activeRound) {
+      throw new Error("round-1 should exist before timeout scheduling");
+    }
+
+    activeRound.endsAt = new Date(Date.now() - 1_000);
+    await saveRoomState(activeState);
+
+    const result = await endRoundIfNeeded({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      scheduleCpuTurns: async (scheduled) => {
+        scheduledRuns.push(scheduled);
+      },
+    });
+
+    expect(result.status).toBe("IN_ROUND");
+    expect(scheduledRuns).toEqual([
+      {
+        roomId: "ROOM1",
+        roundId: "round-1",
+      },
+    ]);
+
+    const scheduledState = await loadRoomState("ROOM1");
+    const scheduledRound = scheduledState?.rounds["round-1"];
+    const scheduledRecords = scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+
+    expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
+    expect(scheduledRecords).toHaveLength(1);
+    expect(scheduledRecords[0]?.prompt).toBe(IMPOSTOR_TIMEOUT_PROMPT);
+    expect(scheduledRecords[0]?.timedOut).toBe(true);
+
+    const cpuRunPromise = runImpostorCpuTurns(scheduledRuns[0]!);
+
+    deferredCpuImage.resolve({
+      mimeType: "image/png",
+      directUrl: dataUrl("cpu after timeout"),
+    });
+    await cpuRunPromise;
+
+    const completedState = await loadRoomState("ROOM1");
+    const completedRound = completedState?.rounds["round-1"];
+    const completedRecords = completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+
+    expect(completedRound?.modeState?.currentTurnUid).toBe("guest");
+    expect(completedRecords.map((record) => record.uid)).toEqual(["host", "cpu-1"]);
   });
 
   it("auto-runs consecutive cpu turns without waiting for roundSeconds", async () => {

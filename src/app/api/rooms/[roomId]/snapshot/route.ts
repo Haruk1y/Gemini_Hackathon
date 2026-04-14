@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { verifySessionCookie } from "@/lib/auth/verify-session";
+import { endRoundIfNeeded } from "@/lib/game/round-service";
 import {
   buildRoomViewSnapshot,
   type RoomViewName,
 } from "@/lib/realtime/views";
 import { getRoomStateBackendInfo, loadRoomState } from "@/lib/server/room-state";
 import { AppError, toErrorResponse } from "@/lib/utils/errors";
+import { parseDate } from "@/lib/utils/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +36,19 @@ export async function GET(
     const view = parseView(request.nextUrl.searchParams.get("view"));
     const since = Number.parseInt(request.nextUrl.searchParams.get("since") ?? "", 10);
     const backend = getRoomStateBackendInfo();
-    const state = await loadRoomState(roomId);
+    let state = await loadRoomState(roomId);
+
+    if (state && view === "round" && state.room.status === "IN_ROUND" && state.room.currentRoundId) {
+      const currentRound = state.rounds[state.room.currentRoundId];
+      const endsAt = parseDate(currentRound?.endsAt);
+      if (endsAt && Date.now() >= endsAt.getTime()) {
+        await endRoundIfNeeded({
+          roomId,
+          roundId: state.room.currentRoundId,
+        });
+        state = await loadRoomState(roomId);
+      }
+    }
 
     if (!state) {
       console.warn("Room snapshot missing state", {

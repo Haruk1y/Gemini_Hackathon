@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiPost } from "@/lib/client/api";
+import { createEndRoundRetrier } from "@/lib/client/end-round-retry";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { useRoomPresence } from "@/lib/client/room-presence";
 import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
@@ -59,6 +60,7 @@ export default function RoundPage() {
   const [resultCountdownSeconds, setResultCountdownSeconds] = useState<number | null>(null);
 
   const endCalled = useRef(false);
+  const endRoundRetrier = useRef<ReturnType<typeof createEndRoundRetrier> | null>(null);
   const derivedRoom = snapshot.room as RoomData | null;
   const derivedRound = snapshot.round as RoundData | null;
   const derivedScores = snapshot.scores as ScoreEntry[];
@@ -151,6 +153,8 @@ export default function RoundPage() {
 
   useEffect(() => {
     endCalled.current = false;
+    endRoundRetrier.current?.cancel();
+    endRoundRetrier.current = null;
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
 
   useEffect(() => {
@@ -171,19 +175,37 @@ export default function RoundPage() {
       return;
     }
 
+  }, [room?.status, round?.status, roomId, router]);
+
+  useEffect(() => {
+    if (!room || !round) return;
     if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
     if (isCpuTurn || !round.endsAt) return;
     if (secondsLeft > 0 || endCalled.current) return;
 
     endCalled.current = true;
-    void apiPost("/api/rounds/endIfNeeded", {
-      roomId,
-      roundId: round.roundId,
-    }).catch((err) => {
-      console.error("endIfNeeded failed", err);
-      endCalled.current = false;
+    const retrier = createEndRoundRetrier({
+      runEndIfNeeded: () =>
+        apiPost<{ ok: true; status: "IN_ROUND" | "RESULTS" }>("/api/rounds/endIfNeeded", {
+          roomId,
+          roundId: round.roundId,
+        }),
+      onError: (err) => {
+        console.error("endIfNeeded failed", err);
+        endCalled.current = false;
+      },
     });
-  }, [isCpuTurn, secondsLeft, room, round, roomId, router]);
+
+    endRoundRetrier.current = retrier;
+    void retrier.run();
+
+    return () => {
+      if (endRoundRetrier.current === retrier) {
+        retrier.cancel();
+        endRoundRetrier.current = null;
+      }
+    };
+  }, [isCpuTurn, secondsLeft, room?.status, round?.status, round?.endsAt, round?.roundId, roomId]);
 
   const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(

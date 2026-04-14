@@ -1,10 +1,12 @@
+import { after } from "next/server";
+
 import { submitSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import {
   assertRoundOpen,
   assertRoundSubmissionWindow,
 } from "@/lib/game/round-validation";
-import { submitImpostorTurn } from "@/lib/game/round-service";
+import { runImpostorCpuTurns, submitImpostorTurn } from "@/lib/game/round-service";
 import {
   generateImage,
   imageToBuffer,
@@ -117,6 +119,15 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
       roundId: body.roundId,
       uid: auth.uid,
       prompt: body.prompt,
+      scheduleCpuTurns: ({ roomId, roundId }) => {
+        after(async () => {
+          try {
+            await runImpostorCpuTurns({ roomId, roundId });
+          } catch (error) {
+            console.error("Deferred CPU turn execution failed after player submit", error);
+          }
+        });
+      },
     });
 
     const updatedState = await loadRoomState(body.roomId);
