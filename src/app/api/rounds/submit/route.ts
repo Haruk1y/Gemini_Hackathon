@@ -29,6 +29,54 @@ import { dateAfterHours, parseDate } from "@/lib/utils/time";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function summarizeError(error: unknown) {
+  if (error instanceof AppError) {
+    return {
+      code: error.code,
+      status: error.status,
+      retryable: error.retryable,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
+function logSubmitStageFailure(
+  stage:
+    | "image_generation"
+    | "judge_prep"
+    | "visual_scoring"
+    | "storage_upload",
+  params: {
+    roomId: string;
+    roundId: string;
+    uid: string;
+    prompt: string;
+    language: string;
+  },
+  error: unknown,
+) {
+  console.error("round submit stage failed", {
+    stage,
+    roomId: params.roomId,
+    roundId: params.roundId,
+    uid: params.uid,
+    language: params.language,
+    promptPreview: params.prompt.slice(0, 120),
+    error: summarizeError(error),
+  });
+}
+
 interface SubmitResponse extends Record<string, unknown> {
   attemptNo: number;
   score: number;
@@ -429,51 +477,116 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth, request }
       });
 
       try {
-        const generatedImage = await generateImage({
-          prompt: body.prompt,
-          aspectRatio: reservedAttempt.aspectRatio,
-        });
+        let generatedImage: GeneratedImage;
+        try {
+          generatedImage = await generateImage({
+            prompt: body.prompt,
+            aspectRatio: reservedAttempt.aspectRatio,
+          });
+        } catch (error) {
+          logSubmitStageFailure(
+            "image_generation",
+            {
+              roomId: body.roomId,
+              roundId: body.roundId,
+              uid: auth.uid,
+              prompt: body.prompt,
+              language,
+            },
+            error,
+          );
+          throw error;
+        }
 
         const transientImageUrl =
           imageToPublicUrl(generatedImage, body.prompt) ?? undefined;
 
-        const [targetImageForJudge, attemptImageForJudge] = await Promise.all([
-          imageForVisualScoring(
-            {
-              mimeType: "image/png",
-              directUrl: reservedAttempt.targetImageUrl,
-            },
-            reservedAttempt.targetImageUrl,
-          ),
-          imageForVisualScoring(generatedImage, transientImageUrl),
-        ]);
+        let targetImageForJudge: GeneratedImage | null;
+        let attemptImageForJudge: GeneratedImage | null;
+        try {
+          [targetImageForJudge, attemptImageForJudge] = await Promise.all([
+            imageForVisualScoring(
+              {
+                mimeType: "image/png",
+                directUrl: reservedAttempt.targetImageUrl,
+              },
+              reservedAttempt.targetImageUrl,
+            ),
+            imageForVisualScoring(generatedImage, transientImageUrl),
+          ]);
 
-        if (!targetImageForJudge?.base64Data || !attemptImageForJudge?.base64Data) {
-          throw new AppError(
-            "GEMINI_ERROR",
-            "Failed to prepare images for visual scoring",
-            true,
-            502,
+          if (!targetImageForJudge?.base64Data || !attemptImageForJudge?.base64Data) {
+            throw new AppError(
+              "GEMINI_ERROR",
+              "Failed to prepare images for visual scoring",
+              true,
+              502,
+            );
+          }
+        } catch (error) {
+          logSubmitStageFailure(
+            "judge_prep",
+            {
+              roomId: body.roomId,
+              roundId: body.roundId,
+              uid: auth.uid,
+              prompt: body.prompt,
+              language,
+            },
+            error,
           );
+          throw error;
         }
 
-        const judged = await scoreImageSimilarity({
-          targetImage: targetImageForJudge,
-          attemptImage: attemptImageForJudge,
-          language,
-        });
+        let judged: Awaited<ReturnType<typeof scoreImageSimilarity>>;
+        try {
+          judged = await scoreImageSimilarity({
+            targetImage: targetImageForJudge,
+            attemptImage: attemptImageForJudge,
+            language,
+          });
+        } catch (error) {
+          logSubmitStageFailure(
+            "visual_scoring",
+            {
+              roomId: body.roomId,
+              roundId: body.roundId,
+              uid: auth.uid,
+              prompt: body.prompt,
+              language,
+            },
+            error,
+          );
+          throw error;
+        }
 
         const score = judged.score;
         const matchedElements = judged.matchedElements ?? [];
         const missingElements = judged.missingElements ?? [];
         const judgeNote = judged.note || fallbackJudgeNote(language);
-        const imageUrl = await resolveBestImageUrl({
-          roomId: body.roomId,
-          roundId: body.roundId,
-          uid: auth.uid,
-          prompt: body.prompt,
-          image: generatedImage,
-        });
+        let imageUrl: string;
+        try {
+          imageUrl = await resolveBestImageUrl({
+            roomId: body.roomId,
+            roundId: body.roundId,
+            uid: auth.uid,
+            prompt: body.prompt,
+            image: generatedImage,
+          });
+        } catch (error) {
+          logSubmitStageFailure(
+            "storage_upload",
+            {
+              roomId: body.roomId,
+              roundId: body.roundId,
+              uid: auth.uid,
+              prompt: body.prompt,
+              language,
+            },
+            error,
+          );
+          throw error;
+        }
 
         return finalizeReservedAttempt({
           roomId: body.roomId,

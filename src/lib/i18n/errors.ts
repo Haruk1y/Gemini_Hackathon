@@ -1,4 +1,13 @@
 import { ApiClientError } from "@/lib/client/api";
+import {
+  GEMINI_BLOCKED_API_KEY_MESSAGE,
+  GEMINI_INVALID_API_KEY_MESSAGE,
+  GEMINI_INVALID_REQUEST_MESSAGE,
+  GEMINI_MISSING_IMAGE_DATA_MESSAGE,
+  GEMINI_QUOTA_EXHAUSTED_MESSAGE,
+  GEMINI_SAFETY_BLOCKED_MESSAGE,
+  GEMINI_TEXT_ONLY_RESPONSE_MESSAGE,
+} from "@/lib/gemini/error-messages";
 import { type Language } from "@/lib/i18n/language";
 import type { ErrorCode } from "@/lib/types/game";
 
@@ -48,7 +57,14 @@ type ApiMessageKey =
   | "roundMissing"
   | "turnMismatch"
   | "gcpExpired"
-  | "rateLimited";
+  | "rateLimited"
+  | "geminiKeyBlocked"
+  | "geminiKeyInvalid"
+  | "geminiQuota"
+  | "geminiSafety"
+  | "geminiInvalidRequest"
+  | "geminiTextOnly"
+  | "geminiMissingImage";
 
 const LOCAL_ERROR_MESSAGES: Record<Language, Record<LocalErrorKey, string>> = {
   ja: {
@@ -140,6 +156,13 @@ const API_MESSAGE_MAP: Record<string, ApiMessageKey> = {
   "Turn already ended": "turnMismatch",
   "Google Cloud 認証の期限が切れています。`gcloud auth application-default login` を実行してから再試行してください。": "gcpExpired",
   "処理が混み合っています。少し待ってから再試行してください。": "rateLimited",
+  [GEMINI_BLOCKED_API_KEY_MESSAGE]: "geminiKeyBlocked",
+  [GEMINI_INVALID_API_KEY_MESSAGE]: "geminiKeyInvalid",
+  [GEMINI_QUOTA_EXHAUSTED_MESSAGE]: "geminiQuota",
+  [GEMINI_SAFETY_BLOCKED_MESSAGE]: "geminiSafety",
+  [GEMINI_INVALID_REQUEST_MESSAGE]: "geminiInvalidRequest",
+  [GEMINI_TEXT_ONLY_RESPONSE_MESSAGE]: "geminiTextOnly",
+  [GEMINI_MISSING_IMAGE_DATA_MESSAGE]: "geminiMissingImage",
 };
 
 const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
@@ -166,6 +189,20 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     turnMismatch: "現在はこの操作を実行できません。",
     gcpExpired: "Google Cloud 認証の更新が必要です。",
     rateLimited: "処理が混み合っています。少し待ってから再試行してください。",
+    geminiKeyBlocked:
+      "画像生成 API キーが無効化されています。サーバー側で GEMINI_API_KEY を更新してください。",
+    geminiKeyInvalid:
+      "画像生成 API キーが無効か権限不足です。サーバー側で GEMINI_API_KEY を確認してください。",
+    geminiQuota:
+      "画像生成の利用上限に達しています。少し待つか、Gemini の quota / billing を確認してください。",
+    geminiSafety:
+      "画像生成が安全フィルタで止まりました。表現を少し変えて再試行してください。",
+    geminiInvalidRequest:
+      "画像生成のサーバー設定に問題があります。モデル設定を確認してください。",
+    geminiTextOnly:
+      "画像の代わりにテキスト応答が返りました。少し待ってから再試行してください。",
+    geminiMissingImage:
+      "画像データが返りませんでした。少し待ってから再試行してください。",
   },
   en: {
     roomNotInLobby: "This room is not currently in the lobby.",
@@ -190,6 +227,20 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     turnMismatch: "This action is not available right now.",
     gcpExpired: "Google Cloud authentication needs to be refreshed.",
     rateLimited: "The server is busy right now. Please try again in a moment.",
+    geminiKeyBlocked:
+      "The image API key has been blocked or disabled. Update GEMINI_API_KEY on the server.",
+    geminiKeyInvalid:
+      "The image API key is invalid or lacks permission. Check GEMINI_API_KEY on the server.",
+    geminiQuota:
+      "Image generation quota is exhausted. Please wait a moment or check Gemini quota and billing.",
+    geminiSafety:
+      "Image generation was blocked by safety filters. Please revise the prompt and try again.",
+    geminiInvalidRequest:
+      "The image generation request is misconfigured on the server. Check the model settings.",
+    geminiTextOnly:
+      "The image model returned text instead of image data. Please try again in a moment.",
+    geminiMissingImage:
+      "The image model did not return image data. Please try again in a moment.",
   },
 };
 
