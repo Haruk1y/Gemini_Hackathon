@@ -236,6 +236,54 @@ describe("impostor round lifecycle", () => {
     expect(round?.modeState?.currentTurnUid).toBe("guest");
   });
 
+  it("uses the current human draft when a human turn times out", async () => {
+    const lobbyState = createLobbyState(0);
+    await saveRoomState(lobbyState);
+
+    const { endRoundIfNeeded, startRound } = await import("@/lib/game/round-service");
+    await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const activeState = await loadRoomState("ROOM1");
+    const activeRound = activeState?.rounds["round-1"];
+    expect(activeRound?.modeState?.currentTurnUid).toBe("host");
+
+    if (!activeState || !activeRound) {
+      throw new Error("round-1 should exist after startRound");
+    }
+
+    activeRound.endsAt = new Date(Date.now() - 1_000);
+    await saveRoomState(activeState);
+
+    const result = await endRoundIfNeeded({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "host",
+      draftPrompt: "partial timeout draft",
+    });
+
+    const nextState = await loadRoomState("ROOM1");
+    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const round = nextState?.rounds["round-1"];
+
+    expect(result).toMatchObject({
+      status: "IN_ROUND",
+      consumedDraft: true,
+    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
+    expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
+      prompt: "partial timeout draft",
+      aspectRatio: "1:1",
+    });
+    expect(turnRecord?.uid).toBe("host");
+    expect(turnRecord?.prompt).toBe("partial timeout draft");
+    expect(turnRecord?.imageUrl).toBe(dataUrl("partial timeout draft"));
+    expect(turnRecord?.timedOut).toBe(true);
+    expect(round?.modeState?.currentTurnUid).toBe("guest");
+  });
+
   it("falls back to the local reconstructed prompt when cpu rewrite returns nothing", async () => {
     const lobbyState = createLobbyState();
     lobbyState.players.host.seatOrder = 1;

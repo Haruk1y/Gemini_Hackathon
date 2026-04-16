@@ -23,10 +23,15 @@ import {
   syncCpuPlayers,
 } from "@/lib/game/impostor";
 import {
+  reserveClassicRoundAttemptInState,
+  submitClassicRoundAttemptWithReservation,
+} from "@/lib/game/classic-submit";
+import {
   getRoundSchedule,
   getRoundSubmissionDeadline,
   RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
+import { DEFAULT_LANGUAGE, type Language } from "@/lib/i18n/language";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
 import {
@@ -59,6 +64,28 @@ function hasScoringAttempts(
   return Object.values(attemptsByUid ?? {}).some((attemptDoc) =>
     attemptDoc.attempts.some((attempt) => attempt.status === "SCORING"),
   );
+}
+
+function summarizeTimeoutAutoSubmitError(error: unknown) {
+  if (error instanceof AppError) {
+    return {
+      code: error.code,
+      status: error.status,
+      retryable: error.retryable,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
 }
 
 function describeRoundGenerationError(error: unknown): AppError {
@@ -852,27 +879,100 @@ export async function startRound(params: {
   }
 }
 
-export async function endRoundIfNeeded(params: {
+async function finalizeClassicResultsIfNeeded(params: {
   roomId: string;
   roundId: string;
-  scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<{ status: "IN_ROUND" | "RESULTS" }> {
-  const state = await loadRoomState(params.roomId);
-  const room = requireRoom(state?.room);
-  const roundDoc = state?.rounds[params.roundId];
+  return withRoomLock(params.roomId, async () => {
+    const latestState = await loadRoomState(params.roomId);
+    const latestRoom = requireRoom(latestState?.room);
+    const latestRound = latestState?.rounds[params.roundId];
 
-  if (!roundDoc) {
-    throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+    if (!latestRound) {
+      throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+    }
+
+    const endsAt = parseDate(latestRound.endsAt);
+    const now = Date.now();
+    if (
+      latestRoom.status !== "IN_ROUND" ||
+      latestRound.status !== "IN_ROUND" ||
+      latestRoom.currentRoundId !== params.roundId ||
+      !endsAt ||
+      now < endsAt.getTime()
+    ) {
+      return {
+        status: latestRoom.status === "RESULTS" ? "RESULTS" : "IN_ROUND",
+      };
+    }
+
+    if (hasScoringAttempts(latestState?.attempts[params.roundId])) {
+      return { status: "IN_ROUND" };
+    }
+
+    const submissionDeadline = getRoundSubmissionDeadline({
+      promptStartsAt: latestRound.promptStartsAt,
+      roundSeconds: latestRoom.settings.roundSeconds,
+    });
+    const isGraceWindow = Boolean(
+      submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
+    );
+    const isShortenedResultsCountdown = Boolean(
+      submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
+    );
+
+    if (
+      submissionDeadline &&
+      now >= submissionDeadline.getTime() &&
+      !isGraceWindow &&
+      !isShortenedResultsCountdown
+    ) {
+      latestRound.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
+      await saveRoomState(bumpRoomVersion(latestState!));
+      return { status: "IN_ROUND" };
+    }
+
+    const roundPrivate = latestState?.roundPrivates[params.roundId];
+
+    latestRound.status = "RESULTS";
+    latestRound.reveal = {
+      gmPromptPublic: roundPrivate?.gmPrompt ?? "",
+    };
+
+    latestRoom.status = "RESULTS";
+
+    await saveRoomState(bumpRoomVersion(latestState!));
+    return { status: "RESULTS" };
+  });
+}
+
+async function maybeConsumeClassicTimeoutDraft(params: {
+  roomId: string;
+  roundId: string;
+  uid?: string;
+  draftPrompt?: string;
+  language?: Language;
+}): Promise<{ status: "IN_ROUND" | "RESULTS"; consumedDraft?: boolean } | null> {
+  const uid = params.uid?.trim();
+  const prompt = params.draftPrompt?.trim() ?? "";
+
+  if (!uid || prompt.length === 0) {
+    return null;
   }
 
-  if (room.settings.gameMode !== "impostor" || roundDoc.modeState?.kind !== "impostor") {
-    return withRoomLock(params.roomId, async () => {
+  return withSubmitLock(params.roomId, params.roundId, uid, async () => {
+    const submitStartedAt = new Date();
+    let reservedAttempt: ReturnType<
+      typeof reserveClassicRoundAttemptInState
+    > | null = null;
+
+    await withRoomLock(params.roomId, async () => {
       const latestState = await loadRoomState(params.roomId);
       const latestRoom = requireRoom(latestState?.room);
       const latestRound = latestState?.rounds[params.roundId];
 
-      if (!latestRound) {
-        throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+      if (!latestState || !latestRound || !latestState.players[uid]) {
+        return;
       }
 
       const endsAt = parseDate(latestRound.endsAt);
@@ -884,11 +984,11 @@ export async function endRoundIfNeeded(params: {
         !endsAt ||
         now < endsAt.getTime()
       ) {
-        return { status: latestRoom.status === "RESULTS" ? "RESULTS" : "IN_ROUND" };
+        return;
       }
 
-      if (hasScoringAttempts(latestState?.attempts[params.roundId])) {
-        return { status: "IN_ROUND" };
+      if (hasScoringAttempts(latestState.attempts[params.roundId])) {
+        return;
       }
 
       const submissionDeadline = getRoundSubmissionDeadline({
@@ -903,27 +1003,109 @@ export async function endRoundIfNeeded(params: {
       );
 
       if (
-        submissionDeadline &&
-        now >= submissionDeadline.getTime() &&
-        !isGraceWindow &&
-        !isShortenedResultsCountdown
+        !submissionDeadline ||
+        now < submissionDeadline.getTime() ||
+        isGraceWindow ||
+        isShortenedResultsCountdown
       ) {
-        latestRound.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
-        await saveRoomState(bumpRoomVersion(latestState!));
-        return { status: "IN_ROUND" };
+        return;
       }
 
-      const roundPrivate = latestState?.roundPrivates[params.roundId];
+      const playerAttempts = latestState.attempts[params.roundId]?.[uid];
+      if (
+        (playerAttempts?.attemptsUsed ?? 0) >= latestRoom.settings.maxAttempts
+      ) {
+        return;
+      }
 
-      latestRound.status = "RESULTS";
-      latestRound.reveal = {
-        gmPromptPublic: roundPrivate?.gmPrompt ?? "",
-      };
+      reservedAttempt = reserveClassicRoundAttemptInState({
+        state: latestState,
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid,
+        prompt,
+        submitStartedAt,
+        mode: "timeout",
+      });
+      await saveRoomState(bumpRoomVersion(latestState));
+    });
 
-      latestRoom.status = "RESULTS";
+    if (!reservedAttempt) {
+      return null;
+    }
 
-      await saveRoomState(bumpRoomVersion(latestState!));
-      return { status: "RESULTS" };
+    try {
+      await submitClassicRoundAttemptWithReservation({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid,
+        prompt,
+        language: params.language ?? DEFAULT_LANGUAGE,
+        submitStartedAt,
+        reservedAttempt,
+        mode: "timeout",
+        logStageFailure: (stage, context, error) => {
+          console.error("timeout draft auto-submit failed", {
+            stage,
+            roomId: context.roomId,
+            roundId: context.roundId,
+            uid: context.uid,
+            promptPreview: context.prompt.slice(0, 120),
+            error: summarizeTimeoutAutoSubmitError(error),
+          });
+        },
+      });
+
+      return { status: "IN_ROUND", consumedDraft: true };
+    } catch (error) {
+      console.error("timeout draft auto-submit failed", {
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid,
+        promptPreview: prompt.slice(0, 120),
+        error: summarizeTimeoutAutoSubmitError(error),
+      });
+
+      return finalizeClassicResultsIfNeeded({
+        roomId: params.roomId,
+        roundId: params.roundId,
+      });
+    }
+  });
+}
+
+export async function endRoundIfNeeded(params: {
+  roomId: string;
+  roundId: string;
+  uid?: string;
+  draftPrompt?: string;
+  language?: Language;
+  scheduleCpuTurns?: CpuTurnScheduler;
+}): Promise<{ status: "IN_ROUND" | "RESULTS"; consumedDraft?: boolean }> {
+  const state = await loadRoomState(params.roomId);
+  const room = requireRoom(state?.room);
+  const roundDoc = state?.rounds[params.roundId];
+
+  if (!roundDoc) {
+    throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+  }
+
+  if (room.settings.gameMode !== "impostor" || roundDoc.modeState?.kind !== "impostor") {
+    const timeoutDraftResult = await maybeConsumeClassicTimeoutDraft({
+      roomId: params.roomId,
+      roundId: params.roundId,
+      uid: params.uid,
+      draftPrompt: params.draftPrompt,
+      language: params.language,
+    });
+
+    if (timeoutDraftResult) {
+      return timeoutDraftResult;
+    }
+
+    return finalizeClassicResultsIfNeeded({
+      roomId: params.roomId,
+      roundId: params.roundId,
     });
   }
 
@@ -956,7 +1138,10 @@ export async function endRoundIfNeeded(params: {
     roomId: params.roomId,
     roundId: params.roundId,
     uid: player.uid,
-    submittedPrompt: player.kind === "human" ? IMPOSTOR_TIMEOUT_PROMPT : undefined,
+    submittedPrompt:
+      player.kind === "human" && params.uid === player.uid
+        ? params.draftPrompt?.trim() || undefined
+        : undefined,
     timedOut: player.kind === "human",
   });
   await continueImpostorCpuTurns({
@@ -968,6 +1153,11 @@ export async function endRoundIfNeeded(params: {
   const nextState = await loadRoomState(params.roomId);
   return {
     status: nextState?.room.status === "RESULTS" ? "RESULTS" : "IN_ROUND",
+    ...(player.kind === "human" &&
+    params.uid === player.uid &&
+    (params.draftPrompt?.trim() ?? "").length > 0
+      ? { consumedDraft: true }
+      : {}),
   };
 }
 
