@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { AppError } from "@/lib/utils/errors";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
+} from "@/lib/i18n/language";
+import {
   captionPrompt,
   cpuRewriteSystemPrompt,
   cpuRewriteUserPrompt,
@@ -314,6 +318,22 @@ function mockVisualScore(): VisualScoreSchema {
     missingElements: [],
     note: "mock visual scoring",
   };
+}
+
+function visualJudgeResponseLanguage(language: Language): string {
+  return language === "ja" ? "Japanese" : "English";
+}
+
+export function fallbackJudgeNote(language: Language): string {
+  return language === "ja"
+    ? "画像の見た目比較で採点"
+    : "Scored by visual similarity.";
+}
+
+export function fallbackFinalJudgeNote(language: Language): string {
+  return language === "ja"
+    ? "最終類似度を比較"
+    : "Final similarity comparison.";
 }
 
 function extractInlineData(data: unknown): string | null {
@@ -671,9 +691,15 @@ export async function captionFromImage(
 export async function scoreImageSimilarity(params: {
   targetImage: GeneratedImage;
   attemptImage: GeneratedImage;
+  language?: Language;
 }): Promise<VisualScoreSchema> {
+  const language = params.language ?? DEFAULT_LANGUAGE;
+
   if (mockMode) {
-    return mockVisualScore();
+    return {
+      ...mockVisualScore(),
+      note: language === "ja" ? "モック採点" : "Mock visual scoring.",
+    };
   }
 
   if (!params.targetImage.base64Data || !params.attemptImage.base64Data) {
@@ -692,15 +718,15 @@ export async function scoreImageSimilarity(params: {
           {
             role: "user",
             parts: [
-              { text: "以下の2枚を比較し、見た目の類似度を0-100で採点してください。" },
-              { text: "1枚目がターゲット画像です。" },
+              { text: "Compare these two images and score their visual similarity from 0 to 100." },
+              { text: "The first image is the target image." },
               {
                 inlineData: {
                   data: params.targetImage.base64Data,
                   mimeType: params.targetImage.mimeType,
                 },
               },
-              { text: "2枚目がプレイヤー回答画像です。" },
+              { text: "The second image is the player's generated answer image." },
               {
                 inlineData: {
                   data: params.attemptImage.base64Data,
@@ -709,8 +735,9 @@ export async function scoreImageSimilarity(params: {
               },
               {
                 text: [
-                  "配点観点: 主題35, 構図20, 色調15, 背景/小物20, スタイル10。",
-                  "JSONのみ返し、scoreは整数。",
+                  "Scoring rubric: subject 35, composition 20, colors 15, background/props 20, style 10.",
+                  `Write matchedElements, missingElements, and note in ${visualJudgeResponseLanguage(language)}.`,
+                  "Return JSON only, and make score an integer.",
                 ].join("\n"),
               },
             ],

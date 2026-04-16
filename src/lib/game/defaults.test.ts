@@ -7,6 +7,7 @@ describe("game defaults", () => {
     expect(DEFAULT_ROOM_SETTINGS.gameMode).toBe("classic");
     expect(DEFAULT_ROOM_SETTINGS.maxAttempts).toBe(1);
     expect(DEFAULT_ROOM_SETTINGS.hintLimit).toBe(0);
+    expect(DEFAULT_ROOM_SETTINGS.totalRounds).toBe(1);
   });
 
   it("preserves room mode and rounds while forcing single-attempt no-hint gameplay", () => {

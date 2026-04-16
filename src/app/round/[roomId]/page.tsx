@@ -34,6 +34,8 @@ import {
 import {
   MEMORY_PREVIEW_SECONDS,
   getGameModeDefinition,
+  isPostDeadlineGraceActive,
+  RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
 import { formatSeconds, millisecondsLeft, parseDate } from "@/lib/utils/time";
 
@@ -269,7 +271,16 @@ export default function RoundPage() {
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
   );
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
-  const autoEndingSoon = everyoneScored && isRoundLive;
+  const postDeadlineGraceActive =
+    isRoundLive &&
+    isPostDeadlineGraceActive({
+      promptStartsAt: round?.promptStartsAt,
+      endsAt: round?.endsAt,
+      roundSeconds,
+    });
+  const autoEndingSoon =
+    isRoundLive && (everyoneScored || postDeadlineGraceActive);
+  const visibleSecondsLeft = autoEndingSoon ? 0 : secondsLeft;
   const isPreviewPhase =
     currentGameMode === "memory" &&
     isRoundLive &&
@@ -290,7 +301,9 @@ export default function RoundPage() {
     }
 
     const parsedEndsAt = parseDate(round?.endsAt);
-    const fallbackEndsAt = new Date(Date.now() + 10_000);
+    const fallbackEndsAt = new Date(
+      Date.now() + RESULTS_GRACE_SECONDS * 1000,
+    );
     const countdownTarget =
       parsedEndsAt && parsedEndsAt.getTime() > Date.now()
         ? parsedEndsAt
@@ -635,7 +648,7 @@ export default function RoundPage() {
                 </p>
               </Card>
             ) : (
-              <CountdownTimer secondsLeft={secondsLeft} />
+              <CountdownTimer secondsLeft={visibleSecondsLeft} />
             )}
             <Button
               type="button"
@@ -651,7 +664,7 @@ export default function RoundPage() {
               <LogOut className="mr-2 h-4 w-4" />
               {autoEndingSoon
                 ? copy.round.resultsScreenCountdown(
-                    resultCountdownSeconds ?? 10,
+                    resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
                   )
                 : copy.round.resultsScreen}
             </Button>

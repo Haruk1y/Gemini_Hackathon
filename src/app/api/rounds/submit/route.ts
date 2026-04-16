@@ -2,18 +2,18 @@ import { after } from "next/server";
 
 import { submitSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
-import {
-  assertRoundOpen,
-  assertRoundSubmissionWindow,
-} from "@/lib/game/round-validation";
+import { RESULTS_GRACE_SECONDS } from "@/lib/game/modes";
+import { assertRoundSubmissionWindow } from "@/lib/game/round-validation";
 import { runImpostorCpuTurns, submitImpostorTurn } from "@/lib/game/round-service";
 import {
+  fallbackJudgeNote,
   generateImage,
   imageToBuffer,
   imageToPublicUrl,
   scoreImageSimilarity,
   type GeneratedImage,
 } from "@/lib/gemini/client";
+import { LANGUAGE_COOKIE_NAME, normalizeLanguage } from "@/lib/i18n/language";
 import {
   bumpRoomVersion,
   loadRoomState,
@@ -105,13 +105,276 @@ async function resolveBestImageUrl(params: {
   }
 }
 
-export async function rollbackReservedAttempt() {
-  return;
+interface ReservedAttempt {
+  attemptNo: number;
+  createdAt: Date;
+  aspectRatio: "1:1" | "16:9" | "9:16";
+  targetImageUrl: string;
 }
 
-export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
+async function reserveRoundAttempt(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  prompt: string;
+  submitStartedAt: Date;
+}): Promise<ReservedAttempt> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = state?.room;
+    const round = state?.rounds[params.roundId];
+
+    if (!state || !room || !round || !state.players[params.uid]) {
+      throw new AppError("INTERNAL_ERROR", "Failed to reserve round attempt", true, 500);
+    }
+
+    assertRoundSubmissionWindow({
+      room,
+      round,
+      roundId: params.roundId,
+      now: params.submitStartedAt,
+    });
+
+    const roundAttempts = state.attempts[params.roundId] ?? {};
+    const priorAttempts = roundAttempts[params.uid];
+    if ((priorAttempts?.attemptsUsed ?? 0) >= room.settings.maxAttempts) {
+      throw new AppError("MAX_ATTEMPTS_REACHED", "No attempts left", false, 409);
+    }
+
+    const attemptNo = (priorAttempts?.attemptsUsed ?? 0) + 1;
+    const createdAt = new Date();
+
+    state.attempts[params.roundId] = {
+      ...roundAttempts,
+      [params.uid]: {
+        uid: params.uid,
+        roundId: params.roundId,
+        expiresAt: dateAfterHours(24),
+        attemptsUsed: attemptNo,
+        hintUsed: priorAttempts?.hintUsed ?? 0,
+        bestScore: priorAttempts?.bestScore ?? 0,
+        bestAttemptNo: priorAttempts?.bestAttemptNo ?? null,
+        attempts: [
+          ...(priorAttempts?.attempts ?? []).filter(
+            (attempt) => attempt.attemptNo !== attemptNo,
+          ),
+          {
+            attemptNo,
+            prompt: params.prompt,
+            imageUrl: "",
+            score: null,
+            status: "SCORING",
+            createdAt,
+          },
+        ],
+        updatedAt: createdAt,
+      },
+    };
+
+    await saveRoomState(bumpRoomVersion(state));
+
+    return {
+      attemptNo,
+      createdAt,
+      aspectRatio: room.settings.aspectRatio,
+      targetImageUrl: round.targetImageUrl,
+    };
+  });
+}
+
+export async function rollbackReservedAttempt(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  attemptNo: number;
+}) {
+  await withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const roundAttempts = state?.attempts[params.roundId];
+    const reservedDoc = roundAttempts?.[params.uid];
+
+    if (!state || !roundAttempts || !reservedDoc) {
+      return;
+    }
+
+    const nextAttempts = reservedDoc.attempts.filter(
+      (attempt) =>
+        !(
+          attempt.attemptNo === params.attemptNo &&
+          attempt.status === "SCORING"
+        ),
+    );
+
+    if (nextAttempts.length === reservedDoc.attempts.length) {
+      return;
+    }
+
+    const nextAttemptsUsed = Math.max(0, reservedDoc.attemptsUsed - 1);
+    if (nextAttemptsUsed === 0 && nextAttempts.length === 0) {
+      delete roundAttempts[params.uid];
+      if (Object.keys(roundAttempts).length === 0) {
+        delete state.attempts[params.roundId];
+      }
+    } else {
+      roundAttempts[params.uid] = {
+        ...reservedDoc,
+        attemptsUsed: nextAttemptsUsed,
+        attempts: nextAttempts,
+        updatedAt: new Date(),
+      };
+    }
+
+    await saveRoomState(bumpRoomVersion(state));
+  });
+}
+
+async function finalizeReservedAttempt(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  prompt: string;
+  submitStartedAt: Date;
+  reservedAttempt: ReservedAttempt;
+  score: number;
+  imageUrl: string;
+  matchedElements: string[];
+  missingElements: string[];
+  judgeNote: string;
+}): Promise<SubmitResponse> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const currentRoom = state?.room;
+    const currentRound = state?.rounds[params.roundId];
+    const currentPlayer = state?.players[params.uid];
+
+    if (!state || !currentRoom || !currentRound || !currentPlayer) {
+      throw new AppError("INTERNAL_ERROR", "Failed to update round documents", true, 500);
+    }
+
+    assertRoundSubmissionWindow({
+      room: currentRoom,
+      round: currentRound,
+      roundId: params.roundId,
+      now: params.submitStartedAt,
+      allowResults: true,
+    });
+
+    const endsAt = parseDate(currentRound.endsAt);
+    const roundAttempts = state.attempts[params.roundId] ?? {};
+    const reservedDoc = roundAttempts[params.uid];
+
+    if (!reservedDoc) {
+      throw new AppError("INTERNAL_ERROR", "Reserved attempt was not found", true, 500);
+    }
+
+    const reservedAttempt = reservedDoc.attempts.find(
+      (attempt) => attempt.attemptNo === params.reservedAttempt.attemptNo,
+    );
+    if (!reservedAttempt || reservedAttempt.status !== "SCORING") {
+      throw new AppError("INTERNAL_ERROR", "Reserved attempt is no longer pending", true, 500);
+    }
+
+    const createdAt = new Date();
+    const prevBest = reservedDoc.bestScore ?? 0;
+    const nextBest = Math.max(prevBest, params.score);
+    const nextBestAttemptNo =
+      params.score >= prevBest
+        ? params.reservedAttempt.attemptNo
+        : reservedDoc.bestAttemptNo ?? null;
+
+    state.attempts[params.roundId] = {
+      ...roundAttempts,
+      [params.uid]: {
+        ...reservedDoc,
+        expiresAt: dateAfterHours(24),
+        attemptsUsed: Math.max(
+          reservedDoc.attemptsUsed,
+          params.reservedAttempt.attemptNo,
+        ),
+        bestScore: nextBest,
+        bestAttemptNo: nextBestAttemptNo,
+        attempts: reservedDoc.attempts.map((attempt) =>
+          attempt.attemptNo === params.reservedAttempt.attemptNo
+            ? {
+                ...attempt,
+                prompt: params.prompt,
+                imageUrl: params.imageUrl,
+                score: params.score,
+                matchedElements: params.matchedElements,
+                missingElements: params.missingElements,
+                judgeNote: params.judgeNote,
+                status: "DONE",
+                createdAt: reservedAttempt.createdAt ?? params.reservedAttempt.createdAt,
+              }
+            : attempt,
+        ),
+        updatedAt: createdAt,
+      },
+    };
+
+    const roundScores = state.scores[params.roundId] ?? {};
+    const previousScore = roundScores[params.uid];
+    const scoredPlayersBefore = Object.keys(roundScores).length;
+    const scoredPlayersAfter = scoredPlayersBefore + (previousScore ? 0 : 1);
+
+    if (!previousScore || params.score >= previousScore.bestScore) {
+      state.scores[params.roundId] = {
+        ...roundScores,
+        [params.uid]: {
+          uid: params.uid,
+          displayName: currentPlayer.displayName,
+          bestScore: params.score,
+          bestImageUrl: params.imageUrl,
+          bestPromptPublic: params.prompt,
+          updatedAt: createdAt,
+          expiresAt: dateAfterHours(24),
+        },
+      };
+    }
+
+    currentRound.stats.submissions = (currentRound.stats.submissions ?? 0) + 1;
+    currentRound.stats.topScore = Math.max(
+      currentRound.stats.topScore ?? 0,
+      params.score,
+    );
+
+    const totalPlayers = Object.keys(state.players).length;
+    if (totalPlayers > 0 && scoredPlayersAfter >= totalPlayers) {
+      const autoEndAt = new Date(
+        createdAt.getTime() + RESULTS_GRACE_SECONDS * 1000,
+      );
+      if (!endsAt || endsAt.getTime() > autoEndAt.getTime()) {
+        currentRound.endsAt = autoEndAt;
+      }
+    }
+
+    if (nextBest > prevBest) {
+      currentPlayer.totalScore = Math.max(
+        0,
+        (currentPlayer.totalScore ?? 0) - prevBest + nextBest,
+      );
+    }
+
+    await saveRoomState(bumpRoomVersion(state));
+
+    return {
+      attemptNo: params.reservedAttempt.attemptNo,
+      score: params.score,
+      imageUrl: params.imageUrl,
+      bestScore: nextBest,
+      matchedElements: params.matchedElements,
+      missingElements: params.missingElements,
+      judgeNote: params.judgeNote,
+    };
+  });
+}
+
+export const POST = withPostHandler(submitSchema, async ({ body, auth, request }) => {
   const currentState = await loadRoomState(body.roomId);
   const currentRoom = currentState?.room;
+  const language = normalizeLanguage(
+    request.cookies.get(LANGUAGE_COOKIE_NAME)?.value,
+  );
 
   if (currentRoom?.settings.gameMode === "impostor") {
     await submitImpostorTurn({
@@ -157,160 +420,88 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth }) => {
     body.roundId,
     auth.uid,
     async (): Promise<SubmitResponse> => {
-      const { room, round, player } = await assertRoundOpen({
-        roomId: body.roomId,
-        roundId: body.roundId,
-        uid: auth.uid,
-        now: submitStartedAt,
-      });
-
-      const existingAttempt = (await loadRoomState(body.roomId))?.attempts[body.roundId]?.[auth.uid];
-      if ((existingAttempt?.attemptsUsed ?? 0) >= room.settings.maxAttempts) {
-        throw new AppError("MAX_ATTEMPTS_REACHED", "No attempts left", false, 409);
-      }
-
-      const generatedImage = await generateImage({
-        prompt: body.prompt,
-        aspectRatio: room.settings.aspectRatio,
-      });
-
-      const transientImageUrl = imageToPublicUrl(generatedImage, body.prompt) ?? undefined;
-
-      const [targetImageForJudge, attemptImageForJudge] = await Promise.all([
-        imageForVisualScoring({ mimeType: "image/png", directUrl: round.targetImageUrl }, round.targetImageUrl),
-        imageForVisualScoring(generatedImage, transientImageUrl),
-      ]);
-
-      if (!targetImageForJudge?.base64Data || !attemptImageForJudge?.base64Data) {
-        throw new AppError("GEMINI_ERROR", "Failed to prepare images for visual scoring", true, 502);
-      }
-
-      const judged = await scoreImageSimilarity({
-        targetImage: targetImageForJudge,
-        attemptImage: attemptImageForJudge,
-      });
-
-      const score = judged.score;
-      const matchedElements = judged.matchedElements ?? [];
-      const missingElements = judged.missingElements ?? [];
-      const judgeNote = judged.note || "画像の見た目比較で採点";
-      const imageUrl = await resolveBestImageUrl({
+      const reservedAttempt = await reserveRoundAttempt({
         roomId: body.roomId,
         roundId: body.roundId,
         uid: auth.uid,
         prompt: body.prompt,
-        image: generatedImage,
+        submitStartedAt,
       });
 
-      return withRoomLock(body.roomId, async () => {
-        const state = await loadRoomState(body.roomId);
-        const currentRoom = state?.room;
-        const currentRound = state?.rounds[body.roundId];
-        const currentPlayer = state?.players[auth.uid];
-
-        if (!state || !currentRoom || !currentRound || !currentPlayer) {
-          throw new AppError("INTERNAL_ERROR", "Failed to update round documents", true, 500);
-        }
-
-        assertRoundSubmissionWindow({
-          room: currentRoom,
-          round: currentRound,
-          roundId: body.roundId,
-          now: submitStartedAt,
-          allowResults: true,
+      try {
+        const generatedImage = await generateImage({
+          prompt: body.prompt,
+          aspectRatio: reservedAttempt.aspectRatio,
         });
 
-        const endsAt = parseDate(currentRound.endsAt);
+        const transientImageUrl =
+          imageToPublicUrl(generatedImage, body.prompt) ?? undefined;
 
-        const roundAttempts = state.attempts[body.roundId] ?? {};
-        const priorAttempts = roundAttempts[auth.uid];
-        if ((priorAttempts?.attemptsUsed ?? 0) >= currentRoom.settings.maxAttempts) {
-          throw new AppError("MAX_ATTEMPTS_REACHED", "No attempts left", false, 409);
-        }
-
-        const createdAt = new Date();
-        const attemptNo = (priorAttempts?.attemptsUsed ?? 0) + 1;
-        const prevBest = priorAttempts?.bestScore ?? 0;
-        const nextBest = Math.max(prevBest, score);
-        const nextBestAttemptNo = score >= prevBest ? attemptNo : priorAttempts?.bestAttemptNo ?? null;
-
-        state.attempts[body.roundId] = {
-          ...roundAttempts,
-          [auth.uid]: {
-            uid: auth.uid,
-            roundId: body.roundId,
-            expiresAt: dateAfterHours(24),
-            attemptsUsed: attemptNo,
-            hintUsed: 0,
-            bestScore: nextBest,
-            bestAttemptNo: nextBestAttemptNo,
-            attempts: [
-              {
-                attemptNo,
-                prompt: body.prompt,
-                imageUrl,
-                score,
-                matchedElements,
-                missingElements,
-                judgeNote,
-                status: "DONE",
-                createdAt,
-              },
-            ],
-            updatedAt: createdAt,
-          },
-        };
-
-        const roundScores = state.scores[body.roundId] ?? {};
-        const previousScore = roundScores[auth.uid];
-        const scoredPlayersBefore = Object.keys(roundScores).length;
-        const scoredPlayersAfter = scoredPlayersBefore + (previousScore ? 0 : 1);
-
-        if (!previousScore || score >= previousScore.bestScore) {
-          state.scores[body.roundId] = {
-            ...roundScores,
-            [auth.uid]: {
-              uid: auth.uid,
-              displayName: player.displayName,
-              bestScore: score,
-              bestImageUrl: imageUrl,
-              bestPromptPublic: body.prompt,
-              updatedAt: createdAt,
-              expiresAt: dateAfterHours(24),
+        const [targetImageForJudge, attemptImageForJudge] = await Promise.all([
+          imageForVisualScoring(
+            {
+              mimeType: "image/png",
+              directUrl: reservedAttempt.targetImageUrl,
             },
-          };
-        }
+            reservedAttempt.targetImageUrl,
+          ),
+          imageForVisualScoring(generatedImage, transientImageUrl),
+        ]);
 
-        currentRound.stats.submissions = (currentRound.stats.submissions ?? 0) + 1;
-        currentRound.stats.topScore = Math.max(currentRound.stats.topScore ?? 0, score);
-
-        const totalPlayers = Object.keys(state.players).length;
-        if (totalPlayers > 0 && scoredPlayersAfter >= totalPlayers) {
-          const autoEndAt = new Date(createdAt.getTime() + 10_000);
-          if (!endsAt || endsAt.getTime() > autoEndAt.getTime()) {
-            currentRound.endsAt = autoEndAt;
-          }
-        }
-
-        if (nextBest > prevBest) {
-          currentPlayer.totalScore = Math.max(
-            0,
-            (currentPlayer.totalScore ?? 0) - prevBest + nextBest,
+        if (!targetImageForJudge?.base64Data || !attemptImageForJudge?.base64Data) {
+          throw new AppError(
+            "GEMINI_ERROR",
+            "Failed to prepare images for visual scoring",
+            true,
+            502,
           );
         }
 
-        await saveRoomState(bumpRoomVersion(state));
+        const judged = await scoreImageSimilarity({
+          targetImage: targetImageForJudge,
+          attemptImage: attemptImageForJudge,
+          language,
+        });
 
-        return {
-          attemptNo,
+        const score = judged.score;
+        const matchedElements = judged.matchedElements ?? [];
+        const missingElements = judged.missingElements ?? [];
+        const judgeNote = judged.note || fallbackJudgeNote(language);
+        const imageUrl = await resolveBestImageUrl({
+          roomId: body.roomId,
+          roundId: body.roundId,
+          uid: auth.uid,
+          prompt: body.prompt,
+          image: generatedImage,
+        });
+
+        return finalizeReservedAttempt({
+          roomId: body.roomId,
+          roundId: body.roundId,
+          uid: auth.uid,
+          prompt: body.prompt,
+          submitStartedAt,
+          reservedAttempt,
           score,
           imageUrl,
-          bestScore: nextBest,
           matchedElements,
           missingElements,
           judgeNote,
-        };
-      });
+        });
+      } catch (error) {
+        try {
+          await rollbackReservedAttempt({
+            roomId: body.roomId,
+            roundId: body.roundId,
+            uid: auth.uid,
+            attemptNo: reservedAttempt.attemptNo,
+          });
+        } catch (rollbackError) {
+          console.error("Failed to rollback reserved attempt", rollbackError);
+        }
+
+        throw error;
+      }
     },
   );
 

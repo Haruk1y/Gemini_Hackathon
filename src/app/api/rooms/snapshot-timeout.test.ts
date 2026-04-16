@@ -136,6 +136,44 @@ describe("GET /api/rooms/[roomId]/snapshot timeout handling", () => {
     });
   });
 
+  it("keeps the round snapshot open when endRoundIfNeeded schedules more waiting", async () => {
+    const expiredState = createState({
+      version: 1,
+      status: "IN_ROUND",
+      endsAt: "2026-04-13T14:00:00.000Z",
+    });
+    const waitingState = createState({
+      version: 2,
+      status: "IN_ROUND",
+      endsAt: "2026-04-13T14:00:15.000Z",
+    });
+
+    mockLoadRoomState.mockResolvedValueOnce(expiredState).mockResolvedValueOnce(waitingState);
+    mockEndRoundIfNeeded.mockResolvedValue({ status: "IN_ROUND" });
+
+    vi.setSystemTime(new Date("2026-04-13T14:00:05.000Z"));
+
+    const { GET } = await import("@/app/api/rooms/[roomId]/snapshot/route");
+    const response = await GET(
+      new NextRequest("http://localhost/api/rooms/ROOM1/snapshot?view=round"),
+      { params: Promise.resolve({ roomId: "ROOM1" }) },
+    );
+
+    expect(mockEndRoundIfNeeded).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+      roundId: "round-1",
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      version: 2,
+      snapshot: {
+        room: {
+          status: "IN_ROUND",
+        },
+      },
+    });
+  });
+
   it("does not advance rounds for non-expired snapshots", async () => {
     const activeState = createState({
       version: 1,

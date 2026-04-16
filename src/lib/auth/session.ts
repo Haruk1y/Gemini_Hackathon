@@ -81,10 +81,16 @@ export function decodeSessionCookie(rawValue: string | undefined): SessionPayloa
 }
 
 export function sessionCookieOptions() {
+  const isProduction = process.env.NODE_ENV === "production";
+
   return {
     httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    // `supertest.ai.supercell.dev` currently delivers the app in a
+    // cross-site context, so the anonymous session cookie must be allowed in
+    // embedded requests as well as direct first-party visits.
+    sameSite: isProduction ? ("none" as const) : ("lax" as const),
+    secure: isProduction,
+    partitioned: isProduction,
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
   };

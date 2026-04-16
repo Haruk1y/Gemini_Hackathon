@@ -22,7 +22,11 @@ import {
   sortPlayersBySeatOrder,
   syncCpuPlayers,
 } from "@/lib/game/impostor";
-import { getRoundSchedule } from "@/lib/game/modes";
+import {
+  getRoundSchedule,
+  getRoundSubmissionDeadline,
+  RESULTS_GRACE_SECONDS,
+} from "@/lib/game/modes";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
 import {
@@ -48,6 +52,14 @@ import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 type CpuTurnScheduler = (params: { roomId: string; roundId: string }) => void | Promise<void>;
+
+function hasScoringAttempts(
+  attemptsByUid: Record<string, { attempts: Array<{ status?: string }> }> | undefined,
+): boolean {
+  return Object.values(attemptsByUid ?? {}).some((attemptDoc) =>
+    attemptDoc.attempts.some((attempt) => attempt.status === "SCORING"),
+  );
+}
 
 function describeRoundGenerationError(error: unknown): AppError {
   if (error instanceof AppError) {
@@ -864,13 +876,41 @@ export async function endRoundIfNeeded(params: {
       }
 
       const endsAt = parseDate(latestRound.endsAt);
+      const now = Date.now();
       if (
         latestRoom.status !== "IN_ROUND" ||
+        latestRound.status !== "IN_ROUND" ||
         latestRoom.currentRoundId !== params.roundId ||
         !endsAt ||
-        Date.now() < endsAt.getTime()
+        now < endsAt.getTime()
       ) {
         return { status: latestRoom.status === "RESULTS" ? "RESULTS" : "IN_ROUND" };
+      }
+
+      if (hasScoringAttempts(latestState?.attempts[params.roundId])) {
+        return { status: "IN_ROUND" };
+      }
+
+      const submissionDeadline = getRoundSubmissionDeadline({
+        promptStartsAt: latestRound.promptStartsAt,
+        roundSeconds: latestRoom.settings.roundSeconds,
+      });
+      const isGraceWindow = Boolean(
+        submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
+      );
+      const isShortenedResultsCountdown = Boolean(
+        submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
+      );
+
+      if (
+        submissionDeadline &&
+        now >= submissionDeadline.getTime() &&
+        !isGraceWindow &&
+        !isShortenedResultsCountdown
+      ) {
+        latestRound.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
+        await saveRoomState(bumpRoomVersion(latestState!));
+        return { status: "IN_ROUND" };
       }
 
       const roundPrivate = latestState?.roundPrivates[params.roundId];

@@ -7,6 +7,7 @@ import { AppError, toErrorResponse } from "@/lib/utils/errors";
 export type ApiHandler<T> = (ctx: {
   body: T;
   auth: AuthContext;
+  request: NextRequest;
 }) => Promise<NextResponse>;
 
 export function ok<T extends Record<string, unknown>>(data: T): NextResponse {
@@ -22,7 +23,7 @@ export function withPostHandler<T>(
       const auth = verifySessionCookie(request.cookies);
       const json = await request.json();
       const body = schema.parse(json);
-      return await handler({ body, auth });
+      return await handler({ body, auth, request });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return toErrorResponse(

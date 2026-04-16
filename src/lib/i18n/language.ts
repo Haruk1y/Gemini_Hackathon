@@ -1,6 +1,6 @@
 export type Language = "ja" | "en";
 
-export const DEFAULT_LANGUAGE: Language = "ja";
+export const DEFAULT_LANGUAGE: Language = "en";
 export const LANGUAGE_COOKIE_NAME = "pmb_lang";
 export const LANGUAGE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
@@ -9,7 +9,7 @@ export function isLanguage(value: unknown): value is Language {
 }
 
 export function normalizeLanguage(value: unknown): Language {
-  return value === "en" ? "en" : DEFAULT_LANGUAGE;
+  return isLanguage(value) ? value : DEFAULT_LANGUAGE;
 }
 
 export function parseLanguageCookie(cookieHeader: string | null | undefined): Language | null {
