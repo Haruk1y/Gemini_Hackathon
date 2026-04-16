@@ -45,6 +45,12 @@ type SubmitResponse = Record<string, unknown> & {
   imageUrl: string;
 };
 
+type EndRoundResponse = {
+  ok: true;
+  status: "IN_ROUND" | "RESULTS";
+  consumedDraft?: boolean;
+};
+
 export default function RoundPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -217,15 +223,24 @@ export default function RoundPage() {
     if (secondsLeft > 0 || endCalled.current) return;
 
     endCalled.current = true;
+    const timeoutDraftPrompt =
+      !submitPending && prompt.trim().length > 0 ? prompt : undefined;
     const retrier = createEndRoundRetrier({
       runEndIfNeeded: () =>
-        apiPost<{ ok: true; status: "IN_ROUND" | "RESULTS" }>(
+        apiPost<EndRoundResponse>(
           "/api/rounds/endIfNeeded",
           {
             roomId,
             roundId: round.roundId,
+            ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
           },
-        ),
+        ).then((result) => {
+          if (result.consumedDraft) {
+            setPrompt("");
+            setFeedback(null);
+          }
+          return result;
+        }),
       onError: (err) => {
         console.error("endIfNeeded failed", err);
         endCalled.current = false;
@@ -249,6 +264,8 @@ export default function RoundPage() {
     round?.endsAt,
     round?.roundId,
     roomId,
+    prompt,
+    submitPending,
   ]);
 
   const latestAttempt =

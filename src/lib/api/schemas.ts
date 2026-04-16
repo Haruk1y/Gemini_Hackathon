@@ -62,6 +62,12 @@ export const roundSchema = z.object({
   roundId: z.string().trim().min(1),
 });
 
+export const endRoundIfNeededSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
+  draftPrompt: z.string().max(600).optional(),
+});
+
 export const voteSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
