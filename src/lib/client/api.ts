@@ -1,4 +1,5 @@
 import type { ErrorCode } from "@/lib/types/game";
+import { buildCurrentApiPath } from "@/lib/client/paths";
 
 export class ApiClientError extends Error {
   constructor(
@@ -16,7 +17,7 @@ export async function apiPost<T extends Record<string, unknown>>(
   path: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(buildCurrentApiPath(path), {
     method: "POST",
     credentials: "same-origin",
     headers: {
