@@ -31,8 +31,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost } from "@/lib/client/api";
+import { buildCurrentAppPath } from "@/lib/client/paths";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
-import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
+import {
+  resolveUiErrorMessage,
+  toUiError,
+  type UiError,
+} from "@/lib/i18n/errors";
 import { useRoomSync } from "@/lib/client/room-sync";
 import { getGameModeDefinition, getGameModeOptions } from "@/lib/game/modes";
 import type { GameMode } from "@/lib/types/game";
@@ -224,7 +229,9 @@ function SwipeValuePicker({
 
   return (
     <div className="rounded-[16px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2.5">
-      <p className="text-[11px] font-black uppercase tracking-[0.2em]">{label}</p>
+      <p className="text-[11px] font-black tracking-[0.2em] uppercase">
+        {label}
+      </p>
 
       <button
         type="button"
@@ -237,9 +244,9 @@ function SwipeValuePicker({
         onKeyDown={onKeyDown}
         className={[
           "relative mt-2 h-[88px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
-          "touch-none cursor-ns-resize shadow-[4px_4px_0_var(--pmb-ink)]",
-          "hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
-          "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)]",
+          "cursor-ns-resize touch-none shadow-[4px_4px_0_var(--pmb-ink)]",
+          "hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
           "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
         aria-label={copy.lobby.changePickerAria(label)}
@@ -249,21 +256,23 @@ function SwipeValuePicker({
         aria-valuetext={`${selectedOption.label} ${selectedOption.unitLabel}`}
         role="spinbutton"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
-          {previousOption ? `${previousOption.label} ${previousOption.unitLabel}` : ""}
+        <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
+          {previousOption
+            ? `${previousOption.label} ${previousOption.unitLabel}`
+            : ""}
         </span>
 
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2">
           <ChevronsUpDown className="h-4 w-4 shrink-0" />
-          <span className="text-[2.55rem] font-black leading-none tracking-[-0.04em]">
+          <span className="text-[2.55rem] leading-none font-black tracking-[-0.04em]">
             {selectedOption.label}
           </span>
-          <span className="text-[11px] font-black uppercase tracking-[0.2em]">
+          <span className="text-[11px] font-black tracking-[0.2em] uppercase">
             {selectedOption.unitLabel}
           </span>
         </span>
 
-        <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)]">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
           {nextOption ? `${nextOption.label} ${nextOption.unitLabel}` : ""}
         </span>
       </button>
@@ -295,8 +304,8 @@ function PlayerReadyChip({
           baseClass,
           toneClass,
           "shadow-[4px_4px_0_var(--pmb-ink)] transition-transform duration-150",
-          "hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
-          "disabled:cursor-not-allowed disabled:shadow-[2px_2px_0_var(--pmb-ink)] disabled:opacity-80",
+          "hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:opacity-80 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
       >
         {pending ? (
@@ -323,7 +332,11 @@ export default function LobbyPage() {
   const router = useRouter();
   const { language, copy } = useLanguage();
   const { user, loading, error: authError } = useAuth();
-  const { snapshot, error: snapshotError, isConnecting } = useRoomSync({
+  const {
+    snapshot,
+    error: snapshotError,
+    isConnecting,
+  } = useRoomSync({
     roomId,
     view: "lobby",
     enabled: Boolean(user) && !loading,
@@ -333,7 +346,9 @@ export default function LobbyPage() {
   const [actionError, setActionError] = useState<UiError | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>("idle");
   const [settingsError, setSettingsError] = useState<UiError | null>(null);
-  const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">("idle");
+  const [copyStatus, setCopyStatus] = useState<"idle" | "done" | "error">(
+    "idle",
+  );
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
   const [draftTotalRounds, setDraftTotalRounds] = useState(3);
   const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
@@ -354,16 +369,22 @@ export default function LobbyPage() {
   const currentTotalRounds = room?.settings?.totalRounds ?? 3;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
-  const displayGameMode = me?.isHost && draftsReady ? draftGameMode : currentGameMode;
-  const displayTotalRounds = me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
+  const displayGameMode =
+    me?.isHost && draftsReady ? draftGameMode : currentGameMode;
+  const displayTotalRounds =
+    me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
   const displayRoundSeconds =
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
-  const displayCpuCount = me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
+  const displayCpuCount =
+    me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
   const readyCount = displayPlayers.filter((player) => player.ready).length;
-  const everyoneReady = displayPlayers.length > 0 && readyCount === displayPlayers.length;
-  const humanPlayerCount = displayPlayers.filter((player) => player.kind === "human").length;
+  const everyoneReady =
+    displayPlayers.length > 0 && readyCount === displayPlayers.length;
+  const humanPlayerCount = displayPlayers.filter(
+    (player) => player.kind === "human",
+  ).length;
   const maxPlayers = room?.settings?.maxPlayers ?? 8;
   const maxCpuCount = Math.max(0, Math.min(6, maxPlayers - humanPlayerCount));
   const cpuOptions = Array.from({ length: maxCpuCount + 1 }, (_, index) => ({
@@ -373,7 +394,8 @@ export default function LobbyPage() {
   }));
   const roomStatus = room?.status ?? null;
   const isGenerating = roomStatus === "GENERATING_ROUND";
-  const hostCanEdit = Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
+  const hostCanEdit =
+    Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
   const currentSettingsKey = formatSettingsKey(
     currentGameMode,
     currentTotalRounds,
@@ -406,23 +428,24 @@ export default function LobbyPage() {
     if (!roomStatus) return;
 
     if (roomStatus === "IN_ROUND") {
-      router.replace(`/round/${roomId}`);
+      router.replace(buildCurrentAppPath(`/round/${roomId}`));
       return;
     }
 
     if (roomStatus === "RESULTS") {
-      router.replace(`/results/${roomId}`);
+      router.replace(buildCurrentAppPath(`/results/${roomId}`));
       return;
     }
 
     if (roomStatus === "FINISHED") {
-      router.replace("/");
+      router.replace(buildCurrentAppPath("/"));
     }
   }, [roomId, roomStatus, router]);
 
   useEffect(() => {
     if (optimisticReady === null) return;
-    const actualReady = players.find((player) => player.uid === user?.uid)?.ready ?? null;
+    const actualReady =
+      players.find((player) => player.uid === user?.uid)?.ready ?? null;
     if (actualReady === optimisticReady) {
       setOptimisticReady(null);
     }
@@ -559,7 +582,7 @@ export default function LobbyPage() {
       await apiPost("/api/rounds/start", {
         roomId,
       });
-      router.push(`/round/${roomId}`);
+      router.push(buildCurrentAppPath(`/round/${roomId}`));
     } catch (error) {
       setActionError(toUiError(error, "startRoundFailed"));
     } finally {
@@ -572,7 +595,7 @@ export default function LobbyPage() {
     setActionError(null);
     try {
       await leaveRoom({ roomId });
-      router.replace("/");
+      router.replace(buildCurrentAppPath("/"));
     } catch (error) {
       setActionError(toUiError(error, "leaveRoomFailed"));
     } finally {
@@ -686,7 +709,7 @@ export default function LobbyPage() {
       <Card className="overflow-hidden bg-white p-0">
         <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.24em]">
+            <p className="text-[11px] font-black tracking-[0.24em] uppercase">
               {copy.lobby.roomCode}
             </p>
             <div className="mt-1 flex items-center gap-2">
@@ -698,13 +721,21 @@ export default function LobbyPage() {
                 onClick={copyCode}
                 type="button"
                 variant="ghost"
-                aria-label={copyStatus === "done" ? copy.lobby.copied : copy.lobby.copyRoomCode}
+                aria-label={
+                  copyStatus === "done"
+                    ? copy.lobby.copied
+                    : copy.lobby.copyRoomCode
+                }
                 className={[
                   "h-10 w-10 p-0",
                   "hover:translate-x-0 hover:-translate-y-0 hover:shadow-[6px_6px_0_var(--pmb-ink)]",
                   "active:translate-x-0.5 active:translate-y-0.5 active:shadow-[4px_4px_0_var(--pmb-ink)]",
-                  copyStatus === "done" ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]" : "",
-                  copyStatus === "error" ? "bg-[var(--pmb-red)] text-white" : "",
+                  copyStatus === "done"
+                    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
+                    : "",
+                  copyStatus === "error"
+                    ? "bg-[var(--pmb-red)] text-white"
+                    : "",
                 ].join(" ")}
               >
                 {copyStatus === "done" ? (
@@ -716,7 +747,7 @@ export default function LobbyPage() {
             </div>
           </div>
 
-          <div className="flex self-stretch items-stretch gap-2">
+          <div className="flex items-stretch gap-2 self-stretch">
             <div className="flex">
               <Button
                 type="button"
@@ -754,37 +785,41 @@ export default function LobbyPage() {
 
           <div className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
             {displayPlayers.map((player) => (
-                <div
-                  key={player.uid}
-                  className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
-                >
-                  <div className="min-w-0 flex items-center gap-2">
-                    <span className="truncate text-sm font-black md:text-[15px]">
-                      {player.displayName}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {player.kind === "cpu" ? (
-                        <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
-                          <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
-                        </Badge>
-                      ) : null}
-                      {player.uid === user?.uid ? (
-                        <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.you}</Badge>
-                      ) : null}
-                      {player.isHost ? (
-                        <Badge className="px-2 py-0 text-[10px]">{copy.common.host}</Badge>
-                      ) : null}
-                    </div>
+              <div
+                key={player.uid}
+                className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-black md:text-[15px]">
+                    {player.displayName}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {player.kind === "cpu" ? (
+                      <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
+                        <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
+                      </Badge>
+                    ) : null}
+                    {player.uid === user?.uid ? (
+                      <Badge className="bg-white px-2 py-0 text-[10px]">
+                        {copy.common.you}
+                      </Badge>
+                    ) : null}
+                    {player.isHost ? (
+                      <Badge className="px-2 py-0 text-[10px]">
+                        {copy.common.host}
+                      </Badge>
+                    ) : null}
                   </div>
-
-                  <PlayerReadyChip
-                    ready={player.ready}
-                    isSelf={player.uid === user?.uid}
-                    pending={player.uid === user?.uid && actionBusy === "ready"}
-                    disabled={isGenerating}
-                    onClick={onToggleReady}
-                  />
                 </div>
+
+                <PlayerReadyChip
+                  ready={player.ready}
+                  isSelf={player.uid === user?.uid}
+                  pending={player.uid === user?.uid && actionBusy === "ready"}
+                  disabled={isGenerating}
+                  onClick={onToggleReady}
+                />
+              </div>
             ))}
           </div>
 
@@ -816,7 +851,9 @@ export default function LobbyPage() {
                 disabled={!canStartRound}
                 className={[
                   "w-full",
-                  !canStartRound ? "bg-zinc-300 text-zinc-600 disabled:opacity-100" : "",
+                  !canStartRound
+                    ? "bg-zinc-300 text-zinc-600 disabled:opacity-100"
+                    : "",
                 ].join(" ")}
               >
                 {isGenerating || actionBusy === "start" ? (
@@ -824,7 +861,9 @@ export default function LobbyPage() {
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                {isGenerating ? copy.lobby.generatingTheme : copy.lobby.startRound}
+                {isGenerating
+                  ? copy.lobby.generatingTheme
+                  : copy.lobby.startRound}
               </Button>
             ) : (
               <p className="flex items-center rounded-[12px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 text-sm font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_70%,white)]">
@@ -851,7 +890,9 @@ export default function LobbyPage() {
               <Settings2 className="h-5 w-5" /> {copy.lobby.gameSettings}
             </h2>
             <div className="flex flex-wrap justify-end gap-1.5">
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">{currentMode.label}</Badge>
+              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
+                {currentMode.label}
+              </Badge>
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                 {displayTotalRounds} {copy.common.rounds}
               </Badge>
@@ -881,52 +922,62 @@ export default function LobbyPage() {
           ) : null}
 
           <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">{copy.lobby.gameMode}</h3>
+            <h3 className="text-lg leading-none md:text-xl">
+              {copy.lobby.gameMode}
+            </h3>
           </div>
 
-          <div className="mt-2 -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-0.5">
+          <div className="-mx-1 mt-2 overflow-x-auto overflow-y-hidden px-1 pb-0.5">
             <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
-            {gameModeOptions.map((mode) => {
-              const selected = draftGameMode === mode.mode;
-              const Icon =
-                mode.mode === "classic" ? Eye : mode.mode === "memory" ? Brain : Ghost;
+              {gameModeOptions.map((mode) => {
+                const selected = draftGameMode === mode.mode;
+                const Icon =
+                  mode.mode === "classic"
+                    ? Eye
+                    : mode.mode === "memory"
+                      ? Brain
+                      : Ghost;
 
-              return (
-                <button
-                  key={mode.mode}
-                  type="button"
-                  onClick={() => setDraftGameMode(mode.mode)}
-                  disabled={!hostCanEdit}
-                  className={[
-                    "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
-                    "disabled:cursor-not-allowed disabled:opacity-70",
-                    selected
-                      ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
-                      : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
-                  ].join(" ")}
-                >
-                  <div className="flex min-h-[60px] items-start justify-between gap-3">
-                    <div className="flex min-h-[46px] flex-col justify-start">
-                      <p className="text-[11px] font-black uppercase tracking-[0.18em]">
-                        {mode.englishName}
-                      </p>
-                      <h3 className="mt-1 text-lg font-black leading-tight">{mode.label}</h3>
+                return (
+                  <button
+                    key={mode.mode}
+                    type="button"
+                    onClick={() => setDraftGameMode(mode.mode)}
+                    disabled={!hostCanEdit}
+                    className={[
+                      "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
+                      "disabled:cursor-not-allowed disabled:opacity-70",
+                      selected
+                        ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
+                        : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
+                    ].join(" ")}
+                  >
+                    <div className="flex min-h-[60px] items-start justify-between gap-3">
+                      <div className="flex min-h-[46px] flex-col justify-start">
+                        <p className="text-[11px] font-black tracking-[0.18em] uppercase">
+                          {mode.englishName}
+                        </p>
+                        <h3 className="mt-1 text-lg leading-tight font-black">
+                          {mode.label}
+                        </h3>
+                      </div>
+                      <div className="shrink-0 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
+                        <Icon className="h-4 w-4" />
+                      </div>
                     </div>
-                    <div className="shrink-0 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
-                      <Icon className="h-4 w-4" />
-                    </div>
-                  </div>
-                  <p className="mt-2 min-h-[2.45rem] text-[13px] font-semibold leading-[1.3]">
-                    {mode.description}
-                  </p>
-                </button>
-              );
-            })}
+                    <p className="mt-2 min-h-[2.45rem] text-[13px] leading-[1.3] font-semibold">
+                      {mode.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">{copy.lobby.advancedSettings}</h3>
+            <h3 className="text-lg leading-none md:text-xl">
+              {copy.lobby.advancedSettings}
+            </h3>
           </div>
 
           <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -957,7 +1008,7 @@ export default function LobbyPage() {
           </div>
 
           {settingsStatus === "saving" ? (
-            <div className="pointer-events-none absolute bottom-3 right-3 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+            <div className="pointer-events-none absolute right-3 bottom-3 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
               <LoaderCircle className="h-4 w-4 animate-spin" />
             </div>
           ) : null}

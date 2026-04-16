@@ -1,9 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ErrorCode, GameMode, ImpostorRole, PlayerKind } from "@/lib/types/game";
+import type {
+  ErrorCode,
+  GameMode,
+  ImpostorRole,
+  PlayerKind,
+} from "@/lib/types/game";
+import { buildCurrentApiPath } from "@/lib/client/paths";
 
-export type RoomStatus = "LOBBY" | "GENERATING_ROUND" | "IN_ROUND" | "RESULTS" | "FINISHED";
+export type RoomStatus =
+  | "LOBBY"
+  | "GENERATING_ROUND"
+  | "IN_ROUND"
+  | "RESULTS"
+  | "FINISHED";
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
 
@@ -127,7 +138,12 @@ export interface RoomSyncSnapshot {
   revealLocked?: boolean;
 }
 
-type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
+type ConnectionState =
+  | "idle"
+  | "connecting"
+  | "open"
+  | "reconnecting"
+  | "closed";
 
 export interface RoomSyncErrorInfo {
   code?: ErrorCode;
@@ -144,7 +160,9 @@ class RoomSyncError extends Error {
   }
 }
 
-function normalizeAttemptStatus(value: unknown): "SCORING" | "DONE" | undefined {
+function normalizeAttemptStatus(
+  value: unknown,
+): "SCORING" | "DONE" | undefined {
   return value === "SCORING" || value === "DONE" ? value : undefined;
 }
 
@@ -187,11 +205,15 @@ function normalizeRoomStatus(value: unknown): RoomStatus | null {
 }
 
 function normalizeRoundStatus(value: unknown): RoundStatus | null {
-  return value === "GENERATING" || value === "IN_ROUND" || value === "RESULTS" ? value : null;
+  return value === "GENERATING" || value === "IN_ROUND" || value === "RESULTS"
+    ? value
+    : null;
 }
 
 function normalizeGameMode(value: unknown): GameMode | null {
-  return value === "classic" || value === "memory" || value === "impostor" ? value : null;
+  return value === "classic" || value === "memory" || value === "impostor"
+    ? value
+    : null;
 }
 
 function normalizePlayerKind(value: unknown): PlayerKind | null {
@@ -203,7 +225,9 @@ function normalizeImpostorRole(value: unknown): ImpostorRole | null {
 }
 
 function normalizeImpostorPhase(value: unknown): ImpostorRoundPhase | null {
-  return value === "CHAIN" || value === "VOTING" || value === "REVEAL" ? value : null;
+  return value === "CHAIN" || value === "VOTING" || value === "REVEAL"
+    ? value
+    : null;
 }
 
 function normalizeRoomData(value: unknown): RoomData | null {
@@ -264,8 +288,14 @@ function normalizeRoundData(value: unknown): RoundData | null {
     roundId,
     index,
     status,
-    targetImageUrl: typeof value.targetImageUrl === "string" ? value.targetImageUrl : undefined,
-    targetThumbUrl: typeof value.targetThumbUrl === "string" ? value.targetThumbUrl : undefined,
+    targetImageUrl:
+      typeof value.targetImageUrl === "string"
+        ? value.targetImageUrl
+        : undefined,
+    targetThumbUrl:
+      typeof value.targetThumbUrl === "string"
+        ? value.targetThumbUrl
+        : undefined,
     gmTitle,
     promptStartsAt: value.promptStartsAt ?? null,
     gmTags: Array.isArray(value.gmTags)
@@ -296,12 +326,16 @@ function normalizeRoundData(value: unknown): RoundData | null {
           kind: value.modeState.kind === "impostor" ? "impostor" : undefined,
           phase: normalizeImpostorPhase(value.modeState.phase) ?? undefined,
           turnOrder: Array.isArray(value.modeState.turnOrder)
-            ? value.modeState.turnOrder.filter((item): item is string => typeof item === "string")
+            ? value.modeState.turnOrder.filter(
+                (item): item is string => typeof item === "string",
+              )
             : undefined,
-          currentTurnIndex: asNumber(value.modeState.currentTurnIndex) ?? undefined,
+          currentTurnIndex:
+            asNumber(value.modeState.currentTurnIndex) ?? undefined,
           currentTurnUid: asString(value.modeState.currentTurnUid),
           chainImageUrl: asString(value.modeState.chainImageUrl) ?? undefined,
-          similarityThreshold: asNumber(value.modeState.similarityThreshold) ?? undefined,
+          similarityThreshold:
+            asNumber(value.modeState.similarityThreshold) ?? undefined,
           finalSimilarityScore:
             typeof value.modeState.finalSimilarityScore === "number"
               ? value.modeState.finalSimilarityScore
@@ -351,10 +385,14 @@ function normalizeAttempts(value: unknown): AttemptData | null {
             prompt: asString(attempt.prompt) ?? "",
             status: normalizeAttemptStatus(attempt.status),
             matchedElements: Array.isArray(attempt.matchedElements)
-              ? attempt.matchedElements.filter((item): item is string => typeof item === "string")
+              ? attempt.matchedElements.filter(
+                  (item): item is string => typeof item === "string",
+                )
               : undefined,
             missingElements: Array.isArray(attempt.missingElements)
-              ? attempt.missingElements.filter((item): item is string => typeof item === "string")
+              ? attempt.missingElements.filter(
+                  (item): item is string => typeof item === "string",
+                )
               : undefined,
             judgeNote: asString(attempt.judgeNote) ?? undefined,
           }))
@@ -387,15 +425,20 @@ function normalizeTurnTimeline(value: unknown): TurnTimelineEntry[] {
       imageUrl: asString(entry.imageUrl) ?? "",
       similarityScore: asNumber(entry.similarityScore) ?? 0,
       matchedElements: Array.isArray(entry.matchedElements)
-        ? entry.matchedElements.filter((item): item is string => typeof item === "string")
+        ? entry.matchedElements.filter(
+            (item): item is string => typeof item === "string",
+          )
         : undefined,
       missingElements: Array.isArray(entry.missingElements)
-        ? entry.missingElements.filter((item): item is string => typeof item === "string")
+        ? entry.missingElements.filter(
+            (item): item is string => typeof item === "string",
+          )
         : undefined,
       judgeNote: asString(entry.judgeNote) ?? undefined,
       prompt: asString(entry.prompt) ?? undefined,
       role: normalizeImpostorRole(entry.role) ?? undefined,
-      timedOut: typeof entry.timedOut === "boolean" ? entry.timedOut : undefined,
+      timedOut:
+        typeof entry.timedOut === "boolean" ? entry.timedOut : undefined,
       votedForUid: asString(entry.votedForUid),
     }))
     .filter((entry) => entry.uid.length > 0);
@@ -406,11 +449,17 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
     return { ...EMPTY_SNAPSHOT };
   }
 
-  const room = normalizeRoomData(value.room ?? value.roomData ?? value.currentRoom ?? value);
+  const room = normalizeRoomData(
+    value.room ?? value.roomData ?? value.currentRoom ?? value,
+  );
   const players = normalizePlayers(value.players);
-  const round = normalizeRoundData(value.round ?? value.roundData ?? value.currentRound);
+  const round = normalizeRoundData(
+    value.round ?? value.roundData ?? value.currentRound,
+  );
   const scores = normalizeScores(value.scores);
-  const attempts = normalizeAttempts(value.attempts ?? value.attemptsData ?? value.myAttempts);
+  const attempts = normalizeAttempts(
+    value.attempts ?? value.attemptsData ?? value.myAttempts,
+  );
 
   return {
     room,
@@ -430,7 +479,8 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
           ? null
           : undefined,
     turnTimeline: normalizeTurnTimeline(value.turnTimeline),
-    revealLocked: typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,
+    revealLocked:
+      typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,
   };
 }
 
@@ -441,7 +491,8 @@ export function useRoomSync(params: {
 }) {
   const enabled = params.enabled ?? true;
   const [snapshot, setSnapshot] = useState<RoomSyncSnapshot>(EMPTY_SNAPSHOT);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>("idle");
   const [error, setError] = useState<RoomSyncErrorInfo | null>(null);
 
   useEffect(() => {
@@ -452,15 +503,18 @@ export function useRoomSync(params: {
     let disposed = false;
     let timerId: number | null = null;
     let version = -1;
-    const intervalMs = params.view === "lobby" || params.view === "transition" ? 250 : 500;
+    const intervalMs =
+      params.view === "lobby" || params.view === "transition" ? 250 : 500;
 
     const poll = async () => {
       const controller = new AbortController();
       try {
         const response = await fetch(
-          `/api/rooms/${encodeURIComponent(params.roomId)}/snapshot?view=${encodeURIComponent(
-            params.view,
-          )}&since=${encodeURIComponent(String(version))}`,
+          buildCurrentApiPath(
+            `/api/rooms/${encodeURIComponent(params.roomId)}/snapshot?view=${encodeURIComponent(
+              params.view,
+            )}&since=${encodeURIComponent(String(version))}`,
+          ),
           {
             credentials: "same-origin",
             cache: "no-store",
@@ -476,17 +530,15 @@ export function useRoomSync(params: {
           return;
         }
 
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              ok?: boolean;
-              version?: unknown;
-              snapshot?: unknown;
-              error?: {
-                code?: unknown;
-                message?: unknown;
-              };
-            }
-          | null;
+        const payload = (await response.json().catch(() => null)) as {
+          ok?: boolean;
+          version?: unknown;
+          snapshot?: unknown;
+          error?: {
+            code?: unknown;
+            message?: unknown;
+          };
+        } | null;
 
         if (!response.ok || !payload?.ok) {
           throw new RoomSyncError(
@@ -499,13 +551,16 @@ export function useRoomSync(params: {
           );
         }
 
-        version = typeof payload.version === "number" ? payload.version : version;
+        version =
+          typeof payload.version === "number" ? payload.version : version;
         setSnapshot(normalizeSnapshot(payload.snapshot));
         setConnectionState("open");
         setError(null);
       } catch (pollError) {
         if (disposed) return;
-        setConnectionState((current) => (current === "open" ? "reconnecting" : "connecting"));
+        setConnectionState((current) =>
+          current === "open" ? "reconnecting" : "connecting",
+        );
         if (pollError instanceof RoomSyncError) {
           setError({
             code: pollError.code,
@@ -515,7 +570,8 @@ export function useRoomSync(params: {
         }
 
         setError({
-          message: pollError instanceof Error ? pollError.message : "reconnecting",
+          message:
+            pollError instanceof Error ? pollError.message : "reconnecting",
         });
       } finally {
         if (!disposed) {
@@ -546,7 +602,8 @@ export function useRoomSync(params: {
       connectionState: derivedConnectionState,
       error,
       isConnecting:
-        derivedConnectionState === "connecting" || derivedConnectionState === "reconnecting",
+        derivedConnectionState === "connecting" ||
+        derivedConnectionState === "reconnecting",
       isOpen: derivedConnectionState === "open",
     }),
     [derivedConnectionState, error, snapshot],

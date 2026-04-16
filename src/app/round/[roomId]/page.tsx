@@ -16,8 +16,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiPost } from "@/lib/client/api";
 import { createEndRoundRetrier } from "@/lib/client/end-round-retry";
 import { placeholderImageUrl } from "@/lib/client/image";
+import { buildCurrentAppPath } from "@/lib/client/paths";
 import { useRoomPresence } from "@/lib/client/room-presence";
-import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
+import {
+  resolveUiErrorMessage,
+  toUiError,
+  type UiError,
+} from "@/lib/i18n/errors";
 import {
   type AttemptData,
   type PlayerData,
@@ -45,7 +50,11 @@ export default function RoundPage() {
 
   const { language, copy } = useLanguage();
   const { user } = useAuth();
-  const { snapshot } = useRoomSync({ roomId, view: "round", enabled: Boolean(user) });
+  const { snapshot } = useRoomSync({
+    roomId,
+    view: "round",
+    enabled: Boolean(user),
+  });
 
   const [room, setRoom] = useState<RoomData | null>(null);
   const [round, setRound] = useState<RoundData | null>(null);
@@ -56,11 +65,17 @@ export default function RoundPage() {
   const [feedback, setFeedback] = useState<UiError | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
-  const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number | null>(null);
-  const [resultCountdownSeconds, setResultCountdownSeconds] = useState<number | null>(null);
+  const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number | null>(
+    null,
+  );
+  const [resultCountdownSeconds, setResultCountdownSeconds] = useState<
+    number | null
+  >(null);
 
   const endCalled = useRef(false);
-  const endRoundRetrier = useRef<ReturnType<typeof createEndRoundRetrier> | null>(null);
+  const endRoundRetrier = useRef<ReturnType<
+    typeof createEndRoundRetrier
+  > | null>(null);
   const derivedRoom = snapshot.room as RoomData | null;
   const derivedRound = snapshot.round as RoundData | null;
   const derivedScores = snapshot.scores as ScoreEntry[];
@@ -80,7 +95,13 @@ export default function RoundPage() {
     setScores(derivedScores);
     setAttempts(derivedAttempts);
     setPlayerCount(derivedPlayerCount);
-  }, [derivedAttempts, derivedPlayerCount, derivedRound, derivedRoom, derivedScores]);
+  }, [
+    derivedAttempts,
+    derivedPlayerCount,
+    derivedRound,
+    derivedRoom,
+    derivedScores,
+  ]);
 
   const currentGameMode = room?.settings?.gameMode ?? "classic";
   const currentMode = getGameModeDefinition(currentGameMode, language);
@@ -91,9 +112,13 @@ export default function RoundPage() {
   const isImpostorMode = Boolean(impostorModeState);
   const isMyTurn = Boolean(snapshot.isMyTurn);
   const myRole = snapshot.myRole;
-  const currentTurnUid = snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
-  const currentTurnPlayer = derivedPlayers.find((player) => player.uid === currentTurnUid) ?? null;
-  const isCpuTurn = Boolean(isImpostorMode && currentTurnPlayer?.kind === "cpu");
+  const currentTurnUid =
+    snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
+  const currentTurnPlayer =
+    derivedPlayers.find((player) => player.uid === currentTurnUid) ?? null;
+  const isCpuTurn = Boolean(
+    isImpostorMode && currentTurnPlayer?.kind === "cpu",
+  );
   const currentTurnName =
     currentTurnPlayer?.displayName ??
     (isCpuTurn ? copy.common.cpu : copy.common.otherPlayer);
@@ -122,7 +147,11 @@ export default function RoundPage() {
       return;
     }
 
-    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND" || !round.endsAt) {
+    if (
+      room.status !== "IN_ROUND" ||
+      round.status !== "IN_ROUND" ||
+      !round.endsAt
+    ) {
       setSecondsLeft(roundSeconds);
       setPreviewSecondsLeft(null);
       return;
@@ -136,7 +165,10 @@ export default function RoundPage() {
         Date.now() < promptStartsAt.getTime()
       ) {
         setPreviewSecondsLeft(
-          Math.max(0, Math.ceil((promptStartsAt.getTime() - Date.now()) / 1000)),
+          Math.max(
+            0,
+            Math.ceil((promptStartsAt.getTime() - Date.now()) / 1000),
+          ),
         );
         setSecondsLeft(roundSeconds);
         return;
@@ -161,20 +193,19 @@ export default function RoundPage() {
     if (!room || !round) return;
 
     if (room.status === "RESULTS") {
-      router.replace(`/results/${roomId}`);
+      router.replace(buildCurrentAppPath(`/results/${roomId}`));
       return;
     }
 
     if (room.status === "LOBBY") {
-      router.replace(`/lobby/${roomId}`);
+      router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
       return;
     }
 
     if (room.status === "FINISHED") {
-      router.replace("/");
+      router.replace(buildCurrentAppPath("/"));
       return;
     }
-
   }, [room?.status, round?.status, roomId, router]);
 
   useEffect(() => {
@@ -186,10 +217,13 @@ export default function RoundPage() {
     endCalled.current = true;
     const retrier = createEndRoundRetrier({
       runEndIfNeeded: () =>
-        apiPost<{ ok: true; status: "IN_ROUND" | "RESULTS" }>("/api/rounds/endIfNeeded", {
-          roomId,
-          roundId: round.roundId,
-        }),
+        apiPost<{ ok: true; status: "IN_ROUND" | "RESULTS" }>(
+          "/api/rounds/endIfNeeded",
+          {
+            roomId,
+            roundId: round.roundId,
+          },
+        ),
       onError: (err) => {
         console.error("endIfNeeded failed", err);
         endCalled.current = false;
@@ -205,21 +239,31 @@ export default function RoundPage() {
         endRoundRetrier.current = null;
       }
     };
-  }, [isCpuTurn, secondsLeft, room?.status, round?.status, round?.endsAt, round?.roundId, roomId]);
+  }, [
+    isCpuTurn,
+    secondsLeft,
+    room?.status,
+    round?.status,
+    round?.endsAt,
+    round?.roundId,
+    roomId,
+  ]);
 
-  const latestAttempt = attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
+  const latestAttempt =
+    attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const attemptsLeft = Math.max(
     0,
     (room?.settings?.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0),
   );
-  const isRoundLive = room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
+  const isRoundLive =
+    room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
   const isBusy = submitPending;
   const otherBestImages = scores.filter(
     (entry) => entry.uid !== user?.uid && entry.bestImageUrl,
   );
   const latestAttemptScoring = Boolean(
     latestAttempt &&
-      (latestAttempt.status === "SCORING" || latestAttempt.score == null),
+    (latestAttempt.status === "SCORING" || latestAttempt.score == null),
   );
   const hasGeneratedImage = Boolean(
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
@@ -248,7 +292,9 @@ export default function RoundPage() {
     const parsedEndsAt = parseDate(round?.endsAt);
     const fallbackEndsAt = new Date(Date.now() + 10_000);
     const countdownTarget =
-      parsedEndsAt && parsedEndsAt.getTime() > Date.now() ? parsedEndsAt : fallbackEndsAt;
+      parsedEndsAt && parsedEndsAt.getTime() > Date.now()
+        ? parsedEndsAt
+        : fallbackEndsAt;
 
     const update = () => {
       const leftSeconds = Math.max(
@@ -308,7 +354,7 @@ export default function RoundPage() {
   };
 
   const onBackToLobby = () => {
-    router.push(`/results/${roomId}?from=round`);
+    router.push(buildCurrentAppPath(`/results/${roomId}?from=round`));
   };
 
   if (!room || !round) {
@@ -321,7 +367,9 @@ export default function RoundPage() {
 
   if (isImpostorMode) {
     const primaryImageUrl = isMyTurn ? impostorReferenceImageUrl : "";
-    const primaryImageHeading = isMyTurn ? copy.round.referenceImage : copy.round.hidden;
+    const primaryImageHeading = isMyTurn
+      ? copy.round.referenceImage
+      : copy.round.hidden;
     const primaryImageDescription = isMyTurn
       ? copy.round.referenceDescription
       : isCpuTurn
@@ -334,14 +382,22 @@ export default function RoundPage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-2xl font-black uppercase leading-none md:text-3xl">
+                <p className="text-2xl leading-none font-black uppercase md:text-3xl">
                   Round {round.index}
                 </p>
                 <Badge className="bg-[var(--pmb-yellow)] text-[var(--pmb-ink)]">
                   Art Impostor
                 </Badge>
-                <Badge className={myRole === "impostor" ? "bg-[var(--pmb-red)] text-white" : ""}>
-                  {myRole === "impostor" ? copy.common.impostor : copy.common.agent}
+                <Badge
+                  className={
+                    myRole === "impostor"
+                      ? "bg-[var(--pmb-red)] text-white"
+                      : ""
+                  }
+                >
+                  {myRole === "impostor"
+                    ? copy.common.impostor
+                    : copy.common.agent}
                 </Badge>
               </div>
               <p className="mt-2 text-sm font-semibold">
@@ -355,14 +411,18 @@ export default function RoundPage() {
             <div className="flex flex-wrap items-center gap-2">
               {isCpuTurn ? (
                 <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
-                  <p className="text-xs font-black uppercase tracking-[0.18em]">CPU Generating</p>
-                  <p className="mt-1 text-sm font-black">{copy.round.cpuGeneratingShort}</p>
+                  <p className="text-xs font-black tracking-[0.18em] uppercase">
+                    CPU Generating
+                  </p>
+                  <p className="mt-1 text-sm font-black">
+                    {copy.round.cpuGeneratingShort}
+                  </p>
                 </Card>
               ) : (
                 <CountdownTimer secondsLeft={secondsLeft} />
               )}
               <Card className="bg-[var(--pmb-base)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
-                <p className="text-xs font-black uppercase tracking-[0.18em]">
+                <p className="text-xs font-black tracking-[0.18em] uppercase">
                   {copy.round.turnProgress}
                 </p>
                 <p className="mt-1 font-mono text-2xl font-black">
@@ -391,7 +451,9 @@ export default function RoundPage() {
             <Button
               type="button"
               onClick={submitPrompt}
-              disabled={isBusy || !isRoundLive || !isMyTurn || prompt.trim().length < 1}
+              disabled={
+                isBusy || !isRoundLive || !isMyTurn || prompt.trim().length < 1
+              }
             >
               {submitPending ? (
                 <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
@@ -405,7 +467,9 @@ export default function RoundPage() {
                   : copy.round.waitingTurn}
             </Button>
             <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
-              {copy.common.currentTurn(currentTurnPlayer?.displayName ?? copy.common.idle)}
+              {copy.common.currentTurn(
+                currentTurnPlayer?.displayName ?? copy.common.idle,
+              )}
             </Card>
           </div>
           {feedback ? (
@@ -426,11 +490,17 @@ export default function RoundPage() {
             {primaryImageUrl ? (
               <div className={imageFrameClass}>
                 <img
-                  src={primaryImageUrl || placeholderImageUrl(round.gmTitle || "reference")}
+                  src={
+                    primaryImageUrl ||
+                    placeholderImageUrl(round.gmTitle || "reference")
+                  }
                   alt={primaryImageHeading}
                   className="h-full w-full object-contain p-1"
                   onError={(event) =>
-                    applyImageFallback(event.currentTarget, round.gmTitle || "reference")
+                    applyImageFallback(
+                      event.currentTarget,
+                      round.gmTitle || "reference",
+                    )
                   }
                 />
               </div>
@@ -438,14 +508,16 @@ export default function RoundPage() {
               <div
                 className={`${imageFrameClass} flex flex-col items-center justify-center gap-3 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
               >
-                <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-5 py-3 text-sm font-black uppercase tracking-[0.16em]">
+                <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-5 py-3 text-sm font-black tracking-[0.16em] uppercase">
                   {copy.round.hiddenWaiting}
                 </div>
                 <p className="text-lg font-black">
                   {copy.round.hiddenImageMessage(currentTurnName)}
                 </p>
                 <p className="max-w-md text-sm font-semibold">
-                  {isCpuTurn ? copy.round.cpuPassMessage : copy.round.hiddenImageDescription}
+                  {isCpuTurn
+                    ? copy.round.cpuPassMessage
+                    : copy.round.hiddenImageDescription}
                 </p>
               </div>
             )}
@@ -471,7 +543,9 @@ export default function RoundPage() {
               </div>
               <div className="mt-3 min-h-0 space-y-2 overflow-y-auto pr-1">
                 {impostorModeState?.turnOrder?.map((turnUid, index) => {
-                  const player = derivedPlayers.find((candidate) => candidate.uid === turnUid);
+                  const player = derivedPlayers.find(
+                    (candidate) => candidate.uid === turnUid,
+                  );
                   const isCurrent = turnUid === currentTurnUid;
                   const isDone = index < completedTurns;
 
@@ -493,10 +567,14 @@ export default function RoundPage() {
                             {index + 1}. {player?.displayName ?? turnUid}
                           </p>
                           {player?.kind === "cpu" ? (
-                            <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.cpu}</Badge>
+                            <Badge className="bg-white px-2 py-0 text-[10px]">
+                              {copy.common.cpu}
+                            </Badge>
                           ) : null}
                           {player?.uid === user?.uid ? (
-                            <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.you}</Badge>
+                            <Badge className="bg-white px-2 py-0 text-[10px]">
+                              {copy.common.you}
+                            </Badge>
                           ) : null}
                           <Badge className="bg-white px-2 py-0 text-[10px]">
                             {isCurrent
@@ -534,10 +612,14 @@ export default function RoundPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-2xl font-black uppercase leading-none md:text-3xl">
+              <p className="text-2xl leading-none font-black uppercase md:text-3xl">
                 Round {round.index}
               </p>
-              <Badge className={currentGameMode === "memory" ? "bg-[var(--pmb-blue)]" : ""}>
+              <Badge
+                className={
+                  currentGameMode === "memory" ? "bg-[var(--pmb-blue)]" : ""
+                }
+              >
                 {currentMode.label}
               </Badge>
             </div>
@@ -545,7 +627,7 @@ export default function RoundPage() {
           <div className="flex flex-wrap items-center gap-2">
             {isPreviewPhase ? (
               <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
-                <p className="text-xs font-black uppercase tracking-[0.18em]">
+                <p className="text-xs font-black tracking-[0.18em] uppercase">
                   {copy.round.memoryPreview}
                 </p>
                 <p className="mt-1 font-mono text-2xl font-black">
@@ -568,7 +650,9 @@ export default function RoundPage() {
             >
               <LogOut className="mr-2 h-4 w-4" />
               {autoEndingSoon
-                ? copy.round.resultsScreenCountdown(resultCountdownSeconds ?? 10)
+                ? copy.round.resultsScreenCountdown(
+                    resultCountdownSeconds ?? 10,
+                  )
                 : copy.round.resultsScreen}
             </Button>
           </div>
@@ -632,11 +716,17 @@ export default function RoundPage() {
             round.targetImageUrl ? (
               <div className={imageFrameClass}>
                 <img
-                  src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || "target")}
+                  src={
+                    round.targetImageUrl ||
+                    placeholderImageUrl(round.gmTitle || "target")
+                  }
                   alt="target"
                   className="h-full w-full object-contain p-1"
                   onError={(event) =>
-                    applyImageFallback(event.currentTarget, round.gmTitle || "target")
+                    applyImageFallback(
+                      event.currentTarget,
+                      round.gmTitle || "target",
+                    )
                   }
                 />
               </div>
@@ -665,36 +755,50 @@ export default function RoundPage() {
             <div className="space-y-2">
               <div className={imageFrameClass}>
                 <img
-                  src={latestAttempt.imageUrl || placeholderImageUrl(latestAttempt.prompt)}
+                  src={
+                    latestAttempt.imageUrl ||
+                    placeholderImageUrl(latestAttempt.prompt)
+                  }
                   alt="latest attempt"
                   className="h-full w-full object-contain p-1"
                   onError={(event) =>
-                    applyImageFallback(event.currentTarget, latestAttempt.prompt)
+                    applyImageFallback(
+                      event.currentTarget,
+                      latestAttempt.prompt,
+                    )
                   }
                 />
                 {latestAttemptScoring ? (
                   <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
                     <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
-                      <LoaderCircle className="h-4 w-4 animate-spin" /> {copy.round.scoring}
+                      <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                      {copy.round.scoring}
                     </p>
                   </div>
                 ) : null}
-                {!latestAttemptScoring && typeof latestAttempt.score === "number" ? (
-                  <p className="absolute right-2 top-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
+                {!latestAttemptScoring &&
+                typeof latestAttempt.score === "number" ? (
+                  <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
                     {latestAttempt.score} pts
                   </p>
                 ) : null}
               </div>
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
                 <p>{copy.common.judgeNote}</p>
-                {!latestAttemptScoring && latestAttempt.matchedElements?.length ? (
+                {!latestAttemptScoring &&
+                latestAttempt.matchedElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-green)]">
-                    {copy.common.matched(latestAttempt.matchedElements.join(" / "))}
+                    {copy.common.matched(
+                      latestAttempt.matchedElements.join(" / "),
+                    )}
                   </p>
                 ) : null}
-                {!latestAttemptScoring && latestAttempt.missingElements?.length ? (
+                {!latestAttemptScoring &&
+                latestAttempt.missingElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-red)]">
-                    {copy.common.missing(latestAttempt.missingElements.join(" / "))}
+                    {copy.common.missing(
+                      latestAttempt.missingElements.join(" / "),
+                    )}
                   </p>
                 ) : null}
                 {!latestAttemptScoring && latestAttempt.judgeNote ? (
@@ -736,18 +840,26 @@ export default function RoundPage() {
                       {entry.displayName} ({entry.bestScore} pts)
                     </p>
                     <img
-                      src={entry.bestImageUrl || placeholderImageUrl(entry.displayName)}
+                      src={
+                        entry.bestImageUrl ||
+                        placeholderImageUrl(entry.displayName)
+                      }
                       alt={`${entry.displayName} best`}
                       className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain p-1"
                       onError={(event) =>
-                        applyImageFallback(event.currentTarget, entry.displayName)
+                        applyImageFallback(
+                          event.currentTarget,
+                          entry.displayName,
+                        )
                       }
                     />
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm font-semibold">{copy.round.waitingForOthers}</p>
+              <p className="text-sm font-semibold">
+                {copy.round.waitingForOthers}
+              </p>
             )}
           </Card>
         </div>

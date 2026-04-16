@@ -13,8 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost } from "@/lib/client/api";
 import { placeholderImageUrl } from "@/lib/client/image";
+import { buildCurrentAppPath } from "@/lib/client/paths";
 import { useRoomPresence } from "@/lib/client/room-presence";
-import { resolveUiErrorMessage, toUiError, type UiError } from "@/lib/i18n/errors";
+import {
+  resolveUiErrorMessage,
+  toUiError,
+  type UiError,
+} from "@/lib/i18n/errors";
 import {
   type AttemptData,
   type PlayerData,
@@ -35,7 +40,11 @@ export default function ResultsPage() {
 
   const { language, copy } = useLanguage();
   const { user } = useAuth();
-  const { snapshot } = useRoomSync({ roomId, view: "results", enabled: Boolean(user) });
+  const { snapshot } = useRoomSync({
+    roomId,
+    view: "results",
+    enabled: Boolean(user),
+  });
   const room = snapshot.room as RoomData | null;
   const round = snapshot.round as RoundData | null;
   const scores = snapshot.scores as ScoreEntry[];
@@ -45,23 +54,24 @@ export default function ResultsPage() {
   const turnTimeline = snapshot.turnTimeline;
   const revealLocked = Boolean(snapshot.revealLocked);
   const myRole = snapshot.myRole;
-  const me =
-    user?.uid
-      ? (snapshot.players.find((player) => player.uid === user.uid) as PlayerData | undefined) ?? null
-      : null;
+  const me = user?.uid
+    ? ((snapshot.players.find((player) => player.uid === user.uid) as
+        | PlayerData
+        | undefined) ?? null)
+    : null;
   const allowStayDuringRound = fromRound && room?.status !== "RESULTS";
 
   useEffect(() => {
     if (!room) return;
     if (room.status === "GENERATING_ROUND") {
-      router.replace(`/transition/${roomId}`);
+      router.replace(buildCurrentAppPath(`/transition/${roomId}`));
       return;
     }
     if (room.status === "IN_ROUND" && !allowStayDuringRound) {
-      router.replace(`/round/${roomId}`);
+      router.replace(buildCurrentAppPath(`/round/${roomId}`));
     }
     if (room.status === "LOBBY") {
-      router.replace(`/lobby/${roomId}`);
+      router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
     }
   }, [allowStayDuringRound, room, roomId, router]);
 
@@ -103,11 +113,16 @@ export default function ResultsPage() {
   const isResultsPhase = room?.status === "RESULTS";
   const roundIndex = room?.roundIndex ?? 0;
   const totalRounds = room?.settings?.totalRounds ?? 0;
-  const currentMode = getGameModeDefinition(room?.settings?.gameMode ?? "classic", language);
+  const currentMode = getGameModeDefinition(
+    room?.settings?.gameMode ?? "classic",
+    language,
+  );
   const isImpostorMode =
-    room?.settings?.gameMode === "impostor" && round?.modeState?.kind === "impostor";
+    room?.settings?.gameMode === "impostor" &&
+    round?.modeState?.kind === "impostor";
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
-  const myLatestAttempt = myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
+  const myLatestAttempt =
+    myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
   const [lobbyBusy, setLobbyBusy] = useState(false);
   const [voteBusy, setVoteBusy] = useState(false);
@@ -120,27 +135,35 @@ export default function ResultsPage() {
       return copy.results.waitingScoring;
     }
     return null;
-  }, [copy.results.waitingGenerating, copy.results.waitingScoring, room?.status]);
+  }, [
+    copy.results.waitingGenerating,
+    copy.results.waitingScoring,
+    room?.status,
+  ]);
   const orderedTurnTimeline = useMemo(() => {
     const turnOrder = round?.modeState?.turnOrder;
     if (!turnOrder?.length) {
       return turnTimeline;
     }
 
-    const timelineByUid = new Map(turnTimeline.map((entry) => [entry.uid, entry] as const));
+    const timelineByUid = new Map(
+      turnTimeline.map((entry) => [entry.uid, entry] as const),
+    );
     const orderedEntries = turnOrder.flatMap((uid) => {
       const entry = timelineByUid.get(uid);
       return entry ? [entry] : [];
     });
     const orderedUidSet = new Set(turnOrder);
-    const extraEntries = turnTimeline.filter((entry) => !orderedUidSet.has(entry.uid));
+    const extraEntries = turnTimeline.filter(
+      (entry) => !orderedUidSet.has(entry.uid),
+    );
 
     return [...orderedEntries, ...extraEntries];
   }, [round?.modeState?.turnOrder, turnTimeline]);
 
   const onNext = async () => {
     if (!me?.isHost || !room) return;
-    router.push(`/transition/${roomId}?start=1`);
+    router.push(buildCurrentAppPath(`/transition/${roomId}?start=1`));
   };
 
   const onLeave = () => {
@@ -151,7 +174,7 @@ export default function ResultsPage() {
         setLobbyBusy(true);
         try {
           await apiPost("/api/rooms/back-to-lobby", { roomId });
-          router.replace(`/lobby/${roomId}`);
+          router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
         } catch (error) {
           console.error("impostor return to lobby failed", error);
         } finally {
@@ -171,7 +194,7 @@ export default function ResultsPage() {
         }
       }
 
-      router.push(`/lobby/${roomId}`);
+      router.push(buildCurrentAppPath(`/lobby/${roomId}`));
     };
 
     void leave();
@@ -206,11 +229,14 @@ export default function ResultsPage() {
 
   if (isImpostorMode) {
     const accusedUid = round.modeState?.voteTarget ?? null;
-    const impostorUid = orderedTurnTimeline.find((entry) => entry.role === "impostor")?.uid ?? null;
+    const impostorUid =
+      orderedTurnTimeline.find((entry) => entry.role === "impostor")?.uid ??
+      null;
     const crewWin =
       !revealLocked &&
       finalSimilarityScore !== null &&
-      (finalSimilarityScore >= 70 || (accusedUid !== null && accusedUid === impostorUid));
+      (finalSimilarityScore >= 70 ||
+        (accusedUid !== null && accusedUid === impostorUid));
     const canReturnToLobby = Boolean(me?.isHost) && isResultsPhase;
     const myVoteTargetUid = voteProgress?.meTargetUid ?? null;
     const useFixedDesktopVoteGrid = orderedTurnTimeline.length <= 6;
@@ -224,13 +250,25 @@ export default function ResultsPage() {
       >
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div className="min-w-0">
-            <p className="text-sm font-black uppercase tracking-wide">Round {round.index} Result</p>
+            <p className="text-sm font-black tracking-wide uppercase">
+              Round {round.index} Result
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h1 className="text-4xl leading-none md:text-5xl">Art Impostor</h1>
-              <Badge className={revealLocked ? "bg-white" : "bg-[var(--pmb-green)]"}>
+              <h1 className="text-4xl leading-none md:text-5xl">
+                Art Impostor
+              </h1>
+              <Badge
+                className={revealLocked ? "bg-white" : "bg-[var(--pmb-green)]"}
+              >
                 {revealLocked ? copy.common.voting : copy.common.reveal}
               </Badge>
-              <Badge className={myRole === "impostor" ? "bg-[var(--pmb-red)] text-white" : "bg-white"}>
+              <Badge
+                className={
+                  myRole === "impostor"
+                    ? "bg-[var(--pmb-red)] text-white"
+                    : "bg-white"
+                }
+              >
                 {myRole === "impostor"
                   ? `${copy.common.you}: ${copy.common.impostor}`
                   : `${copy.common.you}: ${copy.common.agent}`}
@@ -243,7 +281,9 @@ export default function ResultsPage() {
                 <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
               </Badge>
             ) : (
-              <Badge className="bg-[var(--pmb-green)]">{copy.common.nextRoundReady}</Badge>
+              <Badge className="bg-[var(--pmb-green)]">
+                {copy.common.nextRoundReady}
+              </Badge>
             )}
             <div className="flex w-full flex-wrap gap-2 md:justify-end">
               {!isFinalRound ? (
@@ -272,11 +312,17 @@ export default function ResultsPage() {
               </Button>
             </div>
             {lobbyBusy ? (
-              <p className="text-xs font-semibold">{copy.results.returningToLobby}</p>
+              <p className="text-xs font-semibold">
+                {copy.results.returningToLobby}
+              </p>
             ) : !me?.isHost ? (
-              <p className="text-xs font-semibold">{copy.results.waitingHostReturn}</p>
+              <p className="text-xs font-semibold">
+                {copy.results.waitingHostReturn}
+              </p>
             ) : canReturnToLobby ? (
-              <p className="text-xs font-semibold">{copy.results.returnToLobbyHint}</p>
+              <p className="text-xs font-semibold">
+                {copy.results.returnToLobbyHint}
+              </p>
             ) : null}
           </div>
         </header>
@@ -319,11 +365,13 @@ export default function ResultsPage() {
               <div
                 className={cn(
                   "grid w-full min-w-0 gap-2 sm:grid-cols-2",
-                  useFixedDesktopVoteGrid ? "lg:w-[360px] lg:shrink-0" : "lg:w-auto",
+                  useFixedDesktopVoteGrid
+                    ? "lg:w-[360px] lg:shrink-0"
+                    : "lg:w-auto",
                 )}
               >
                 <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em]">
+                  <p className="text-[10px] font-black tracking-[0.16em] uppercase">
                     {copy.results.finalSimilarity}
                   </p>
                   <p className="mt-1 font-mono text-xl font-black md:text-2xl">
@@ -331,14 +379,16 @@ export default function ResultsPage() {
                   </p>
                 </div>
                 <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em]">
+                  <p className="text-[10px] font-black tracking-[0.16em] uppercase">
                     {copy.results.voteProgress}
                   </p>
                   <p className="mt-1 font-mono text-xl font-black md:text-2xl">
                     {voteProgress?.submitted ?? 0} / {voteProgress?.total ?? 0}
                   </p>
                   <p className="mt-1 text-[11px] font-semibold">
-                    {myVoteTargetUid ? copy.results.voteSubmitted : copy.results.votePending}
+                    {myVoteTargetUid
+                      ? copy.results.voteSubmitted
+                      : copy.results.votePending}
                   </p>
                 </div>
               </div>
@@ -357,7 +407,9 @@ export default function ResultsPage() {
                   voteError ? "mt-2" : "mt-2.5",
                 )}
               >
-                <p className="text-xs font-black uppercase tracking-[0.16em]">{copy.results.outcome}</p>
+                <p className="text-xs font-black tracking-[0.16em] uppercase">
+                  {copy.results.outcome}
+                </p>
                 <p className="mt-1 text-2xl font-black">
                   {crewWin ? copy.results.crewWin : copy.results.impostorWin}
                 </p>
@@ -374,7 +426,12 @@ export default function ResultsPage() {
               </div>
             ) : null}
 
-            <div className={cn("min-h-0 flex-1 overflow-hidden", revealLocked ? "mt-2.5" : "mt-2")}>
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-hidden",
+                revealLocked ? "mt-2.5" : "mt-2",
+              )}
+            >
               <div
                 className={cn(
                   "grid h-full min-h-0",
@@ -385,7 +442,9 @@ export default function ResultsPage() {
               >
                 {orderedTurnTimeline.map((entry, index) => {
                   const votedPlayer = !revealLocked
-                    ? snapshot.players.find((player) => player.uid === entry.votedForUid)
+                    ? snapshot.players.find(
+                        (player) => player.uid === entry.votedForUid,
+                      )
                     : null;
                   const isSelfCard = entry.uid === user?.uid;
                   const isSelectedVote = myVoteTargetUid === entry.uid;
@@ -407,14 +466,27 @@ export default function ResultsPage() {
                         )}
                       >
                         <img
-                          src={entry.imageUrl || placeholderImageUrl(entry.displayName)}
+                          src={
+                            entry.imageUrl ||
+                            placeholderImageUrl(entry.displayName)
+                          }
                           alt={entry.displayName}
                           className="h-full w-full object-contain p-1"
                         />
                       </div>
 
-                      <div className={cn("flex min-h-0 flex-1 flex-col", useFixedDesktopVoteGrid ? "mt-2" : "mt-3")}>
-                        <div className={cn("flex flex-wrap items-center", useFixedDesktopVoteGrid ? "gap-1.5" : "gap-2")}>
+                      <div
+                        className={cn(
+                          "flex min-h-0 flex-1 flex-col",
+                          useFixedDesktopVoteGrid ? "mt-2" : "mt-3",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex flex-wrap items-center",
+                            useFixedDesktopVoteGrid ? "gap-1.5" : "gap-2",
+                          )}
+                        >
                           <p
                             className={cn(
                               "min-w-0 flex-1 truncate font-black",
@@ -423,8 +495,16 @@ export default function ResultsPage() {
                           >
                             {index + 1}. {entry.displayName}
                           </p>
-                          {entry.kind === "cpu" ? <Badge className="bg-white">{copy.common.cpu}</Badge> : null}
-                          {entry.uid === user?.uid ? <Badge className="bg-white">{copy.common.you}</Badge> : null}
+                          {entry.kind === "cpu" ? (
+                            <Badge className="bg-white">
+                              {copy.common.cpu}
+                            </Badge>
+                          ) : null}
+                          {entry.uid === user?.uid ? (
+                            <Badge className="bg-white">
+                              {copy.common.you}
+                            </Badge>
+                          ) : null}
                           {!revealLocked && entry.role ? (
                             <Badge
                               className={
@@ -433,7 +513,9 @@ export default function ResultsPage() {
                                   : "bg-[var(--pmb-green)] text-white"
                               }
                             >
-                              {entry.role === "impostor" ? copy.common.impostor : copy.common.agent}
+                              {entry.role === "impostor"
+                                ? copy.common.impostor
+                                : copy.common.agent}
                             </Badge>
                           ) : null}
                         </div>
@@ -441,19 +523,33 @@ export default function ResultsPage() {
                         <div
                           className={cn(
                             "flex flex-wrap items-center justify-between",
-                            useFixedDesktopVoteGrid ? "mt-1.5 gap-1.5" : "mt-2 gap-2",
+                            useFixedDesktopVoteGrid
+                              ? "mt-1.5 gap-1.5"
+                              : "mt-2 gap-2",
                           )}
                         >
-                          <p className={cn("font-mono font-black", useFixedDesktopVoteGrid ? "text-base" : "text-lg")}>
+                          <p
+                            className={cn(
+                              "font-mono font-black",
+                              useFixedDesktopVoteGrid ? "text-base" : "text-lg",
+                            )}
+                          >
                             {copy.common.points(entry.similarityScore)}
                           </p>
                           {entry.timedOut ? (
-                            <Badge className="bg-white px-2 py-0 text-[10px]">{copy.common.timeout}</Badge>
+                            <Badge className="bg-white px-2 py-0 text-[10px]">
+                              {copy.common.timeout}
+                            </Badge>
                           ) : null}
                         </div>
 
                         {revealLocked ? (
-                          <div className={cn("mt-auto", useFixedDesktopVoteGrid ? "pt-2" : "pt-3")}>
+                          <div
+                            className={cn(
+                              "mt-auto",
+                              useFixedDesktopVoteGrid ? "pt-2" : "pt-3",
+                            )}
+                          >
                             <Button
                               type="button"
                               variant="ghost"
@@ -461,7 +557,9 @@ export default function ResultsPage() {
                               onClick={() => void onVote(entry.uid)}
                               className={cn(
                                 "w-full text-sm font-black",
-                                useFixedDesktopVoteGrid ? "px-2 py-2 leading-tight" : "",
+                                useFixedDesktopVoteGrid
+                                  ? "px-2 py-2 leading-tight"
+                                  : "",
                                 isSelfCard
                                   ? "bg-zinc-200 text-zinc-600 disabled:opacity-100 disabled:shadow-[3px_3px_0_var(--pmb-ink)]"
                                   : isSelectedVote
@@ -480,7 +578,9 @@ export default function ResultsPage() {
                           <div
                             className={cn(
                               "min-h-0 flex-1 overflow-y-auto pr-1 font-semibold",
-                              useFixedDesktopVoteGrid ? "mt-1.5 text-[11px] leading-snug" : "mt-2 text-xs",
+                              useFixedDesktopVoteGrid
+                                ? "mt-1.5 text-[11px] leading-snug"
+                                : "mt-2 text-xs",
                             )}
                           >
                             {entry.prompt ? (
@@ -490,25 +590,31 @@ export default function ResultsPage() {
                                   useFixedDesktopVoteGrid ? "p-1.5" : "p-2",
                                 )}
                               >
-                                <p className="text-[10px] font-black uppercase tracking-wide">
+                                <p className="text-[10px] font-black tracking-wide uppercase">
                                   {copy.common.prompt}
                                 </p>
-                                <p className="mt-1 break-words leading-relaxed">{entry.prompt}</p>
+                                <p className="mt-1 leading-relaxed break-words">
+                                  {entry.prompt}
+                                </p>
                               </div>
                             ) : null}
 
                             <div className="mt-2 break-words">
                               <p>
                                 {copy.common.matched(
-                                  (entry.matchedElements ?? []).join(" / ") || copy.common.none,
+                                  (entry.matchedElements ?? []).join(" / ") ||
+                                    copy.common.none,
                                 )}
                               </p>
                               <p className="mt-1">
                                 {copy.common.missing(
-                                  (entry.missingElements ?? []).join(" / ") || copy.common.none,
+                                  (entry.missingElements ?? []).join(" / ") ||
+                                    copy.common.none,
                                 )}
                               </p>
-                              {entry.judgeNote ? <p className="mt-1">{entry.judgeNote}</p> : null}
+                              {entry.judgeNote ? (
+                                <p className="mt-1">{entry.judgeNote}</p>
+                              ) : null}
                               <p className="mt-1">
                                 {copy.common.votedFor(
                                   votedPlayer?.displayName ??
@@ -535,110 +641,136 @@ export default function ResultsPage() {
   return (
     <>
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
-        <div>
-          <p className="text-sm font-black uppercase tracking-wide">
-            {copy.common.roundResult(round.index)}
-          </p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-4xl leading-none md:text-5xl">{copy.results.rankingAnnouncement}</h1>
-            <Badge className="bg-white">{currentMode.label}</Badge>
+        <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
+          <div>
+            <p className="text-sm font-black tracking-wide uppercase">
+              {copy.common.roundResult(round.index)}
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h1 className="text-4xl leading-none md:text-5xl">
+                {copy.results.rankingAnnouncement}
+              </h1>
+              <Badge className="bg-white">{currentMode.label}</Badge>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          {isFinalRound ? (
-            <Badge className="bg-[var(--pmb-red)] text-white">
-              <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
-            </Badge>
-          ) : (
-            <Badge className="bg-[var(--pmb-green)]">{copy.common.nextRoundReady}</Badge>
-          )}
-          <div className="flex flex-wrap justify-end gap-2">
-            {!isFinalRound ? (
+          <div className="flex flex-col items-end gap-2">
+            {isFinalRound ? (
+              <Badge className="bg-[var(--pmb-red)] text-white">
+                <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
+              </Badge>
+            ) : (
+              <Badge className="bg-[var(--pmb-green)]">
+                {copy.common.nextRoundReady}
+              </Badge>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              {!isFinalRound ? (
+                <Button
+                  type="button"
+                  variant="accent"
+                  onClick={onNext}
+                  disabled={!me?.isHost || !isResultsPhase}
+                >
+                  <ChevronRight className="mr-1 h-4 w-4" />
+                  {copy.results.nextRound}
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                variant="accent"
-                onClick={onNext}
-                disabled={!me?.isHost || !isResultsPhase}
+                variant="ghost"
+                onClick={onLeave}
+                disabled={lobbyBusy}
               >
-                <ChevronRight className="mr-1 h-4 w-4" />
-                {copy.results.nextRound}
+                {lobbyBusy ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <LogOut className="mr-2 h-4 w-4" />
+                )}
+                {copy.results.backToLobby}
               </Button>
+            </div>
+            {!me?.isHost && !isFinalRound ? (
+              <p className="text-xs font-semibold">
+                {copy.results.hostOnlyNextStep}
+              </p>
             ) : null}
-            <Button type="button" variant="ghost" onClick={onLeave} disabled={lobbyBusy}>
-              {lobbyBusy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
-              {copy.results.backToLobby}
-            </Button>
+            {room.status === "GENERATING_ROUND" && !isFinalRound ? (
+              <p className="flex items-center gap-2 text-xs font-semibold">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                {copy.results.startingNextRound}
+              </p>
+            ) : null}
           </div>
-          {!me?.isHost && !isFinalRound ? (
-            <p className="text-xs font-semibold">{copy.results.hostOnlyNextStep}</p>
-          ) : null}
-          {room.status === "GENERATING_ROUND" && !isFinalRound ? (
-            <p className="flex items-center gap-2 text-xs font-semibold">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              {copy.results.startingNextRound}
+        </header>
+
+        {!isResultsPhase && waitingMessage ? (
+          <Card className="bg-white p-3">
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              {waitingMessage}
             </p>
-          ) : null}
-        </div>
-      </header>
+          </Card>
+        ) : null}
 
-      {!isResultsPhase && waitingMessage ? (
-        <Card className="bg-white p-3">
-          <p className="flex items-center gap-2 text-sm font-semibold">
-            <LoaderCircle className="h-4 w-4 animate-spin" />
-            {waitingMessage}
-          </p>
-        </Card>
-      ) : null}
-
-      <section className="min-h-0 flex-1 overflow-hidden">
-        <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch">
-            <div className="min-h-0 lg:flex lg:h-full lg:flex-col">
-              <p className="h-7 text-base font-black md:text-lg">{copy.results.targetImage}</p>
-              <div className="mt-2 h-[220px] w-full shrink-0 sm:h-[260px] lg:h-[240px] xl:h-[280px]">
-                <img
-                  src={round.targetImageUrl || placeholderImageUrl(round.gmTitle || `round-${round.index}`)}
-                  alt="target"
-                  className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
-                />
-              </div>
-              {round.reveal?.gmPromptPublic ? (
-                <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                  <p className="shrink-0 text-xs font-bold">{copy.results.answerPrompt}</p>
-                  <div className="mt-1 h-full max-h-[min(28vh,220px)] overflow-y-auto pr-1">
-                    <p className="font-mono text-xs font-semibold break-words">
-                      {round.reveal.gmPromptPublic}
-                    </p>
-                  </div>
+        <section className="min-h-0 flex-1 overflow-hidden">
+          <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+            <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch">
+              <div className="min-h-0 lg:flex lg:h-full lg:flex-col">
+                <p className="h-7 text-base font-black md:text-lg">
+                  {copy.results.targetImage}
+                </p>
+                <div className="mt-2 h-[220px] w-full shrink-0 sm:h-[260px] lg:h-[240px] xl:h-[280px]">
+                  <img
+                    src={
+                      round.targetImageUrl ||
+                      placeholderImageUrl(
+                        round.gmTitle || `round-${round.index}`,
+                      )
+                    }
+                    alt="target"
+                    className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                  />
                 </div>
-              ) : null}
-            </div>
+                {round.reveal?.gmPromptPublic ? (
+                  <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                    <p className="shrink-0 text-xs font-bold">
+                      {copy.results.answerPrompt}
+                    </p>
+                    <div className="mt-1 h-full max-h-[min(28vh,220px)] overflow-y-auto pr-1">
+                      <p className="font-mono text-xs font-semibold break-words">
+                        {round.reveal.gmPromptPublic}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
-            <div className="min-h-0 overflow-hidden lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-              <p className="h-7 text-base font-black md:text-lg">{copy.results.generatedImages}</p>
-              <div className="mt-2 min-h-0 flex-1 overflow-hidden pb-2">
-                <Podium
-                  entries={sortedScores}
-                  myUid={user?.uid}
-                  myEntryFooter={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowJudgeReason(true)}
-                      disabled={!myLatestAttempt}
-                      className="w-full bg-white"
-                    >
-                      {copy.results.showJudgeNotes}
-                    </Button>
-                  }
-                />
+              <div className="min-h-0 overflow-hidden lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                <p className="h-7 text-base font-black md:text-lg">
+                  {copy.results.generatedImages}
+                </p>
+                <div className="mt-2 min-h-0 flex-1 overflow-hidden pb-2">
+                  <Podium
+                    entries={sortedScores}
+                    myUid={user?.uid}
+                    myEntryFooter={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setShowJudgeReason(true)}
+                        disabled={!myLatestAttempt}
+                        className="w-full bg-white"
+                      >
+                        {copy.results.showJudgeNotes}
+                      </Button>
+                    }
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
-      </section>
-    </main>
+          </Card>
+        </section>
+      </main>
 
       {showJudgeReason ? (
         <div
@@ -651,8 +783,12 @@ export default function ResultsPage() {
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em]">{copy.common.judgeNote}</p>
-                <h2 className="mt-1 text-2xl md:text-3xl">{copy.results.yourJudgeNotes}</h2>
+                <p className="text-xs font-black tracking-[0.18em] uppercase">
+                  {copy.common.judgeNote}
+                </p>
+                <h2 className="mt-1 text-2xl md:text-3xl">
+                  {copy.results.yourJudgeNotes}
+                </h2>
               </div>
               <Button
                 type="button"
@@ -670,12 +806,16 @@ export default function ResultsPage() {
                 <>
                   {myLatestAttempt.matchedElements?.length ? (
                     <p className="text-[var(--pmb-green)]">
-                      {copy.common.matched(myLatestAttempt.matchedElements.join(" / "))}
+                      {copy.common.matched(
+                        myLatestAttempt.matchedElements.join(" / "),
+                      )}
                     </p>
                   ) : null}
                   {myLatestAttempt.missingElements?.length ? (
                     <p className="mt-1 text-[var(--pmb-red)]">
-                      {copy.common.missing(myLatestAttempt.missingElements.join(" / "))}
+                      {copy.common.missing(
+                        myLatestAttempt.missingElements.join(" / "),
+                      )}
                     </p>
                   ) : (
                     <p className="mt-1">{copy.results.noMissing}</p>

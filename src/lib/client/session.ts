@@ -1,3 +1,5 @@
+import { buildCurrentApiPath } from "@/lib/client/paths";
+
 export interface AnonymousSession {
   uid: string;
   issuedAt?: string | number;
@@ -25,7 +27,10 @@ function parseSession(payload: unknown): AnonymousSession | null {
       const issuedAt = session.issuedAt;
       return {
         uid,
-        issuedAt: typeof issuedAt === "string" || typeof issuedAt === "number" ? issuedAt : undefined,
+        issuedAt:
+          typeof issuedAt === "string" || typeof issuedAt === "number"
+            ? issuedAt
+            : undefined,
       };
     }
   }
@@ -34,7 +39,7 @@ function parseSession(payload: unknown): AnonymousSession | null {
 }
 
 export async function bootstrapAnonymousSession(): Promise<AnonymousSession> {
-  const response = await fetch("/api/auth/anonymous", {
+  const response = await fetch(buildCurrentApiPath("/api/auth/anonymous"), {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -46,9 +51,12 @@ export async function bootstrapAnonymousSession(): Promise<AnonymousSession> {
   const json = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     const message =
-      (json && typeof json === "object" && "error" in json
-        ? String((json as Record<string, unknown>).error ?? "Session bootstrap failed")
-        : "Session bootstrap failed");
+      json && typeof json === "object" && "error" in json
+        ? String(
+            (json as Record<string, unknown>).error ??
+              "Session bootstrap failed",
+          )
+        : "Session bootstrap failed";
     throw new Error(message);
   }
 
