@@ -395,4 +395,74 @@ describe("POST /api/rounds/submit reservations", () => {
       updatedState?.attempts["round-1"]?.anon_1?.attempts[0]?.judgeNote,
     ).toBe("画像の見た目比較で採点");
   });
+
+  it("logs the image generation stage when image generation fails", async () => {
+    await saveRoomState(createRoundState());
+    mockGenerateImage.mockRejectedValueOnce(
+      new Error("generation backend exploded"),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { POST } = await import("@/app/api/rounds/submit/route");
+    const response = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "prompt text",
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledWith(
+      "round submit stage failed",
+      expect.objectContaining({
+        stage: "image_generation",
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "anon_1",
+      }),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("logs the visual scoring stage when judging fails", async () => {
+    await saveRoomState(createRoundState());
+    mockGenerateImage.mockResolvedValueOnce({
+      mimeType: "image/png",
+      base64Data: Buffer.from("generated-image").toString("base64"),
+      directUrl: "https://example.com/generated.png",
+    });
+    mockImageToPublicUrl.mockReturnValue("https://example.com/generated.png");
+    mockScoreImageSimilarity.mockRejectedValueOnce(
+      new Error("judge backend exploded"),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { POST } = await import("@/app/api/rounds/submit/route");
+    const response = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "prompt text",
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledWith(
+      "round submit stage failed",
+      expect.objectContaining({
+        stage: "visual_scoring",
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "anon_1",
+      }),
+    );
+
+    consoleError.mockRestore();
+  });
 });

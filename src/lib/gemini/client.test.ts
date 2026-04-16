@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  GEMINI_INVALID_API_KEY_MESSAGE,
+  GEMINI_INVALID_REQUEST_MESSAGE,
+  GEMINI_QUOTA_EXHAUSTED_MESSAGE,
+} from "@/lib/gemini/error-messages";
+
 const generateContent = vi.fn();
 const googleGenAICtor = vi.fn();
 
@@ -228,6 +234,18 @@ describe("generateImage", () => {
 
     expect(result.base64Data).toBe(Buffer.from("fake-image").toString("base64"));
     expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash-image",
+      contents: "A neon fox racing through a rainy alley",
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+        },
+      },
+    });
+    expect(generateContent.mock.calls[0]?.[0]?.config).not.toHaveProperty(
+      "responseModalities",
+    );
   });
 
   it("accepts image data from a later candidate", async () => {
@@ -284,5 +302,133 @@ describe("generateImage", () => {
 
     expect(result.base64Data).toBe(Buffer.from("generated-image").toString("base64"));
     expect(result.mimeType).toBe("image/jpeg");
+  });
+
+  it("coerces overlong visual score arrays into the schema limits", async () => {
+    generateContent.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  score: 100,
+                  matchedElements: [
+                    "one",
+                    "two",
+                    "three",
+                    "four",
+                    "five",
+                    "six",
+                    "seven",
+                    "eight",
+                  ],
+                  missingElements: [],
+                  note: "Perfect match across all visible elements.",
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const { scoreImageSimilarity } = await import("@/lib/gemini/client");
+    const result = await scoreImageSimilarity({
+      targetImage: {
+        mimeType: "image/png",
+        base64Data: Buffer.from("fake-image").toString("base64"),
+      },
+      attemptImage: {
+        mimeType: "image/png",
+        base64Data: Buffer.from("fake-image").toString("base64"),
+      },
+      language: "en",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.matchedElements).toEqual([
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+    ]);
+  });
+
+  it("classifies invalid API key failures", async () => {
+    generateContent.mockRejectedValue({
+      status: 403,
+      error: {
+        message: "API key not valid. Please pass a valid API key.",
+        status: "PERMISSION_DENIED",
+      },
+      message: "Request failed with status 403",
+    });
+
+    const { generateImage } = await import("@/lib/gemini/client");
+
+    await expect(
+      generateImage({
+        prompt: "A tiny castle on a peach cloud",
+        aspectRatio: "1:1",
+      }),
+    ).rejects.toMatchObject({
+      code: "GEMINI_ERROR",
+      message: GEMINI_INVALID_API_KEY_MESSAGE,
+      status: 403,
+      retryable: false,
+    });
+  });
+
+  it("classifies quota exhaustion failures", async () => {
+    generateContent.mockRejectedValue({
+      status: 429,
+      error: {
+        message: "Resource has been exhausted (e.g. check quota).",
+        status: "RESOURCE_EXHAUSTED",
+      },
+      message: "429 RESOURCE_EXHAUSTED",
+    });
+
+    const { generateImage } = await import("@/lib/gemini/client");
+
+    await expect(
+      generateImage({
+        prompt: "A tiny castle on a peach cloud",
+        aspectRatio: "1:1",
+      }),
+    ).rejects.toMatchObject({
+      code: "GEMINI_ERROR",
+      message: GEMINI_QUOTA_EXHAUSTED_MESSAGE,
+      status: 429,
+      retryable: true,
+    });
+  });
+
+  it("classifies malformed image generation requests", async () => {
+    generateContent.mockRejectedValue({
+      status: 400,
+      error: {
+        message: "Invalid argument: unsupported responseModalities value",
+        status: "INVALID_ARGUMENT",
+      },
+      message: "400 INVALID_ARGUMENT",
+    });
+
+    const { generateImage } = await import("@/lib/gemini/client");
+
+    await expect(
+      generateImage({
+        prompt: "A tiny castle on a peach cloud",
+        aspectRatio: "1:1",
+      }),
+    ).rejects.toMatchObject({
+      code: "GEMINI_ERROR",
+      message: GEMINI_INVALID_REQUEST_MESSAGE,
+      status: 400,
+      retryable: false,
+    });
   });
 });

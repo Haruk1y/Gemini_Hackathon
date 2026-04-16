@@ -1,6 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 
+import {
+  GEMINI_BLOCKED_API_KEY_MESSAGE,
+  GEMINI_INVALID_API_KEY_MESSAGE,
+  GEMINI_INVALID_REQUEST_MESSAGE,
+  GEMINI_MISSING_IMAGE_DATA_MESSAGE,
+  GEMINI_QUOTA_EXHAUSTED_MESSAGE,
+  GEMINI_SAFETY_BLOCKED_MESSAGE,
+  GEMINI_TEXT_ONLY_RESPONSE_MESSAGE,
+} from "@/lib/gemini/error-messages";
 import { AppError } from "@/lib/utils/errors";
 import {
   DEFAULT_LANGUAGE,
@@ -54,7 +63,159 @@ function sleep(ms: number) {
   });
 }
 
-async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractGeminiErrorInfo(error: unknown): {
+  message: string;
+  status?: number;
+  apiStatus?: string;
+  apiMessage?: string;
+  details?: Record<string, unknown>[];
+} {
+  const record = asRecord(error);
+  const directError = asRecord(record?.error);
+  const wrappedError = asRecord(directError?.error);
+  const payload = wrappedError ?? directError;
+  const details = Array.isArray(payload?.details)
+    ? (payload.details.filter((detail): detail is Record<string, unknown> => Boolean(asRecord(detail))))
+    : undefined;
+
+  return {
+    message:
+      typeof record?.message === "string"
+        ? record.message
+        : error instanceof Error
+          ? error.message
+          : String(error),
+    status:
+      typeof record?.status === "number"
+        ? record.status
+        : typeof payload?.code === "number"
+          ? payload.code
+          : undefined,
+    apiStatus: typeof payload?.status === "string" ? payload.status : undefined,
+    apiMessage: typeof payload?.message === "string" ? payload.message : undefined,
+    details,
+  };
+}
+
+function classifyGeminiError(error: unknown): AppError | null {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  const { message, status, apiStatus, apiMessage, details } =
+    extractGeminiErrorInfo(error);
+  const combined = [
+    message,
+    apiStatus,
+    apiMessage,
+    details ? JSON.stringify(details) : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (
+    /blocked|disabled|revoked|expired|compromised|leaked/i.test(combined)
+  ) {
+    return new AppError(
+      "GEMINI_ERROR",
+      GEMINI_BLOCKED_API_KEY_MESSAGE,
+      false,
+      status ?? 503,
+    );
+  }
+
+  if (
+    status === 401 ||
+    /api key.*(invalid|not valid|missing)|invalid api key|api_key_invalid|permission[_ ]denied|forbidden|unauthorized/i.test(
+      combined,
+    )
+  ) {
+    return new AppError(
+      "GEMINI_ERROR",
+      GEMINI_INVALID_API_KEY_MESSAGE,
+      false,
+      status ?? 401,
+    );
+  }
+
+  if (
+    status === 403 &&
+    /permission[_ ]denied|forbidden|insufficient permission/i.test(combined)
+  ) {
+    return new AppError(
+      "GEMINI_ERROR",
+      GEMINI_INVALID_API_KEY_MESSAGE,
+      false,
+      status,
+    );
+  }
+
+  if (
+    status === 429 ||
+    /resource_exhausted|quota|rate limit|too many requests/i.test(combined)
+  ) {
+    return new AppError(
+      "GEMINI_ERROR",
+      GEMINI_QUOTA_EXHAUSTED_MESSAGE,
+      true,
+      status ?? 429,
+    );
+  }
+
+  if (
+    status === 400 ||
+    /invalid_argument|unsupported|responsemodalities|imageconfig|aspectratio/i.test(
+      combined,
+    )
+  ) {
+    return new AppError(
+      "GEMINI_ERROR",
+      GEMINI_INVALID_REQUEST_MESSAGE,
+      false,
+      status ?? 400,
+    );
+  }
+
+  if (/timeout|deadline exceeded|timed out/i.test(combined)) {
+    return new AppError(
+      "GEMINI_ERROR",
+      "Gemini request timed out. Please try again in a moment.",
+      true,
+      status ?? 504,
+    );
+  }
+
+  if (status && status >= 500) {
+    return new AppError(
+      "GEMINI_ERROR",
+      "Gemini service is temporarily unavailable. Please try again in a moment.",
+      true,
+      status,
+    );
+  }
+
+  if (status || apiStatus || apiMessage || /gemini|google/i.test(message)) {
+    return new AppError(
+      "GEMINI_ERROR",
+      "Gemini request failed. Please try again in a moment.",
+      Boolean(status === 429 || (status && status >= 500)),
+      status ?? 502,
+    );
+  }
+
+  return null;
+}
+
+async function withRetries<T>(
+  fn: () => Promise<T>,
+  normalizeError?: (error: unknown) => AppError | null,
+): Promise<T> {
   const delays = [250, 750, 1500];
   let lastError: unknown = null;
 
@@ -62,11 +223,13 @@ async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (error) {
-      lastError = error;
-      const asString = String(error);
-      const retryable = /429|RESOURCE_EXHAUSTED|503|500|timeout/i.test(asString);
+      const normalized = normalizeError?.(error) ?? null;
+      lastError = normalized ?? error;
+      const retryable =
+        normalized?.retryable ??
+        /429|RESOURCE_EXHAUSTED|503|500|timeout/i.test(String(error));
       if (!retryable) {
-        throw error;
+        throw normalized ?? error;
       }
       await sleep(delay + Math.floor(Math.random() * 120));
     }
@@ -208,6 +371,57 @@ function parseStructuredText<T>(
   }
 
   return null;
+}
+
+function coerceStringList(value: unknown, maxItems: number): string[] {
+  if (Array.isArray(value)) {
+    return uniqueStrings(
+      value.filter((item): item is string => typeof item === "string"),
+    ).slice(0, maxItems);
+  }
+
+  if (typeof value === "string") {
+    return uniqueStrings(
+      value
+        .split(/\n|,|\/|\u2022|・/g)
+        .map((part) => part.trim())
+        .filter(Boolean),
+    ).slice(0, maxItems);
+  }
+
+  return [];
+}
+
+function coerceVisualScoreCandidate(candidate: unknown): VisualScoreSchema | null {
+  const record = asRecord(candidate);
+  if (!record) {
+    return null;
+  }
+
+  const rawScore = record.score;
+  const score =
+    typeof rawScore === "number"
+      ? Math.round(rawScore)
+      : typeof rawScore === "string"
+        ? Math.round(Number.parseFloat(rawScore))
+        : Number.NaN;
+
+  if (!Number.isFinite(score)) {
+    return null;
+  }
+
+  const normalized = {
+    score: Math.min(100, Math.max(0, score)),
+    matchedElements: coerceStringList(record.matchedElements, 6),
+    missingElements: coerceStringList(record.missingElements, 6),
+    note:
+      typeof record.note === "string"
+        ? normalizeText(record.note, 240)
+        : "",
+  };
+
+  const parsed = visualScoreSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : null;
 }
 
 function responseText(response: {
@@ -408,7 +622,7 @@ function imageGenerationErrorMessage(response: {
   text?: string;
 }): string {
   if (response.promptFeedback?.blockReason) {
-    return "画像生成がブロックされました。表現を少し変えて再試行してください。";
+    return GEMINI_SAFETY_BLOCKED_MESSAGE;
   }
 
   const finishReasons = (response.candidates ?? [])
@@ -416,14 +630,14 @@ function imageGenerationErrorMessage(response: {
     .filter((reason): reason is string => typeof reason === "string");
 
   if (finishReasons.some((reason) => reason === "SAFETY" || reason === "IMAGE_SAFETY")) {
-    return "画像生成が安全フィルタで止まりました。表現を少し変えて再試行してください。";
+    return GEMINI_SAFETY_BLOCKED_MESSAGE;
   }
 
   if (response.text?.trim()) {
-    return "画像ではなくテキスト応答が返りました。少し待って再試行してください。";
+    return GEMINI_TEXT_ONLY_RESPONSE_MESSAGE;
   }
 
-  return "Gemini did not return image data";
+  return GEMINI_MISSING_IMAGE_DATA_MESSAGE;
 }
 
 function getAiClient(): GoogleGenAI {
@@ -453,19 +667,21 @@ export async function generateGmPrompt(params: {
   let lastError: AppError | null = null;
 
   for (let i = 0; i < GM_PROMPT_ATTEMPTS; i += 1) {
-    const response = await withRetries(() =>
-      client.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: gmSystemPrompt(params.settings) },
-              { text: gmUserPrompt({ aspectRatio: params.settings.aspectRatio }) },
-            ],
-          },
-        ],
-      }),
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: gmSystemPrompt(params.settings) },
+                { text: gmUserPrompt({ aspectRatio: params.settings.aspectRatio }) },
+              ],
+            },
+          ],
+        }),
+      classifyGeminiError,
     );
 
     const text = responseText(response);
@@ -500,25 +716,27 @@ export async function rewriteCpuPrompt(params: {
   let lastError: AppError | null = null;
 
   for (let i = 0; i < CPU_PROMPT_REWRITE_ATTEMPTS; i += 1) {
-    const response = await withRetries(() =>
-      client.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: cpuRewriteSystemPrompt({ role: params.role }) },
-              {
-                text: cpuRewriteUserPrompt({
-                  role: params.role,
-                  caption: params.caption,
-                  reconstructedPrompt: params.reconstructedPrompt,
-                }),
-              },
-            ],
-          },
-        ],
-      }),
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: cpuRewriteSystemPrompt({ role: params.role }) },
+                {
+                  text: cpuRewriteUserPrompt({
+                    role: params.role,
+                    caption: params.caption,
+                    reconstructedPrompt: params.reconstructedPrompt,
+                  }),
+                },
+              ],
+            },
+          ],
+        }),
+      classifyGeminiError,
     );
 
     const text = responseText(response);
@@ -579,17 +797,20 @@ export async function generateImage(params: {
     parts.push({ text: promptVariants[i] ?? params.prompt });
 
     try {
-      const response = await withRetries(() =>
-        client.models.generateContent({
-          model: IMAGE_MODEL,
-          contents: [{ role: "user", parts }],
-          config: {
-            responseModalities: ["IMAGE"],
-            imageConfig: {
-              aspectRatio: params.aspectRatio,
+      const response = await withRetries(
+        () =>
+          client.models.generateContent({
+            model: IMAGE_MODEL,
+            contents: params.sourceImage?.base64Data
+              ? [{ role: "user", parts }]
+              : promptVariants[i] ?? params.prompt,
+            config: {
+              imageConfig: {
+                aspectRatio: params.aspectRatio,
+              },
             },
-          },
-        }),
+          }),
+        classifyGeminiError,
       );
 
       const generatedImage = extractImageResponse(response);
@@ -599,6 +820,7 @@ export async function generateImage(params: {
 
       const responsePreview = responseText(response);
       console.warn("generateImage empty image response", {
+        model: IMAGE_MODEL,
         attempt: i + 1,
         prompt: params.prompt.slice(0, 160),
         finishReasons: (response.candidates ?? []).map((candidate) => candidate.finishReason),
@@ -613,13 +835,17 @@ export async function generateImage(params: {
       );
       await sleep(250 + i * 150);
     } catch (error) {
-      console.error("generateImage failed", error);
-      if (error instanceof AppError) {
-        lastError = error;
-        await sleep(250 + i * 150);
-        continue;
-      }
-      throw new AppError("GEMINI_ERROR", "Image generation failed", true, 502);
+      const classified = classifyGeminiError(error);
+      console.error("generateImage failed", {
+        model: IMAGE_MODEL,
+        prompt: params.prompt.slice(0, 160),
+        status: classified?.status,
+        retryable: classified?.retryable,
+        message:
+          classified?.message ??
+          (error instanceof Error ? error.message : String(error)),
+      });
+      throw classified ?? new AppError("GEMINI_ERROR", "Image generation failed", true, 502);
     }
   }
 
@@ -643,28 +869,30 @@ export async function captionFromImage(
   let lastError: AppError | null = null;
 
   for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
-    const response = await withRetries(() =>
-      client.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                inlineData: {
-                  data: image.base64Data,
-                  mimeType: image.mimeType,
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  inlineData: {
+                    data: image.base64Data,
+                    mimeType: image.mimeType,
+                  },
                 },
-              },
-              { text: captionPrompt },
-            ],
+                { text: captionPrompt },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema,
           },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-        },
-      }),
+        }),
+      classifyGeminiError,
     );
 
     const text = responseText(response);
@@ -711,43 +939,46 @@ export async function scoreImageSimilarity(params: {
   let lastError: AppError | null = null;
 
   for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
-    const response = await withRetries(() =>
-      client.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: "Compare these two images and score their visual similarity from 0 to 100." },
-              { text: "The first image is the target image." },
-              {
-                inlineData: {
-                  data: params.targetImage.base64Data,
-                  mimeType: params.targetImage.mimeType,
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: "Compare these two images and score their visual similarity from 0 to 100." },
+                { text: "The first image is the target image." },
+                {
+                  inlineData: {
+                    data: params.targetImage.base64Data,
+                    mimeType: params.targetImage.mimeType,
+                  },
                 },
-              },
-              { text: "The second image is the player's generated answer image." },
-              {
-                inlineData: {
-                  data: params.attemptImage.base64Data,
-                  mimeType: params.attemptImage.mimeType,
+                { text: "The second image is the player's generated answer image." },
+                {
+                  inlineData: {
+                    data: params.attemptImage.base64Data,
+                    mimeType: params.attemptImage.mimeType,
+                  },
                 },
-              },
-              {
-                text: [
-                  "Scoring rubric: subject 35, composition 20, colors 15, background/props 20, style 10.",
-                  `Write matchedElements, missingElements, and note in ${visualJudgeResponseLanguage(language)}.`,
-                  "Return JSON only, and make score an integer.",
-                ].join("\n"),
-              },
-            ],
+                {
+                  text: [
+                    "Scoring rubric: subject 35, composition 20, colors 15, background/props 20, style 10.",
+                    "Return at most 6 matchedElements and at most 6 missingElements.",
+                    `Write matchedElements, missingElements, and note in ${visualJudgeResponseLanguage(language)}.`,
+                    "Return JSON only, and make score an integer.",
+                  ].join("\n"),
+                },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema,
           },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-        },
-      }),
+        }),
+      classifyGeminiError,
     );
 
     const text = responseText(response);
@@ -756,11 +987,18 @@ export async function scoreImageSimilarity(params: {
       continue;
     }
 
-    const parsed = parseStructuredText(visualScoreSchema, text);
+    const parsed = parseStructuredText(
+      visualScoreSchema,
+      text,
+      coerceVisualScoreCandidate,
+    );
     if (parsed) {
       return parsed;
     }
 
+    console.warn("visual score schema validation failed", {
+      text: text.slice(0, 600),
+    });
     lastError = new AppError("GEMINI_ERROR", "Visual score schema validation failed", true, 502);
   }
 
