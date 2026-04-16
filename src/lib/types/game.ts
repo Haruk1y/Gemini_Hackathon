@@ -162,7 +162,7 @@ export interface AttemptItem {
   attemptNo: number;
   prompt: string;
   imageUrl: string;
-  score: number;
+  score: number | null;
   createdAt: Date;
   matchedElements?: string[];
   missingElements?: string[];

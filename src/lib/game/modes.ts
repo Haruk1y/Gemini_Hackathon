@@ -3,6 +3,8 @@ import type { GameMode, RoomSettings } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
+export const RESULTS_GRACE_SECONDS = 10;
+const SECOND_MS = 1000;
 
 interface LocalizedLabel {
   ja: string;
@@ -133,6 +135,39 @@ export function summarizeRoomSettings(
   ].join(" / ");
 }
 
+export function getRoundSubmissionDeadline(params: {
+  promptStartsAt: unknown;
+  roundSeconds: number;
+}): Date | null {
+  const promptStartsAt = parseDate(params.promptStartsAt);
+  if (!promptStartsAt || !Number.isFinite(params.roundSeconds)) {
+    return null;
+  }
+
+  return new Date(promptStartsAt.getTime() + params.roundSeconds * SECOND_MS);
+}
+
+export function isPostDeadlineGraceActive(params: {
+  promptStartsAt: unknown;
+  endsAt: unknown;
+  roundSeconds: number;
+  now?: Date;
+}): boolean {
+  const submissionDeadline = getRoundSubmissionDeadline(params);
+  const endsAt = parseDate(params.endsAt);
+  const now = params.now ?? new Date();
+
+  if (!submissionDeadline || !endsAt) {
+    return false;
+  }
+
+  return (
+    now.getTime() >= submissionDeadline.getTime() &&
+    now.getTime() < endsAt.getTime() &&
+    endsAt.getTime() > submissionDeadline.getTime()
+  );
+}
+
 export function getRoundSchedule(params: {
   gameMode: GameMode;
   roundSeconds: number;
@@ -144,10 +179,10 @@ export function getRoundSchedule(params: {
   const previewSeconds =
     params.gameMode === "memory" ? MEMORY_PREVIEW_SECONDS : 0;
   const promptStartsAt = new Date(
-    params.startedAt.getTime() + previewSeconds * 1000,
+    params.startedAt.getTime() + previewSeconds * SECOND_MS,
   );
   const endsAt = new Date(
-    promptStartsAt.getTime() + params.roundSeconds * 1000,
+    promptStartsAt.getTime() + params.roundSeconds * SECOND_MS,
   );
 
   return {

@@ -7,7 +7,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   aspectRatio: "1:1",
   imageModel: "flash",
   hintLimit: 0,
-  totalRounds: 3,
+  totalRounds: 1,
   gameMode: "classic",
   cpuCount: 0,
 };

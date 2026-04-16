@@ -10,7 +10,6 @@ describe("api contracts", () => {
       maxAttempts: 1,
       aspectRatio: "1:1",
       hintLimit: 0,
-      totalRounds: 3,
       gameMode: "classic",
       cpuCount: 0,
     });
@@ -18,6 +17,7 @@ describe("api contracts", () => {
     expect(parsed.maxAttempts).toBe(1);
     expect(parsed.hintLimit).toBe(0);
     expect(parsed.roundSeconds).toBe(60);
+    expect(parsed.totalRounds).toBe(1);
     expect(parsed.gameMode).toBe("classic");
   });
 

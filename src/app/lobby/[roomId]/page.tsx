@@ -350,7 +350,7 @@ export default function LobbyPage() {
     "idle",
   );
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
-  const [draftTotalRounds, setDraftTotalRounds] = useState(3);
+  const [draftTotalRounds, setDraftTotalRounds] = useState(1);
   const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
   const [draftCpuCount, setDraftCpuCount] = useState(0);
   const [draftsReady, setDraftsReady] = useState(false);
@@ -366,7 +366,7 @@ export default function LobbyPage() {
   );
   const me = displayPlayers.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
-  const currentTotalRounds = room?.settings?.totalRounds ?? 3;
+  const currentTotalRounds = room?.settings?.totalRounds ?? 1;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
   const displayGameMode =
