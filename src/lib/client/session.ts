@@ -41,7 +41,7 @@ function parseSession(payload: unknown): AnonymousSession | null {
 export async function bootstrapAnonymousSession(): Promise<AnonymousSession> {
   const response = await fetch(buildCurrentApiPath("/api/auth/anonymous"), {
     method: "POST",
-    credentials: "same-origin",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
