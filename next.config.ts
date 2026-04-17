@@ -1,18 +1,21 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
+const PUBLIC_MOUNT_PREFIX = "/games/prompdojo/play";
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(process.cwd()),
   },
+  assetPrefix: PUBLIC_MOUNT_PREFIX,
   async rewrites() {
     return [
       {
-        source: "/games/prompdojo/play",
+        source: PUBLIC_MOUNT_PREFIX,
         destination: "/",
       },
       {
-        source: "/games/prompdojo/play/:path*",
+        source: `${PUBLIC_MOUNT_PREFIX}/:path*`,
         destination: "/:path*",
       },
     ];
