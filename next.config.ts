@@ -18,11 +18,16 @@ function resolveAssetPrefix(): string | undefined {
 
 const assetPrefix = resolveAssetPrefix();
 
+const publicAppOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN ?? assetPrefix ?? "";
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(process.cwd()),
   },
   ...(assetPrefix ? { assetPrefix } : {}),
+  env: {
+    NEXT_PUBLIC_APP_ORIGIN: publicAppOrigin,
+  },
   async rewrites() {
     return [
       {

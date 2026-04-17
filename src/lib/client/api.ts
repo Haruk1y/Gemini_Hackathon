@@ -19,7 +19,7 @@ export async function apiPost<T extends Record<string, unknown>>(
 ): Promise<T> {
   const response = await fetch(buildCurrentApiPath(path), {
     method: "POST",
-    credentials: "same-origin",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },

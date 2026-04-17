@@ -7,6 +7,19 @@ const KNOWN_APP_ROUTE_SEGMENTS = new Set([
   "transition",
 ]);
 
+function getApiOrigin(): string | null {
+  const raw = process.env.NEXT_PUBLIC_APP_ORIGIN;
+  if (!raw) return null;
+  return raw.replace(/\/$/, "");
+}
+
+function getCurrentOrigin(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.location.origin;
+}
+
 function normalizePathname(pathname: string): string {
   if (!pathname) {
     return "/";
@@ -102,5 +115,14 @@ export function buildCurrentAppPath(target: string): string {
 }
 
 export function buildCurrentApiPath(target: string): string {
+  const apiOrigin = getApiOrigin();
+  const currentOrigin = getCurrentOrigin();
+
+  if (apiOrigin && currentOrigin && currentOrigin !== apiOrigin) {
+    const { pathname, suffix } = splitTarget(target);
+    const normalizedPath = normalizePathname(pathname || "/");
+    return `${apiOrigin}${normalizedPath}${suffix}`;
+  }
+
   return buildApiPath(getCurrentPathname(), target);
 }

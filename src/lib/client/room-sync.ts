@@ -516,7 +516,7 @@ export function useRoomSync(params: {
             )}&since=${encodeURIComponent(String(version))}`,
           ),
           {
-            credentials: "same-origin",
+            credentials: "include",
             cache: "no-store",
             signal: controller.signal,
           },
