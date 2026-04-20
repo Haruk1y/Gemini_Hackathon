@@ -4,10 +4,14 @@ const {
   mockExternalAccountFromJSON,
   mockGoogleAuthGetClient,
   mockGetVercelOidcToken,
+  mockJwtConstructor,
+  mockJwtGetRequestHeaders,
 } = vi.hoisted(() => ({
   mockExternalAccountFromJSON: vi.fn(),
   mockGoogleAuthGetClient: vi.fn(),
   mockGetVercelOidcToken: vi.fn(),
+  mockJwtConstructor: vi.fn(),
+  mockJwtGetRequestHeaders: vi.fn(),
 }));
 
 vi.mock("@vercel/oidc", () => ({
@@ -21,9 +25,18 @@ vi.mock("google-auth-library", () => ({
   GoogleAuth: class GoogleAuth {
     getClient = mockGoogleAuthGetClient;
   },
+  JWT: class JWT {
+    constructor(...args: unknown[]) {
+      mockJwtConstructor(...args);
+    }
+
+    getRequestHeaders = mockJwtGetRequestHeaders;
+  },
 }));
 
 const originalEnv = {
+  GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON:
+    process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON,
   GCP_PROJECT_NUMBER: process.env.GCP_PROJECT_NUMBER,
   GCP_SERVICE_ACCOUNT_EMAIL: process.env.GCP_SERVICE_ACCOUNT_EMAIL,
   GCP_WORKLOAD_IDENTITY_POOL_ID: process.env.GCP_WORKLOAD_IDENTITY_POOL_ID,
@@ -37,6 +50,9 @@ describe("vertex-auth", () => {
     mockExternalAccountFromJSON.mockReset();
     mockGoogleAuthGetClient.mockReset();
     mockGetVercelOidcToken.mockReset();
+    mockJwtConstructor.mockReset();
+    mockJwtGetRequestHeaders.mockReset();
+    delete process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON;
     delete process.env.GCP_PROJECT_NUMBER;
     delete process.env.GCP_SERVICE_ACCOUNT_EMAIL;
     delete process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
@@ -44,6 +60,8 @@ describe("vertex-auth", () => {
   });
 
   afterEach(() => {
+    process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON =
+      originalEnv.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON;
     process.env.GCP_PROJECT_NUMBER = originalEnv.GCP_PROJECT_NUMBER;
     process.env.GCP_SERVICE_ACCOUNT_EMAIL =
       originalEnv.GCP_SERVICE_ACCOUNT_EMAIL;
@@ -51,6 +69,32 @@ describe("vertex-auth", () => {
       originalEnv.GCP_WORKLOAD_IDENTITY_POOL_ID;
     process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID =
       originalEnv.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
+  });
+
+  it("uses service account JSON when configured", async () => {
+    process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON = JSON.stringify({
+      client_email: "vertex-ai-caller@example-project.iam.gserviceaccount.com",
+      private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+    });
+    mockJwtGetRequestHeaders.mockResolvedValue(
+      new Headers({
+        authorization: "Bearer sa-token",
+      }),
+    );
+
+    const { getGoogleCloudAuthorizationHeader } = await import(
+      "@/lib/images/vertex-auth"
+    );
+    const header = await getGoogleCloudAuthorizationHeader();
+
+    expect(mockJwtConstructor).toHaveBeenCalledWith({
+      email: "vertex-ai-caller@example-project.iam.gserviceaccount.com",
+      key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    });
+    expect(mockExternalAccountFromJSON).not.toHaveBeenCalled();
+    expect(mockGoogleAuthGetClient).not.toHaveBeenCalled();
+    expect(header).toBe("Bearer sa-token");
   });
 
   it("uses Workload Identity Federation when Vercel WIF env vars are configured", async () => {
@@ -107,6 +151,19 @@ describe("vertex-auth", () => {
     mockGoogleAuthGetClient.mockRejectedValue(
       new Error("Could not load the default credentials"),
     );
+
+    const { getGoogleCloudAuthorizationHeader } = await import(
+      "@/lib/images/vertex-auth"
+    );
+
+    await expect(getGoogleCloudAuthorizationHeader()).rejects.toMatchObject({
+      code: "GCP_ERROR",
+      status: 503,
+    });
+  });
+
+  it("returns GCP_ERROR when service account JSON is invalid", async () => {
+    process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON = "{";
 
     const { getGoogleCloudAuthorizationHeader } = await import(
       "@/lib/images/vertex-auth"

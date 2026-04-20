@@ -1,5 +1,5 @@
 import { getVercelOidcToken } from "@vercel/oidc";
-import { ExternalAccountClient, GoogleAuth } from "google-auth-library";
+import { ExternalAccountClient, GoogleAuth, JWT } from "google-auth-library";
 
 import { AppError } from "@/lib/utils/errors";
 
@@ -25,6 +25,14 @@ function getRequiredEnv(name: string): string {
     throw new Error(`Missing environment variable: ${name}`);
   }
   return value;
+}
+
+function getServiceAccountKeyJsonEnv(): string | undefined {
+  return getEnv("GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON");
+}
+
+function hasServiceAccountKeyJsonEnv(): boolean {
+  return Boolean(getServiceAccountKeyJsonEnv());
 }
 
 function extractErrorText(error: unknown): string {
@@ -62,6 +70,40 @@ function normalizeGoogleAuthError(error: unknown): AppError | null {
   return null;
 }
 
+function parseServiceAccountKeyJson(): {
+  client_email: string;
+  private_key: string;
+} {
+  const raw = getServiceAccountKeyJsonEnv();
+  if (!raw) {
+    throw new Error("Missing environment variable: GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON");
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      client_email?: string;
+      private_key?: string;
+    };
+
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error("Missing client_email or private_key");
+    }
+
+    return {
+      client_email: parsed.client_email,
+      private_key: parsed.private_key,
+    };
+  } catch (error) {
+    console.error("Invalid GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON", error);
+    throw new AppError(
+      "GCP_ERROR",
+      "Google Cloud service account JSON is invalid. Check GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON.",
+      false,
+      503,
+    );
+  }
+}
+
 function extractAuthorizationHeader(headers: Headers | Record<string, string>): string {
   const authorization =
     headers instanceof Headers
@@ -84,8 +126,23 @@ export function hasVercelWifConfig(): boolean {
   );
 }
 
+async function getServiceAccountKeyAuthorizationHeader(): Promise<string> {
+  const credentials = parseServiceAccountKeyJson();
+  const client = new JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
+    scopes: [CLOUD_PLATFORM_SCOPE],
+  });
+  const headers = await client.getRequestHeaders();
+  return extractAuthorizationHeader(headers);
+}
+
 export async function getGoogleCloudAuthorizationHeader(): Promise<string> {
   try {
+    if (hasServiceAccountKeyJsonEnv()) {
+      return await getServiceAccountKeyAuthorizationHeader();
+    }
+
     if (hasVercelWifConfig()) {
       const client = ExternalAccountClient.fromJSON({
         type: "external_account",

@@ -59,6 +59,7 @@ Optional values:
 - `VERTEX_LOCATION`
 - `VERTEX_ENDPOINT_ID`
 - `VERTEX_ENDPOINT_HOST`
+- `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON`
 - `GCP_PROJECT_ID`
 - `GCP_PROJECT_NUMBER`
 - `GCP_SERVICE_ACCOUNT_EMAIL`
@@ -71,7 +72,8 @@ Notes:
 - `IMAGE_PROVIDER_DEFAULT` controls the default Create Room setting on the home screen.
 - `VERTEX_PROJECT_ID` can fall back to `GCP_PROJECT_ID`, but setting both explicitly is the least confusing option.
 - Local Flux development uses `gcloud auth application-default login`.
-- Vercel production should use `Vercel OIDC + GCP Workload Identity Federation`.
+- Vercel production in this project currently uses `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` for Flux because the target GCP org blocks Vercel OIDC provider creation.
+- If your GCP org later allows `https://oidc.vercel.com`, the app still supports `Vercel OIDC + GCP Workload Identity Federation` via the full `GCP_*` block.
 
 ## Local Development
 
@@ -126,17 +128,28 @@ Gameplay note:
 
 ## Deployment
 
-Deploy the Next.js app to Vercel.
+Deploy the Next.js app to Vercel Production only. Preview is not part of the supported Flux / Redis / Blob setup for this project.
 
 - Add the Upstash Redis integration and copy `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
 - Create a Vercel Blob store and set `BLOB_READ_WRITE_TOKEN`
 - Set `SESSION_SECRET`, `CRON_SECRET`, and `GEMINI_API_KEY`
-- Set `IMAGE_PROVIDER_DEFAULT` if you want new rooms to default to `flux`
-- If you use Flux in production, create a dedicated Google Cloud service account with `roles/aiplatform.user`
-- Prefer `Vercel OIDC + GCP Workload Identity Federation` instead of storing a long-lived JSON service account key in Vercel
-- Set `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `VERTEX_ENDPOINT_ID`, `VERTEX_ENDPOINT_HOST`, `GCP_PROJECT_ID`, `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`
+- Set `IMAGE_PROVIDER_DEFAULT=gemini` unless you want new rooms to default to `flux`
+- Set `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `VERTEX_ENDPOINT_ID`, and `VERTEX_ENDPOINT_HOST`
+- Set `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` to a service account JSON for a principal that already has `roles/aiplatform.user` on the Vertex project
+- Do not set `GOOGLE_APPLICATION_CREDENTIALS` on Vercel
+- If org policy later allows Vercel OIDC providers, you can replace the JSON secret with `GCP_PROJECT_ID`, `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`
 - `vercel.json` runs cleanup once per day against `/api/maintenance/cleanup`
 - The round creation routes use `runtime = "nodejs"` plus explicit `maxDuration` so `after()` can finish prewarming and CPU continuation work on Vercel
+
+Recommended production checklist:
+
+- `npm run test`
+- `npm run build`
+- Confirm Production envs are set in Vercel
+- Deploy `main`
+- Verify room creation, prewarmed round 1, Gemini round start, Flux round start, `Next Round`, replay reset, and cleanup cron
+
+See [docs/vercel-production-deploy-ja.md](docs/vercel-production-deploy-ja.md) for the project-specific production steps.
 
 ## Notes
 
