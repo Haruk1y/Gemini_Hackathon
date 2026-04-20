@@ -110,8 +110,46 @@ export default function HomePage() {
             <br />
             {copy.home.heroLine2}
           </p>
-          <div className="mt-5">
-            <LanguageToggle />
+          <div className="mt-5 max-w-xs">
+            <p className="text-[10px] font-black tracking-[0.18em] uppercase">
+              Debug
+            </p>
+
+            <div className="mt-3 space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-black tracking-[0.14em] uppercase">
+                  Language
+                </p>
+                <LanguageToggle />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-black tracking-[0.14em] uppercase">
+                  Image Model
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {IMAGE_MODEL_OPTIONS.map((option) => {
+                    const selected = createImageModel === option.value;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setCreateImageModel(option.value)}
+                        className={[
+                          "rounded-[12px] border-4 px-3 py-2 text-center text-xs font-black tracking-[0.08em] uppercase transition-transform duration-150",
+                          selected
+                            ? "border-[var(--pmb-ink)] bg-[var(--pmb-blue)] shadow-[4px_4px_0_var(--pmb-ink)]"
+                            : "border-[var(--pmb-ink)] bg-white shadow-[2px_2px_0_var(--pmb-ink)]",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -130,36 +168,6 @@ export default function HomePage() {
                 placeholder={copy.home.displayNamePlaceholder}
                 maxLength={24}
               />
-            </div>
-
-            <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-bold">{copy.home.imageModelDebug}</p>
-                <p className="text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_50%,white)] uppercase">
-                  Debug
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {IMAGE_MODEL_OPTIONS.map((option) => {
-                  const selected = createImageModel === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setCreateImageModel(option.value)}
-                      className={[
-                        "rounded-[14px] border-4 px-3 py-2 text-left text-sm font-black transition-transform duration-150",
-                        selected
-                          ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[4px_4px_0_var(--pmb-ink)]"
-                          : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[2px_2px_0_var(--pmb-ink)]",
-                      ].join(" ")}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
             <Button
