@@ -68,6 +68,8 @@ function createRoundState() {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "gemini",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 1,
       gameMode: "classic",

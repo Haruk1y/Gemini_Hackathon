@@ -110,6 +110,7 @@ Gameplay note:
 - `npm run typecheck`
 - `npm run test`
 - `npm run test:e2e`
+- `npm run eval:models`
 
 ## Runtime Architecture
 
@@ -150,6 +151,36 @@ Recommended production checklist:
 - Verify room creation, prewarmed round 1, Gemini round start, Flux round start, `Next Round`, replay reset, and cleanup cron
 
 See [docs/vercel-production-deploy-ja.md](docs/vercel-production-deploy-ja.md) for the project-specific production steps.
+
+## Fast Model Eval
+
+When you want to compare `gemini-2.5-flash` and `gemini-2.5-flash-lite` before changing live gameplay behavior, use the local benchmark script:
+
+```bash
+gcloud auth application-default login
+npm run eval:models
+```
+
+Useful flags:
+
+- `npm run eval:models -- --smoke`
+- `npm run eval:models -- --include-claude`
+- `npm run eval:models -- --output docs/model-eval-latest.json`
+
+Useful env override:
+
+- `MODEL_EVAL_GCP_PROJECT_ID=sc-ai-innovation-lab-2-dev npm run eval:models`
+
+What it measures:
+
+- GM prompt generation with structured JSON output
+- Visual judge scoring with image input + structured JSON output
+- p50 / p95 latency
+- schema success rate
+- judge sanity via `same / near / different` score ordering
+- optional Claude 3.5 Haiku access probe on Vertex Model Garden
+
+See [docs/fast-model-eval-ja.md](docs/fast-model-eval-ja.md) for the eval flow and interpretation.
 
 ## Notes
 

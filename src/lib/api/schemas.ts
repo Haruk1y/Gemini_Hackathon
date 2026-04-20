@@ -9,6 +9,7 @@ const safeDisplayName = z
 
 export const gameModeSchema = z.enum(["classic", "memory", "impostor"]);
 export const imageModelSchema = z.enum(["gemini", "flux"]);
+export const textModelVariantSchema = z.enum(["flash", "flash-lite"]);
 
 export const roomSettingsSchema = z
   .object({
@@ -17,6 +18,8 @@ export const roomSettingsSchema = z
     maxAttempts: z.number().int().min(1).max(1),
     aspectRatio: z.enum(["1:1", "16:9", "9:16"]),
     imageModel: imageModelSchema,
+    promptModel: textModelVariantSchema,
+    judgeModel: textModelVariantSchema,
     hintLimit: z.number().int().min(0).max(0),
     totalRounds: z.number().int().min(1).max(3).default(1),
     gameMode: gameModeSchema,

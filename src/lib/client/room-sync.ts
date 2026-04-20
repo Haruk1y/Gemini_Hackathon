@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { buildCurrentApiPath } from "@/lib/client/paths";
 import {
   normalizeImageModel,
+  normalizeTextModelVariant,
   type PreparedRoundStatus,
   type ErrorCode,
   type GameMode,
   type ImageModel,
   type ImpostorRole,
   type PlayerKind,
+  type TextModelVariant,
 } from "@/lib/types/game";
 
 export type RoomStatus =
@@ -38,6 +40,8 @@ export interface RoomData {
     maxAttempts?: number;
     aspectRatio?: "1:1" | "16:9" | "9:16";
     imageModel?: ImageModel;
+    promptModel?: TextModelVariant;
+    judgeModel?: TextModelVariant;
     hintLimit?: number;
     totalRounds?: number;
     cpuCount?: number;
@@ -234,6 +238,13 @@ function normalizeImageModelSetting(value: unknown): ImageModel | null {
     : null;
 }
 
+function normalizeTextModelSetting(value: unknown): TextModelVariant | null {
+  return value === "flash" || value === "flash-lite" || value === "gemini-2.5-flash" ||
+    value === "gemini-2.5-flash-lite"
+    ? normalizeTextModelVariant(value)
+    : null;
+}
+
 function normalizeImpostorRole(value: unknown): ImpostorRole | null {
   return value === "agent" || value === "impostor" ? value : null;
 }
@@ -282,6 +293,10 @@ function normalizeRoomData(value: unknown): RoomData | null {
               : undefined,
           imageModel:
             normalizeImageModelSetting(value.settings.imageModel) ?? undefined,
+          promptModel:
+            normalizeTextModelSetting(value.settings.promptModel) ?? undefined,
+          judgeModel:
+            normalizeTextModelSetting(value.settings.judgeModel) ?? undefined,
           hintLimit: asNumber(value.settings.hintLimit) ?? undefined,
           totalRounds: asNumber(value.settings.totalRounds) ?? undefined,
           cpuCount: asNumber(value.settings.cpuCount) ?? undefined,

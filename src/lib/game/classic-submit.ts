@@ -25,6 +25,7 @@ import type {
   ImageModel,
   RoomDoc,
   RoundPublicDoc,
+  TextModelVariant,
 } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
@@ -66,6 +67,7 @@ export interface ReservedClassicAttempt {
   createdAt: Date;
   aspectRatio: "1:1" | "16:9" | "9:16";
   imageModel: ImageModel;
+  judgeModel: TextModelVariant;
   targetImageUrl: string;
 }
 
@@ -307,6 +309,7 @@ export function reserveClassicRoundAttemptInState(params: {
     createdAt,
     aspectRatio: room.settings.aspectRatio,
     imageModel: room.settings.imageModel,
+    judgeModel: room.settings.judgeModel,
     targetImageUrl: round.targetImageUrl,
   };
 }
@@ -611,6 +614,7 @@ export async function submitClassicRoundAttemptWithReservation(params: {
         targetImage: targetImageForJudge,
         attemptImage: attemptImageForJudge,
         language: params.language,
+        judgeModel: params.reservedAttempt.judgeModel,
       });
     } catch (error) {
       params.logStageFailure?.("visual_scoring", context, error);

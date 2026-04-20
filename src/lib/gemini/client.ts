@@ -40,9 +40,14 @@ import {
   type GmPromptSchema,
   type VisualScoreSchema,
 } from "@/lib/gemini/schemas";
-import type { AspectRatio, ImpostorRole, RoomSettings } from "@/lib/types/game";
+import {
+  normalizeTextModelVariant,
+  type AspectRatio,
+  type ImpostorRole,
+  type RoomSettings,
+  type TextModelVariant,
+} from "@/lib/types/game";
 
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
 const STRUCTURED_PARSE_ATTEMPTS = 2;
 const IMAGE_GENERATION_ATTEMPTS = 3;
@@ -57,6 +62,30 @@ export type { GeneratedImage } from "@/lib/images/types";
 export type GeneratedGmPrompt = GmPromptSchema & {
   stylePresetId: string;
 };
+
+function resolveModelName(variant: TextModelVariant): string {
+  return variant === "flash-lite"
+    ? "gemini-2.5-flash-lite"
+    : "gemini-2.5-flash";
+}
+
+function resolvePromptModelName(variant?: TextModelVariant): string {
+  return resolveModelName(
+    normalizeTextModelVariant(
+      variant ?? process.env.GEMINI_TEXT_MODEL,
+      "flash",
+    ),
+  );
+}
+
+function resolveJudgeModelName(variant?: TextModelVariant): string {
+  return resolveModelName(
+    normalizeTextModelVariant(
+      variant ?? process.env.GEMINI_TEXT_MODEL,
+      "flash",
+    ),
+  );
+}
 
 function createClient(): GoogleGenAI | null {
   if (mockMode) {
@@ -690,10 +719,14 @@ function getAiClient(): GoogleGenAI {
 export async function generateGmPrompt(params: {
   settings: RoomSettings;
   excludeStylePresetIds?: string[];
+  promptModel?: TextModelVariant;
 }): Promise<GeneratedGmPrompt> {
   const stylePreset = pickGmStylePreset({
     excludeIds: params.excludeStylePresetIds,
   });
+  const textModel = resolvePromptModelName(
+    params.promptModel ?? params.settings.promptModel,
+  );
 
   if (mockMode) {
     return mockGmPrompt(params.settings, stylePreset);
@@ -706,7 +739,7 @@ export async function generateGmPrompt(params: {
     const response = await withRetries(
       () =>
         client.models.generateContent({
-          model: TEXT_MODEL,
+          model: textModel,
           contents: [
             {
               role: "user",
@@ -749,6 +782,7 @@ export async function rewriteCpuPrompt(params: {
   role: ImpostorRole;
   caption: CaptionSchema;
   reconstructedPrompt: string;
+  promptModel?: TextModelVariant;
 }): Promise<string | null> {
   if (mockMode) {
     return mockCpuPromptRewrite({
@@ -758,13 +792,14 @@ export async function rewriteCpuPrompt(params: {
   }
 
   const client = getAiClient();
+  const textModel = resolvePromptModelName(params.promptModel);
   let lastError: AppError | null = null;
 
   for (let i = 0; i < CPU_PROMPT_REWRITE_ATTEMPTS; i += 1) {
     const response = await withRetries(
       () =>
         client.models.generateContent({
-          model: TEXT_MODEL,
+          model: textModel,
           contents: [
             {
               role: "user",
@@ -900,6 +935,9 @@ export async function generateImage(params: {
 export async function captionFromImage(
   image: GeneratedImage,
   fallbackPrompt: string,
+  options?: {
+    promptModel?: TextModelVariant;
+  },
 ): Promise<CaptionSchema> {
   if (mockMode) {
     return fallbackCaption(fallbackPrompt);
@@ -910,6 +948,7 @@ export async function captionFromImage(
   }
 
   const client = getAiClient();
+  const textModel = resolvePromptModelName(options?.promptModel);
   const responseSchema = z.toJSONSchema(captionSchema) as unknown as Record<string, unknown>;
   let lastError: AppError | null = null;
 
@@ -917,7 +956,7 @@ export async function captionFromImage(
     const response = await withRetries(
       () =>
         client.models.generateContent({
-          model: TEXT_MODEL,
+          model: textModel,
           contents: [
             {
               role: "user",
@@ -965,6 +1004,7 @@ export async function scoreImageSimilarity(params: {
   targetImage: GeneratedImage;
   attemptImage: GeneratedImage;
   language?: Language;
+  judgeModel?: TextModelVariant;
 }): Promise<VisualScoreSchema> {
   const language = params.language ?? DEFAULT_LANGUAGE;
 
@@ -980,6 +1020,7 @@ export async function scoreImageSimilarity(params: {
   }
 
   const client = getAiClient();
+  const textModel = resolveJudgeModelName(params.judgeModel);
   const responseSchema = z.toJSONSchema(visualScoreSchema) as unknown as Record<string, unknown>;
   let lastError: AppError | null = null;
 
@@ -987,7 +1028,7 @@ export async function scoreImageSimilarity(params: {
     const response = await withRetries(
       () =>
         client.models.generateContent({
-          model: TEXT_MODEL,
+          model: textModel,
           contents: [
             {
               role: "user",

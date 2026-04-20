@@ -78,6 +78,8 @@ function createImpostorState() {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "gemini",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "impostor",
@@ -192,6 +194,30 @@ function createImpostorState() {
 }
 
 describe("buildRoomViewSnapshot impostor mode", () => {
+  it("includes prompt and judge model settings in the lobby snapshot", () => {
+    const state = createImpostorState();
+    state.room.status = "LOBBY";
+    state.room.currentRoundId = null;
+
+    const snapshot = buildRoomViewSnapshot({
+      state,
+      uid: "host",
+      view: "lobby",
+    }) as unknown as {
+      room: {
+        settings: {
+          imageModel: string;
+          promptModel: string;
+          judgeModel: string;
+        };
+      };
+    };
+
+    expect(snapshot.room.settings.imageModel).toBe("gemini");
+    expect(snapshot.room.settings.promptModel).toBe("flash");
+    expect(snapshot.room.settings.judgeModel).toBe("flash");
+  });
+
   it("hides chain images from waiting players during the chain", () => {
     const snapshot = buildRoomViewSnapshot({
       state: createImpostorState(),
