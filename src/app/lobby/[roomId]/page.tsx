@@ -421,14 +421,12 @@ export default function LobbyPage() {
     draftGameMode === "impostor" ? draftCpuCount : 0,
   );
   const settingsDirty = currentSettingsKey !== draftSettingsKey;
-  const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
     Boolean(me?.isHost) &&
     displayPlayers.length >= (displayGameMode === "impostor" ? 2 : 1) &&
     everyoneReady &&
     !isGenerating &&
-    actionBusy === null &&
-    !settingsPending;
+    actionBusy === null;
   const canShufflePlayers =
     Boolean(me?.isHost) &&
     roomStatus === "LOBBY" &&
@@ -591,6 +589,20 @@ export default function LobbyPage() {
     setActionBusy("start");
     setActionError(null);
     try {
+      if (settingsDirty && hostCanEdit) {
+        await apiPost("/api/rooms/settings", {
+          roomId,
+          settings: {
+            gameMode: draftGameMode,
+            totalRounds: draftTotalRounds,
+            roundSeconds: draftRoundSeconds,
+            cpuCount: draftGameMode === "impostor" ? draftCpuCount : 0,
+          },
+        });
+        setSettingsStatus("saved");
+        setSettingsError(null);
+      }
+
       await apiPost("/api/rounds/start", {
         roomId,
       });
@@ -660,10 +672,6 @@ export default function LobbyPage() {
     return null;
   })();
   const preparationMessage = (() => {
-    if (nextRoundPreparation?.status === "READY") {
-      return copy.common.nextRoundReady;
-    }
-
     if (nextRoundPreparation?.status === "FAILED") {
       return copy.lobby.nextRoundFallback;
     }
