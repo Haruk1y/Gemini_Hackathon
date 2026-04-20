@@ -15,9 +15,9 @@ describe("game defaults", () => {
     expect(DEFAULT_ROOM_SETTINGS.maxAttempts).toBe(1);
     expect(DEFAULT_ROOM_SETTINGS.hintLimit).toBe(0);
     expect(DEFAULT_ROOM_SETTINGS.totalRounds).toBe(1);
-    expect(DEFAULT_ROOM_SETTINGS.imageModel).toBe("gemini");
-    expect(DEFAULT_ROOM_SETTINGS.promptModel).toBe("flash");
-    expect(DEFAULT_ROOM_SETTINGS.judgeModel).toBe("flash");
+    expect(DEFAULT_ROOM_SETTINGS.imageModel).toBe("flux");
+    expect(DEFAULT_ROOM_SETTINGS.promptModel).toBe("flash-lite");
+    expect(DEFAULT_ROOM_SETTINGS.judgeModel).toBe("flash-lite");
   });
 
   it("preserves room mode, rounds, and image model while forcing single-attempt no-hint gameplay", () => {

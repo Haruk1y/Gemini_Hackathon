@@ -226,7 +226,7 @@ export interface AttemptItem {
   matchedElements?: string[];
   missingElements?: string[];
   judgeNote?: string;
-  status?: "SCORING" | "DONE";
+  status?: "GENERATING" | "SCORING" | "DONE";
 }
 
 export interface AttemptsPrivateDoc {

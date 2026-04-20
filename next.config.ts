@@ -7,18 +7,11 @@ function resolveAssetPrefix(): string | undefined {
   if (process.env.ASSET_PREFIX) {
     return process.env.ASSET_PREFIX;
   }
-
-  const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (vercelProductionUrl) {
-    return `https://${vercelProductionUrl}`;
-  }
-
   return undefined;
 }
 
 const assetPrefix = resolveAssetPrefix();
-
-const publicAppOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN ?? assetPrefix ?? "";
+const publicAppOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "";
 
 const nextConfig: NextConfig = {
   turbopack: {

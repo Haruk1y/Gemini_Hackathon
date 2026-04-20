@@ -69,7 +69,8 @@ Optional values:
 Notes:
 
 - `GEMINI_API_KEY` is still required even when room image generation uses Flux. GM prompt generation, CPU rewrite, captioning, and image judging remain on Gemini.
-- `IMAGE_PROVIDER_DEFAULT` controls the default Create Room setting on the home screen.
+- `IMAGE_PROVIDER_DEFAULT` controls the default Create Room image model on the home screen.
+- `GEMINI_PROMPT_MODEL_DEFAULT` and `GEMINI_JUDGE_MODEL_DEFAULT` control the default `Prompt Model` / `Judge Model` toggles on the home screen.
 - `VERTEX_PROJECT_ID` can fall back to `GCP_PROJECT_ID`, but setting both explicitly is the least confusing option.
 - Local Flux development uses `gcloud auth application-default login`.
 - Vercel production in this project currently uses `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` for Flux because the target GCP org blocks Vercel OIDC provider creation.
@@ -134,7 +135,8 @@ Deploy the Next.js app to Vercel Production only. Preview is not part of the sup
 - Add the Upstash Redis integration and copy `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
 - Create a Vercel Blob store and set `BLOB_READ_WRITE_TOKEN`
 - Set `SESSION_SECRET`, `CRON_SECRET`, and `GEMINI_API_KEY`
-- Set `IMAGE_PROVIDER_DEFAULT=gemini` unless you want new rooms to default to `flux`
+- Set `IMAGE_PROVIDER_DEFAULT=flux` if you want new rooms to default to Flux
+- Set `GEMINI_PROMPT_MODEL_DEFAULT=flash-lite` and `GEMINI_JUDGE_MODEL_DEFAULT=flash-lite` if you want the debug toggles to default to Flash-Lite
 - Set `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `VERTEX_ENDPOINT_ID`, and `VERTEX_ENDPOINT_HOST`
 - Set `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` to a service account JSON for a principal that already has `roles/aiplatform.user` on the Vertex project
 - Do not set `GOOGLE_APPLICATION_CREDENTIALS` on Vercel

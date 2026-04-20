@@ -51,6 +51,33 @@ type EndRoundResponse = {
   consumedDraft?: boolean;
 };
 
+type GeneratedImagePhase = "IDLE" | "GENERATING" | "SCORING" | "DONE";
+
+function resolveGeneratedImagePhase(attempt: AttemptData["attempts"][number] | null): GeneratedImagePhase {
+  if (!attempt) {
+    return "IDLE";
+  }
+
+  if (attempt.status === "DONE") {
+    return "DONE";
+  }
+
+  if (attempt.status === "SCORING") {
+    return "SCORING";
+  }
+
+  if (attempt.status === "GENERATING") {
+    return "GENERATING";
+  }
+
+  const hasImageUrl = attempt.imageUrl.trim().length > 0;
+  if (hasImageUrl) {
+    return attempt.score == null ? "SCORING" : "DONE";
+  }
+
+  return attempt.score == null ? "GENERATING" : "DONE";
+}
+
 export default function RoundPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -270,6 +297,22 @@ export default function RoundPage() {
 
   const latestAttempt =
     attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
+  const latestAttemptPhase = resolveGeneratedImagePhase(latestAttempt);
+  const effectiveGeneratedImagePhase =
+    submitPending &&
+    (latestAttemptPhase === "IDLE" || latestAttemptPhase === "DONE")
+      ? "GENERATING"
+      : latestAttemptPhase;
+  const latestAttemptImageUrl = latestAttempt?.imageUrl.trim() ?? "";
+  const hasLatestAttemptImage = latestAttemptImageUrl.length > 0;
+  const showGeneratedImagePreview =
+    hasLatestAttemptImage &&
+    (effectiveGeneratedImagePhase === "SCORING" ||
+      effectiveGeneratedImagePhase === "DONE");
+  const generatedImageStatusLabel =
+    effectiveGeneratedImagePhase === "SCORING"
+      ? copy.round.scoring
+      : copy.round.generatingImage;
   const attemptsLeft = Math.max(
     0,
     (room?.settings?.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0),
@@ -279,10 +322,6 @@ export default function RoundPage() {
   const isBusy = submitPending;
   const otherBestImages = scores.filter(
     (entry) => entry.uid !== user?.uid && entry.bestImageUrl,
-  );
-  const latestAttemptScoring = Boolean(
-    latestAttempt &&
-    (latestAttempt.status === "SCORING" || latestAttempt.score == null),
   );
   const hasGeneratedImage = Boolean(
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
@@ -718,7 +757,9 @@ export default function RoundPage() {
               <Send className="mr-1 h-4 w-4" />
             )}
             {submitPending
-              ? copy.round.evaluating
+              ? effectiveGeneratedImagePhase === "SCORING"
+                ? copy.round.scoring
+                : copy.round.generatingImage
               : isPreviewPhase
                 ? copy.round.waitingForMemory
                 : copy.round.generateImage}
@@ -781,61 +822,72 @@ export default function RoundPage() {
 
         <Card className="bg-white p-3">
           <h3 className="mb-2 text-base">{copy.round.generatedImage}</h3>
-          {latestAttempt ? (
+          {latestAttempt || submitPending ? (
             <div className="space-y-2">
-              <div className={imageFrameClass}>
-                <img
-                  src={
-                    latestAttempt.imageUrl ||
-                    placeholderImageUrl(latestAttempt.prompt)
-                  }
-                  alt="latest attempt"
-                  className="h-full w-full object-contain p-1"
-                  onError={(event) =>
-                    applyImageFallback(
-                      event.currentTarget,
-                      latestAttempt.prompt,
-                    )
-                  }
-                />
-                {latestAttemptScoring ? (
-                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
-                    <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
-                      <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
-                      {copy.round.scoring}
+              {showGeneratedImagePreview ? (
+                <div className={imageFrameClass}>
+                  <img
+                    src={latestAttemptImageUrl}
+                    alt="latest attempt"
+                    className="h-full w-full object-contain p-1"
+                    onError={(event) =>
+                      applyImageFallback(
+                        event.currentTarget,
+                        copy.round.generatedImage,
+                      )
+                    }
+                  />
+                  {effectiveGeneratedImagePhase === "SCORING" ? (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+                      <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                        {copy.round.scoring}
+                      </p>
+                    </div>
+                  ) : null}
+                  {effectiveGeneratedImagePhase === "DONE" &&
+                  typeof latestAttempt?.score === "number" ? (
+                    <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
+                      {latestAttempt.score} pts
                     </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className={`${imageFrameClass} flex flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
+                >
+                  <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] p-4">
+                    <LoaderCircle className="h-8 w-8 animate-spin" />
                   </div>
-                ) : null}
-                {!latestAttemptScoring &&
-                typeof latestAttempt.score === "number" ? (
-                  <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
-                    {latestAttempt.score} pts
-                  </p>
-                ) : null}
-              </div>
+                  <p className="text-lg font-black">{generatedImageStatusLabel}</p>
+                </div>
+              )}
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
                 <p>{copy.common.judgeNote}</p>
-                {!latestAttemptScoring &&
-                latestAttempt.matchedElements?.length ? (
+                {effectiveGeneratedImagePhase === "DONE" &&
+                latestAttempt?.matchedElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-green)]">
                     {copy.common.matched(
                       latestAttempt.matchedElements.join(" / "),
                     )}
                   </p>
                 ) : null}
-                {!latestAttemptScoring &&
-                latestAttempt.missingElements?.length ? (
+                {effectiveGeneratedImagePhase === "DONE" &&
+                latestAttempt?.missingElements?.length ? (
                   <p className="mt-1 text-[var(--pmb-red)]">
                     {copy.common.missing(
                       latestAttempt.missingElements.join(" / "),
                     )}
                   </p>
                 ) : null}
-                {!latestAttemptScoring && latestAttempt.judgeNote ? (
+                {effectiveGeneratedImagePhase === "DONE" && latestAttempt?.judgeNote ? (
                   <p className="mt-1">{latestAttempt.judgeNote}</p>
                 ) : null}
-                {latestAttemptScoring ? (
+                {effectiveGeneratedImagePhase === "SCORING" ? (
                   <p className="mt-1">{copy.round.judgeNotesAfterScoring}</p>
+                ) : null}
+                {effectiveGeneratedImagePhase === "GENERATING" ? (
+                  <p className="mt-1">{copy.round.generatingImage}</p>
                 ) : null}
               </Card>
             </div>

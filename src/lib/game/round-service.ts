@@ -90,7 +90,10 @@ function hasScoringAttempts(
   attemptsByUid: Record<string, { attempts: Array<{ status?: string }> }> | undefined,
 ): boolean {
   return Object.values(attemptsByUid ?? {}).some((attemptDoc) =>
-    attemptDoc.attempts.some((attempt) => attempt.status === "SCORING"),
+    attemptDoc.attempts.some(
+      (attempt) =>
+        attempt.status === "GENERATING" || attempt.status === "SCORING",
+    ),
   );
 }
 

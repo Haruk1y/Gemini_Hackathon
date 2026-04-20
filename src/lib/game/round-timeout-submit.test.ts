@@ -142,7 +142,7 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
                 prompt,
                 imageUrl: "",
                 score: null,
-                status: "SCORING",
+                status: "GENERATING",
                 createdAt,
               },
             ],
@@ -206,7 +206,7 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
       state?.attempts["round-1"]?.host?.attempts[0],
     ).toMatchObject({
       prompt: "partial timeout draft",
-      status: "SCORING",
+      status: "GENERATING",
     });
   });
 });

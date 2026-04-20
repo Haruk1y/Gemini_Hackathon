@@ -38,6 +38,39 @@ describe("normalizeSnapshot", () => {
     expect(snapshot.players[0]?.uid).toBe("anon_1");
   });
 
+  it("preserves GENERATING attempts in room snapshots", () => {
+    const snapshot = normalizeSnapshot({
+      room: {
+        status: "IN_ROUND",
+        currentRoundId: "round-1",
+      },
+      myAttempts: {
+        attemptsUsed: 1,
+        bestScore: 0,
+        attempts: [
+          {
+            attemptNo: 1,
+            imageUrl: "",
+            score: null,
+            prompt: "ねこ",
+            status: "GENERATING",
+          },
+        ],
+      },
+      players: [
+        {
+          uid: "anon_1",
+          displayName: "Alice",
+          ready: true,
+          isHost: true,
+          totalScore: 0,
+        },
+      ],
+    });
+
+    expect(snapshot.attempts?.attempts[0]?.status).toBe("GENERATING");
+  });
+
   it("keeps transition payloads usable when only current player is provided", () => {
     const snapshot = normalizeSnapshot({
       room: {

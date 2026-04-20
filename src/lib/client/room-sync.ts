@@ -108,7 +108,7 @@ export interface AttemptData {
     imageUrl: string;
     score: number | null;
     prompt: string;
-    status?: "SCORING" | "DONE";
+    status?: "GENERATING" | "SCORING" | "DONE";
     matchedElements?: string[];
     missingElements?: string[];
     judgeNote?: string;
@@ -174,8 +174,10 @@ class RoomSyncError extends Error {
 
 function normalizeAttemptStatus(
   value: unknown,
-): "SCORING" | "DONE" | undefined {
-  return value === "SCORING" || value === "DONE" ? value : undefined;
+): "GENERATING" | "SCORING" | "DONE" | undefined {
+  return value === "GENERATING" || value === "SCORING" || value === "DONE"
+    ? value
+    : undefined;
 }
 
 const EMPTY_SNAPSHOT: RoomSyncSnapshot = {

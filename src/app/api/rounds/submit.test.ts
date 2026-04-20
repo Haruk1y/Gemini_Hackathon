@@ -166,7 +166,7 @@ describe("POST /api/rounds/submit reservations", () => {
     vi.unstubAllGlobals();
   });
 
-  it("stores a SCORING reservation before image generation finishes", async () => {
+  it("stores GENERATING first, then switches to SCORING once the image is ready", async () => {
     await saveRoomState(createRoundState());
 
     let resolveImage!: (value: {
@@ -181,15 +181,24 @@ describe("POST /api/rounds/submit reservations", () => {
     }>((resolve) => {
       resolveImage = resolve;
     });
+    let resolveScore!: (value: {
+      score: number;
+      matchedElements: string[];
+      missingElements: string[];
+      note: string;
+    }) => void;
+    const scorePromise = new Promise<{
+      score: number;
+      matchedElements: string[];
+      missingElements: string[];
+      note: string;
+    }>((resolve) => {
+      resolveScore = resolve;
+    });
 
     mockGenerateImage.mockReturnValueOnce(imagePromise);
     mockImageToPublicUrl.mockReturnValue("https://example.com/generated.png");
-    mockScoreImageSimilarity.mockResolvedValue({
-      score: 88,
-      matchedElements: ["subject"],
-      missingElements: ["background"],
-      note: "close match",
-    });
+    mockScoreImageSimilarity.mockReturnValue(scorePromise);
     mockImageToBuffer.mockReturnValue(Buffer.from("generated-image"));
     mockUploadImageToStorage.mockResolvedValue(
       "https://blob.example/generated.png",
@@ -220,13 +229,44 @@ describe("POST /api/rounds/submit reservations", () => {
       prompt: "prompt text",
       imageUrl: "",
       score: null,
-      status: "SCORING",
+      status: "GENERATING",
     });
 
     resolveImage({
       mimeType: "image/png",
       base64Data: Buffer.from("generated-image").toString("base64"),
       directUrl: "https://example.com/generated.png",
+    });
+
+    let scoringState = await loadRoomState("ROOM1");
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (
+        scoringState?.attempts["round-1"]?.anon_1?.attempts[0]?.status ===
+          "SCORING" &&
+        scoringState?.attempts["round-1"]?.anon_1?.attempts[0]?.imageUrl ===
+          "https://blob.example/generated.png"
+      ) {
+        break;
+      }
+      await Promise.resolve();
+      scoringState = await loadRoomState("ROOM1");
+    }
+
+    expect(
+      scoringState?.attempts["round-1"]?.anon_1?.attempts[0],
+    ).toMatchObject({
+      attemptNo: 1,
+      prompt: "prompt text",
+      imageUrl: "https://blob.example/generated.png",
+      score: null,
+      status: "SCORING",
+    });
+
+    resolveScore({
+      score: 88,
+      matchedElements: ["subject"],
+      missingElements: ["background"],
+      note: "close match",
     });
 
     const response = await responsePromise;

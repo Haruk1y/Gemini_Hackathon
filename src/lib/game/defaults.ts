@@ -7,11 +7,11 @@ import {
 } from "@/lib/types/game";
 
 export function resolveDefaultImageModel(): ImageModel {
-  return normalizeImageModel(process.env.IMAGE_PROVIDER_DEFAULT, "gemini");
+  return normalizeImageModel(process.env.IMAGE_PROVIDER_DEFAULT, "flux");
 }
 
 function resolveLegacyTextModelDefault(): TextModelVariant {
-  return normalizeTextModelVariant(process.env.GEMINI_TEXT_MODEL, "flash");
+  return normalizeTextModelVariant(process.env.GEMINI_TEXT_MODEL, "flash-lite");
 }
 
 export function resolveDefaultPromptModel(): TextModelVariant {

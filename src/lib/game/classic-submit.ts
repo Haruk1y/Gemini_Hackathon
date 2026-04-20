@@ -296,7 +296,7 @@ export function reserveClassicRoundAttemptInState(params: {
           prompt: params.prompt,
           imageUrl: "",
           score: null,
-          status: "SCORING",
+          status: "GENERATING",
           createdAt,
         },
       ],
@@ -359,11 +359,7 @@ async function rollbackReservedAttempt(params: {
     }
 
     const nextAttempts = reservedDoc.attempts.filter(
-      (attempt) =>
-        !(
-          attempt.attemptNo === params.attemptNo &&
-          attempt.status === "SCORING"
-        ),
+      (attempt) => !(attempt.attemptNo === params.attemptNo && attempt.status !== "DONE"),
     );
 
     if (nextAttempts.length === reservedDoc.attempts.length) {
@@ -384,6 +380,83 @@ async function rollbackReservedAttempt(params: {
         updatedAt: new Date(),
       };
     }
+
+    await saveRoomState(bumpRoomVersion(state));
+  });
+}
+
+async function markReservedAttemptScoring(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  prompt: string;
+  submitStartedAt: Date;
+  reservedAttempt: ReservedClassicAttempt;
+  imageUrl: string;
+  mode: ClassicSubmitMode;
+}): Promise<void> {
+  await withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const currentRoom = state?.room;
+    const currentRound = state?.rounds[params.roundId];
+
+    if (!state || !currentRoom || !currentRound) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Failed to update reserved attempt progress",
+        true,
+        500,
+      );
+    }
+
+    assertClassicFinalizeWindow({
+      room: currentRoom,
+      round: currentRound,
+      roundId: params.roundId,
+      submitStartedAt: params.submitStartedAt,
+      mode: params.mode,
+    });
+
+    const roundAttempts = state.attempts[params.roundId] ?? {};
+    const reservedDoc = roundAttempts[params.uid];
+    if (!reservedDoc) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Reserved attempt was not found",
+        true,
+        500,
+      );
+    }
+
+    const reservedAttempt = reservedDoc.attempts.find(
+      (attempt) => attempt.attemptNo === params.reservedAttempt.attemptNo,
+    );
+    if (!reservedAttempt || reservedAttempt.status !== "GENERATING") {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Reserved attempt is no longer generating",
+        true,
+        500,
+      );
+    }
+
+    state.attempts[params.roundId] = {
+      ...roundAttempts,
+      [params.uid]: {
+        ...reservedDoc,
+        attempts: reservedDoc.attempts.map((attempt) =>
+          attempt.attemptNo === params.reservedAttempt.attemptNo
+            ? {
+                ...attempt,
+                prompt: params.prompt,
+                imageUrl: params.imageUrl,
+                status: "SCORING",
+              }
+            : attempt,
+        ),
+        updatedAt: new Date(),
+      },
+    };
 
     await saveRoomState(bumpRoomVersion(state));
   });
@@ -581,6 +654,31 @@ export async function submitClassicRoundAttemptWithReservation(params: {
 
     const transientImageUrl = imageToPublicUrl(generatedImage) ?? undefined;
 
+    let imageUrl: string;
+    try {
+      imageUrl = await resolveBestImageUrl({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid: params.uid,
+        prompt: params.prompt,
+        image: generatedImage,
+      });
+    } catch (error) {
+      params.logStageFailure?.("storage_upload", context, error);
+      throw error;
+    }
+
+    await markReservedAttemptScoring({
+      roomId: params.roomId,
+      roundId: params.roundId,
+      uid: params.uid,
+      prompt: params.prompt,
+      submitStartedAt: params.submitStartedAt,
+      reservedAttempt: params.reservedAttempt,
+      imageUrl,
+      mode: params.mode,
+    });
+
     let targetImageForJudge: GeneratedImage | null;
     let attemptImageForJudge: GeneratedImage | null;
     try {
@@ -625,20 +723,6 @@ export async function submitClassicRoundAttemptWithReservation(params: {
     const matchedElements = judged.matchedElements ?? [];
     const missingElements = judged.missingElements ?? [];
     const judgeNote = judged.note || fallbackJudgeNote(params.language);
-
-    let imageUrl: string;
-    try {
-      imageUrl = await resolveBestImageUrl({
-        roomId: params.roomId,
-        roundId: params.roundId,
-        uid: params.uid,
-        prompt: params.prompt,
-        image: generatedImage,
-      });
-    } catch (error) {
-      params.logStageFailure?.("storage_upload", context, error);
-      throw error;
-    }
 
     return await finalizeReservedAttempt({
       roomId: params.roomId,
