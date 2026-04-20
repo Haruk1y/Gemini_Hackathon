@@ -47,7 +47,6 @@ export const roomSettingsUpdateSchema = z.object({
   roomId: z.string().trim().min(1),
   settings: z.object({
     gameMode: gameModeSchema,
-    imageModel: imageModelSchema,
     totalRounds: z.number().int().min(1).max(3),
     roundSeconds: z.number().int().min(30).max(60),
     cpuCount: z.number().int().min(0).max(6),

@@ -196,6 +196,12 @@ function buildLobbySnapshot(state: RoomState, uid: string) {
       code: state.room.code,
       status: state.room.status,
       currentRoundId: state.room.currentRoundId,
+      nextRoundPreparation: state.preparedRound
+        ? {
+            index: state.preparedRound.index,
+            status: state.preparedRound.status,
+          }
+        : null,
       settings: {
         gameMode: state.room.settings.gameMode,
         maxPlayers: state.room.settings.maxPlayers,

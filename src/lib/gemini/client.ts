@@ -29,6 +29,10 @@ import {
   gmUserPrompt,
 } from "@/lib/gemini/prompts";
 import {
+  pickGmStylePreset,
+  type GmStylePreset,
+} from "@/lib/gemini/style-presets";
+import {
   captionSchema,
   gmPromptSchema,
   visualScoreSchema,
@@ -46,10 +50,13 @@ const GM_PROMPT_ATTEMPTS = 2;
 const CPU_PROMPT_REWRITE_ATTEMPTS = 2;
 const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
 const DEFAULT_NEGATIVE_PROMPT =
-  "logo, watermark, text, brand name, famous character, trademark";
+  "logo, watermark, text, brand name, famous character, trademark, photorealism, crowd scene, cluttered composition, tiny unreadable details";
 const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
 
 export type { GeneratedImage } from "@/lib/images/types";
+export type GeneratedGmPrompt = GmPromptSchema & {
+  stylePresetId: string;
+};
 
 function createClient(): GoogleGenAI | null {
   if (mockMode) {
@@ -448,43 +455,70 @@ function responseText(response: {
   return combined || null;
 }
 
-function buildGmPromptFromText(promptText: string, aspectRatio: AspectRatio): GmPromptSchema {
+function buildGmPromptFromText(
+  promptText: string,
+  aspectRatio: AspectRatio,
+  stylePreset: GmStylePreset,
+): GeneratedGmPrompt {
   const prompt =
     promptText.length >= 30
       ? promptText
       : normalizeText(
-          `${promptText}, bold outlines, high saturation palette, clear subject, concrete background, no text, aspect ratio ${aspectRatio}`,
+          [
+            promptText,
+            stylePreset.promptStyle,
+            stylePreset.texture,
+            stylePreset.palette,
+            "single main subject",
+            "two or three important props",
+            "simple readable background",
+            "no text",
+            `aspect ratio ${aspectRatio}`,
+          ].join(", "),
           500,
         );
 
   const tags = uniqueStrings([
     ...promptKeywords(prompt),
-    "original",
+    ...promptKeywords(stylePreset.label),
+    stylePreset.id.replace(/-/g, " "),
     aspectRatio.replace(":", "x"),
   ]).slice(0, 6);
 
-  return gmPromptSchema.parse({
-    title: deriveTitleFromPrompt(prompt),
-    difficulty: 3,
-    tags: tags.length >= 2 ? tags : ["original", aspectRatio.replace(":", "x")],
-    prompt,
-    negativePrompt: DEFAULT_NEGATIVE_PROMPT,
-    mustInclude: [],
-    mustAvoid: [],
-  });
+  return {
+    ...gmPromptSchema.parse({
+      title: deriveTitleFromPrompt(prompt),
+      difficulty: 3,
+      tags:
+        tags.length >= 2
+          ? tags
+          : [stylePreset.id.replace(/-/g, " "), aspectRatio.replace(":", "x")],
+      prompt,
+      negativePrompt: DEFAULT_NEGATIVE_PROMPT,
+      mustInclude: [],
+      mustAvoid: [],
+    }),
+    stylePresetId: stylePreset.id,
+  };
 }
 
-function mockGmPrompt(settings: RoomSettings): GmPromptSchema {
+function mockGmPrompt(
+  settings: RoomSettings,
+  stylePreset: GmStylePreset,
+): GeneratedGmPrompt {
   return buildGmPromptFromText(
     [
-      "A playful neo-brutal pop scene of a tiger riding a tiny scooter through a rain-soaked market",
-      "bold outlines",
-      "high saturation palette",
-      "reflective puddles",
-      "layered shop signs",
+      "A playful animal street scene",
+      "one clear hero subject",
+      "two fun props",
+      "single readable background",
+      stylePreset.promptStyle,
+      stylePreset.texture,
+      stylePreset.palette,
       "no text",
     ].join(", "),
     settings.aspectRatio,
+    stylePreset,
   );
 }
 
@@ -655,9 +689,14 @@ function getAiClient(): GoogleGenAI {
 
 export async function generateGmPrompt(params: {
   settings: RoomSettings;
-}): Promise<GmPromptSchema> {
+  excludeStylePresetIds?: string[];
+}): Promise<GeneratedGmPrompt> {
+  const stylePreset = pickGmStylePreset({
+    excludeIds: params.excludeStylePresetIds,
+  });
+
   if (mockMode) {
-    return mockGmPrompt(params.settings);
+    return mockGmPrompt(params.settings, stylePreset);
   }
 
   const client = getAiClient();
@@ -672,8 +711,13 @@ export async function generateGmPrompt(params: {
             {
               role: "user",
               parts: [
-                { text: gmSystemPrompt(params.settings) },
-                { text: gmUserPrompt({ aspectRatio: params.settings.aspectRatio }) },
+                { text: gmSystemPrompt(params.settings, stylePreset) },
+                {
+                  text: gmUserPrompt({
+                    aspectRatio: params.settings.aspectRatio,
+                    stylePreset,
+                  }),
+                },
               ],
             },
           ],
@@ -684,7 +728,11 @@ export async function generateGmPrompt(params: {
     const text = responseText(response);
     const promptText = text ? extractPromptText(text) : null;
     if (promptText) {
-      return buildGmPromptFromText(promptText, params.settings.aspectRatio);
+      return buildGmPromptFromText(
+        promptText,
+        params.settings.aspectRatio,
+        stylePreset,
+      );
     }
 
     console.warn("Plain gm prompt generation failed", {

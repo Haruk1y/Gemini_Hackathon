@@ -40,7 +40,7 @@ import {
 } from "@/lib/i18n/errors";
 import { useRoomSync } from "@/lib/client/room-sync";
 import { getGameModeDefinition, getGameModeOptions } from "@/lib/game/modes";
-import type { GameMode, ImageModel } from "@/lib/types/game";
+import type { GameMode } from "@/lib/types/game";
 
 type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
 type SettingsStatus = "idle" | "saving" | "saved" | "error";
@@ -107,12 +107,11 @@ const ROUND_TIME_OPTIONS: readonly PickerOption[] = [
 
 function formatSettingsKey(
   gameMode: GameMode,
-  imageModel: ImageModel,
   totalRounds: number,
   roundSeconds: number,
   cpuCount: number,
 ) {
-  return `${gameMode}:${imageModel}:${totalRounds}:${roundSeconds}:${cpuCount}`;
+  return `${gameMode}:${totalRounds}:${roundSeconds}:${cpuCount}`;
 }
 
 function SwipeValuePicker({
@@ -259,7 +258,9 @@ function SwipeValuePicker({
       >
         <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
           {previousOption
-            ? `${previousOption.label} ${previousOption.unitLabel}`
+            ? [previousOption.label, previousOption.unitLabel]
+                .filter(Boolean)
+                .join(" ")
             : ""}
         </span>
 
@@ -268,13 +269,17 @@ function SwipeValuePicker({
           <span className="text-[2.55rem] leading-none font-black tracking-[-0.04em]">
             {selectedOption.label}
           </span>
-          <span className="text-[11px] font-black tracking-[0.2em] uppercase">
-            {selectedOption.unitLabel}
-          </span>
+          {selectedOption.unitLabel ? (
+            <span className="text-[11px] font-black tracking-[0.2em] uppercase">
+              {selectedOption.unitLabel}
+            </span>
+          ) : null}
         </span>
 
         <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {nextOption ? `${nextOption.label} ${nextOption.unitLabel}` : ""}
+          {nextOption
+            ? [nextOption.label, nextOption.unitLabel].filter(Boolean).join(" ")
+            : ""}
         </span>
       </button>
     </div>
@@ -351,7 +356,6 @@ export default function LobbyPage() {
     "idle",
   );
   const [draftGameMode, setDraftGameMode] = useState<GameMode>("classic");
-  const [draftImageModel, setDraftImageModel] = useState<ImageModel>("gemini");
   const [draftTotalRounds, setDraftTotalRounds] = useState(1);
   const [draftRoundSeconds, setDraftRoundSeconds] = useState(60);
   const [draftCpuCount, setDraftCpuCount] = useState(0);
@@ -374,18 +378,17 @@ export default function LobbyPage() {
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
   const displayGameMode =
     me?.isHost && draftsReady ? draftGameMode : currentGameMode;
-  const displayImageModel =
-    me?.isHost && draftsReady ? draftImageModel : currentImageModel;
   const displayTotalRounds =
     me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
   const displayRoundSeconds =
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
   const displayCpuCount =
     me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
+  const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
   const imageModelLabel =
-    displayImageModel === "flux"
+    currentImageModel === "flux"
       ? copy.lobby.fluxModel
       : copy.lobby.geminiModel;
   const readyCount = displayPlayers.filter((player) => player.ready).length;
@@ -407,14 +410,12 @@ export default function LobbyPage() {
     Boolean(me?.isHost) && roomStatus === "LOBBY" && !isGenerating;
   const currentSettingsKey = formatSettingsKey(
     currentGameMode,
-    currentImageModel,
     currentTotalRounds,
     currentRoundSeconds,
     currentCpuCount,
   );
   const draftSettingsKey = formatSettingsKey(
     draftGameMode,
-    draftImageModel,
     draftTotalRounds,
     draftRoundSeconds,
     draftGameMode === "impostor" ? draftCpuCount : 0,
@@ -466,7 +467,6 @@ export default function LobbyPage() {
     if (!roomStatus) return;
     if (!draftsReady) {
       setDraftGameMode(currentGameMode);
-      setDraftImageModel(currentImageModel);
       setDraftTotalRounds(currentTotalRounds);
       setDraftRoundSeconds(currentRoundSeconds);
       setDraftCpuCount(currentCpuCount);
@@ -479,14 +479,12 @@ export default function LobbyPage() {
     }
 
     setDraftGameMode(currentGameMode);
-    setDraftImageModel(currentImageModel);
     setDraftTotalRounds(currentTotalRounds);
     setDraftRoundSeconds(currentRoundSeconds);
     setDraftCpuCount(currentCpuCount);
   }, [
     currentCpuCount,
     currentGameMode,
-    currentImageModel,
     currentRoundSeconds,
     currentTotalRounds,
     draftsReady,
@@ -506,7 +504,6 @@ export default function LobbyPage() {
           roomId,
         settings: {
           gameMode: draftGameMode,
-          imageModel: draftImageModel,
           totalRounds: draftTotalRounds,
           roundSeconds: draftRoundSeconds,
           cpuCount: draftGameMode === "impostor" ? draftCpuCount : 0,
@@ -529,7 +526,6 @@ export default function LobbyPage() {
   }, [
     draftCpuCount,
     draftGameMode,
-    draftImageModel,
     draftRoundSeconds,
     draftTotalRounds,
     draftsReady,
@@ -659,6 +655,21 @@ export default function LobbyPage() {
   const lobbyStatusMessage = (() => {
     if (actionError) {
       return resolveUiErrorMessage(language, actionError);
+    }
+
+    return null;
+  })();
+  const preparationMessage = (() => {
+    if (nextRoundPreparation?.status === "READY") {
+      return copy.common.nextRoundReady;
+    }
+
+    if (nextRoundPreparation?.status === "GENERATING") {
+      return copy.lobby.nextRoundWarming;
+    }
+
+    if (nextRoundPreparation?.status === "FAILED") {
+      return copy.lobby.nextRoundFallback;
     }
 
     return null;
@@ -897,6 +908,12 @@ export default function LobbyPage() {
                 {lobbyStatusMessage}
               </p>
             ) : null}
+
+            {!lobbyStatusMessage && preparationMessage ? (
+              <p className="mt-2 text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
+                {preparationMessage}
+              </p>
+            ) : null}
           </div>
         </Card>
 
@@ -991,61 +1008,6 @@ export default function LobbyPage() {
                 );
               })}
             </div>
-          </div>
-
-          <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">
-              {copy.lobby.imageModel}
-            </h3>
-          </div>
-
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {([
-              {
-                value: "gemini",
-                label: copy.lobby.geminiModel,
-                description: "Gemini API",
-              },
-              {
-                value: "flux",
-                label: copy.lobby.fluxModel,
-                description: "Flux via Vertex",
-              },
-            ] as const).map((option) => {
-              const selected = draftImageModel === option.value;
-
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setDraftImageModel(option.value)}
-                  disabled={!hostCanEdit}
-                  className={[
-                    "flex min-h-[88px] flex-col rounded-[16px] border-4 p-3 text-left transition-transform duration-150",
-                    "disabled:cursor-not-allowed disabled:opacity-70",
-                    selected
-                      ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
-                      : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-col">
-                      <p className="text-[11px] font-black tracking-[0.18em] uppercase">
-                        {option.description}
-                      </p>
-                      <h3 className="mt-1 text-lg leading-tight font-black">
-                        {option.label}
-                      </h3>
-                    </div>
-                    {selected ? (
-                      <span className="rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1">
-                        <Check className="h-4 w-4" />
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
           </div>
 
           <div className="mt-3">

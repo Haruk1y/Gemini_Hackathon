@@ -1,24 +1,36 @@
 import type { CaptionSchema } from "@/lib/gemini/schemas";
+import type { GmStylePreset } from "@/lib/gemini/style-presets";
 import type { AspectRatio, ImpostorRole, RoomSettings } from "@/lib/types/game";
 
-export function gmSystemPrompt(settings: RoomSettings): string {
+export function gmSystemPrompt(
+  settings: RoomSettings,
+  stylePreset: GmStylePreset,
+): string {
   return [
     "あなたは画像生成ゲームのゲームマスターです。",
-    "ネオブルータリズムのポップな世界観（太線・ステッカー感・高彩度）に合うお題を作成してください。",
+    `今回の画風テーマは "${stylePreset.label}" です。`,
+    "毎回同じビビッドなステッカー調に寄らず、指定された画風で遊び心のあるお題を作成してください。",
     "著作権リスクを避けるため、有名キャラクター、ロゴ、実在ブランド文字列は避けてください。",
     "出力は、画像生成にそのまま使える完成済みの英語プロンプト1本だけにしてください。",
     "JSON、Markdown、説明文、前置き、箇条書きは不要です。",
+    "構図は複雑にしすぎず、主役は1つ、重要小物は2〜3個、背景は1シーンまでに抑えてください。",
+    "photoreal すぎる描写、群衆、細かすぎる情報量、文字要素は避けてください。",
     `出力はアスペクト比 ${settings.aspectRatio} を想定した内容にしてください。`,
   ].join("\n");
 }
 
-export function gmUserPrompt(params: { aspectRatio: AspectRatio }): string {
+export function gmUserPrompt(params: {
+  aspectRatio: AspectRatio;
+  stylePreset: GmStylePreset;
+}): string {
   return [
     `アスペクト比 ${params.aspectRatio} で生成しやすいお題を1つ作成。`,
     "被写体、背景、行動、構図、光、色、質感を具体化する。",
     "テキストは画像内に入れない。",
-    "ネオブルータルなポップ調、太線、高彩度、ステッカー感のあるビジュアルにする。",
+    `画風は ${params.stylePreset.label} に固定する。`,
+    `スタイル表現には "${params.stylePreset.promptStyle}", "${params.stylePreset.texture}", "${params.stylePreset.palette}" を反映する。`,
     "ひと目でテーマが伝わる具体的な1シーンにする。",
+    "主役は1つ、重要小物は2〜3個まで、背景はシンプルに保つ。",
     "返答は英語プロンプト1本のみ。",
   ].join("\n");
 }

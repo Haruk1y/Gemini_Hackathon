@@ -32,6 +32,6 @@ export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {
   };
 }
 
-export function nextRoundId(roundIndex: number): string {
-  return `round-${roundIndex}`;
+export function nextRoundId(roundSequence: number): string {
+  return `round-${roundSequence}`;
 }

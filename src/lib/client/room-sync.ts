@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildCurrentApiPath } from "@/lib/client/paths";
 import {
   normalizeImageModel,
+  type PreparedRoundStatus,
   type ErrorCode,
   type GameMode,
   type ImageModel,
@@ -26,6 +27,10 @@ export interface RoomData {
   status: RoomStatus;
   currentRoundId: string | null;
   roundIndex?: number;
+  nextRoundPreparation?: {
+    index?: number;
+    status?: PreparedRoundStatus;
+  } | null;
   settings?: {
     gameMode?: GameMode;
     maxPlayers?: number;
@@ -250,6 +255,19 @@ function normalizeRoomData(value: unknown): RoomData | null {
     status,
     currentRoundId: asString(value.currentRoundId),
     roundIndex: asNumber(value.roundIndex) ?? undefined,
+    nextRoundPreparation: isRecord(value.nextRoundPreparation)
+      ? {
+          index: asNumber(value.nextRoundPreparation.index) ?? undefined,
+          status:
+            value.nextRoundPreparation.status === "GENERATING" ||
+            value.nextRoundPreparation.status === "READY" ||
+            value.nextRoundPreparation.status === "FAILED"
+              ? value.nextRoundPreparation.status
+              : undefined,
+        }
+      : value.nextRoundPreparation === null
+        ? null
+        : undefined,
     settings: isRecord(value.settings)
       ? {
           gameMode: normalizeGameMode(value.settings.gameMode) ?? undefined,

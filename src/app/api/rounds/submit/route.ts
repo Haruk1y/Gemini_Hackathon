@@ -15,6 +15,7 @@ import { AppError } from "@/lib/utils/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 function summarizeError(error: unknown) {
   if (error instanceof AppError) {

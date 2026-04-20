@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   scheduledTasks,
   mockAfter,
+  mockEnsurePreparedRound,
   mockStartRound,
   mockSubmitImpostorTurn,
   mockEndRoundIfNeeded,
@@ -12,16 +13,17 @@ const {
 } = vi.hoisted(() => {
   const queuedTasks: Array<() => Promise<void> | void> = [];
 
-  return {
-    scheduledTasks: queuedTasks,
-    mockAfter: vi.fn((task: () => Promise<void> | void) => {
-      queuedTasks.push(task);
-    }),
-    mockStartRound: vi.fn(),
-    mockSubmitImpostorTurn: vi.fn(),
-    mockEndRoundIfNeeded: vi.fn(),
-    mockRunImpostorCpuTurns: vi.fn(),
-    mockLoadRoomState: vi.fn(),
+    return {
+      scheduledTasks: queuedTasks,
+      mockAfter: vi.fn((task: () => Promise<void> | void) => {
+        queuedTasks.push(task);
+      }),
+      mockEnsurePreparedRound: vi.fn(),
+      mockStartRound: vi.fn(),
+      mockSubmitImpostorTurn: vi.fn(),
+      mockEndRoundIfNeeded: vi.fn(),
+      mockRunImpostorCpuTurns: vi.fn(),
+      mockLoadRoomState: vi.fn(),
   };
 });
 
@@ -38,6 +40,7 @@ vi.mock("@/lib/auth/verify-session", () => ({
 }));
 
 vi.mock("@/lib/game/round-service", () => ({
+  ensurePreparedRound: mockEnsurePreparedRound,
   startRound: mockStartRound,
   submitImpostorTurn: mockSubmitImpostorTurn,
   endRoundIfNeeded: mockEndRoundIfNeeded,
@@ -68,6 +71,7 @@ describe("Art Impostor CPU after() scheduling routes", () => {
     vi.resetModules();
     scheduledTasks.length = 0;
     mockAfter.mockClear();
+    mockEnsurePreparedRound.mockReset();
     mockStartRound.mockReset();
     mockSubmitImpostorTurn.mockReset();
     mockEndRoundIfNeeded.mockReset();
@@ -105,14 +109,18 @@ describe("Art Impostor CPU after() scheduling routes", () => {
       roundId: "round-1",
       roundIndex: 1,
     });
-    expect(mockAfter).toHaveBeenCalledTimes(1);
+    expect(mockAfter).toHaveBeenCalledTimes(2);
     expect(mockRunImpostorCpuTurns).not.toHaveBeenCalled();
+    expect(mockEnsurePreparedRound).not.toHaveBeenCalled();
 
-    await scheduledTasks[0]?.();
+    await Promise.all(scheduledTasks.map((task) => task?.()));
 
     expect(mockRunImpostorCpuTurns).toHaveBeenCalledWith({
       roomId: "ROOM1",
       roundId: "round-1",
+    });
+    expect(mockEnsurePreparedRound).toHaveBeenCalledWith({
+      roomId: "ROOM1",
     });
   });
 

@@ -2,10 +2,10 @@ import { AppError } from "@/lib/utils/errors";
 import type { RoomStatus } from "@/lib/types/game";
 
 const roomTransitions: Record<RoomStatus, RoomStatus[]> = {
-  LOBBY: ["GENERATING_ROUND"],
+  LOBBY: ["GENERATING_ROUND", "IN_ROUND"],
   GENERATING_ROUND: ["IN_ROUND"],
   IN_ROUND: ["RESULTS"],
-  RESULTS: ["GENERATING_ROUND", "FINISHED"],
+  RESULTS: ["GENERATING_ROUND", "IN_ROUND", "FINISHED"],
   FINISHED: [],
 };
 

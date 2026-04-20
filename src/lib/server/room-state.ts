@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import type {
   AttemptsPrivateDoc,
   PlayerDoc,
+  PreparedRoundDoc,
   RoundPrivateDoc,
   RoundPublicDoc,
   RoomDoc,
@@ -28,6 +29,8 @@ export interface RoomState {
   roundPrivates: Record<string, RoundPrivateDoc>;
   attempts: Record<string, Record<string, AttemptsPrivateDoc>>;
   scores: Record<string, Record<string, ScoreDoc>>;
+  preparedRound: PreparedRoundDoc | null;
+  roundSequence: number;
   version: number;
 }
 
@@ -341,6 +344,8 @@ export function createRoomState(room: RoomDoc): RoomState {
     roundPrivates: {},
     attempts: {},
     scores: {},
+    preparedRound: null,
+    roundSequence: 0,
     version: 1,
   };
 }

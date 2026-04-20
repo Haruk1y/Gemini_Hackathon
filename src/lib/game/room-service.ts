@@ -60,7 +60,7 @@ export async function updateRoomSettings(params: {
   uid: string;
   settings: Pick<
     RoomSettings,
-    "gameMode" | "imageModel" | "totalRounds" | "roundSeconds" | "cpuCount"
+    "gameMode" | "totalRounds" | "roundSeconds" | "cpuCount"
   >;
 }): Promise<RoomSettings> {
   return withRoomLock(params.roomId, async () => {
