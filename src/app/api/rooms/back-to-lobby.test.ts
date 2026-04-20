@@ -5,12 +5,35 @@ import { verifySessionCookie } from "@/lib/auth/verify-session";
 import { createRoomState, loadRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
 import { dateAfterHours } from "@/lib/utils/time";
 
+const { mockAfter, mockEnsurePreparedRound } = vi.hoisted(() => ({
+  mockAfter: vi.fn(),
+  mockEnsurePreparedRound: vi.fn(),
+}));
+
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return {
+    ...actual,
+    after: mockAfter,
+  };
+});
+
 vi.mock("@/lib/auth/verify-session", () => ({
   verifySessionCookie: vi.fn(() => ({
     uid: "host",
     session: { uid: "host", issuedAt: Date.now() },
   })),
 }));
+
+vi.mock("@/lib/game/round-service", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/game/round-service")>(
+    "@/lib/game/round-service",
+  );
+  return {
+    ...actual,
+    ensurePreparedRound: mockEnsurePreparedRound,
+  };
+});
 
 function createResultsState() {
   const now = new Date("2026-04-08T10:00:00.000Z");
@@ -28,7 +51,7 @@ function createResultsState() {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "impostor",
@@ -151,6 +174,8 @@ async function postBackToLobby(roomId: string) {
 describe("POST /api/rooms/back-to-lobby", () => {
   beforeEach(() => {
     roomStateTest.resetMemoryStore();
+    mockAfter.mockReset();
+    mockEnsurePreparedRound.mockReset();
   });
 
   it("returns the whole room to lobby and resets replay state for the host", async () => {

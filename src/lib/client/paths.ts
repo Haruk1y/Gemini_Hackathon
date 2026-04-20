@@ -1,6 +1,7 @@
 "use client";
 
 const KNOWN_APP_ROUTE_SEGMENTS = new Set([
+  "mockups",
   "lobby",
   "round",
   "results",

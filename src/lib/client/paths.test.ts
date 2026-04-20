@@ -5,6 +5,7 @@ import { buildApiPath, buildAppPath, getAppBasePath } from "@/lib/client/paths";
 describe("client path helpers", () => {
   it("uses the root app path for non-prefixed routes", () => {
     expect(getAppBasePath("/")).toBe("");
+    expect(getAppBasePath("/mockups/menu")).toBe("");
     expect(getAppBasePath("/lobby/ROOM1")).toBe("");
     expect(getAppBasePath("/round/ROOM1")).toBe("");
   });
@@ -22,6 +23,9 @@ describe("client path helpers", () => {
   });
 
   it("derives the public mount prefix from nested game routes", () => {
+    expect(getAppBasePath("/games/prompdojo/play/mockups/menu")).toBe(
+      "/games/prompdojo/play",
+    );
     expect(getAppBasePath("/games/prompdojo/play/lobby/ROOM1")).toBe(
       "/games/prompdojo/play",
     );

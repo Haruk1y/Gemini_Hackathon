@@ -16,8 +16,14 @@ import {
   resolveUiErrorMessage,
   toUiError,
 } from "@/lib/i18n/errors";
+import type { ImageModel } from "@/lib/types/game";
 
 type BusyAction = "create" | "join" | null;
+
+const IMAGE_MODEL_OPTIONS: Array<{ value: ImageModel; label: string }> = [
+  { value: "gemini", label: "Gemini" },
+  { value: "flux", label: "Flux" },
+];
 
 export default function HomePage() {
   const router = useRouter();
@@ -27,6 +33,8 @@ export default function HomePage() {
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [joinDisplayName, setJoinDisplayName] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [createImageModel, setCreateImageModel] =
+    useState<ImageModel>("gemini");
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [createError, setCreateError] = useState<UiError | null>(null);
   const [joinError, setJoinError] = useState<UiError | null>(null);
@@ -55,6 +63,9 @@ export default function HomePage() {
         "/api/rooms/create",
         {
           displayName: createDisplayName.trim(),
+          settings: {
+            imageModel: createImageModel,
+          },
         },
       );
 
@@ -99,8 +110,46 @@ export default function HomePage() {
             <br />
             {copy.home.heroLine2}
           </p>
-          <div className="mt-5">
-            <LanguageToggle />
+          <div className="mt-5 max-w-xs">
+            <p className="text-[10px] font-black tracking-[0.18em] uppercase">
+              Debug
+            </p>
+
+            <div className="mt-3 space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-black tracking-[0.14em] uppercase">
+                  Language
+                </p>
+                <LanguageToggle />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-black tracking-[0.14em] uppercase">
+                  Image Model
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {IMAGE_MODEL_OPTIONS.map((option) => {
+                    const selected = createImageModel === option.value;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setCreateImageModel(option.value)}
+                        className={[
+                          "rounded-[12px] border-4 px-3 py-2 text-center text-xs font-black tracking-[0.08em] uppercase transition-transform duration-150",
+                          selected
+                            ? "border-[var(--pmb-ink)] bg-[var(--pmb-blue)] shadow-[4px_4px_0_var(--pmb-ink)]"
+                            : "border-[var(--pmb-ink)] bg-white shadow-[2px_2px_0_var(--pmb-ink)]",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
 

@@ -1,7 +1,10 @@
+import { after } from "next/server";
+
 import { createRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { mergeRoomSettings } from "@/lib/game/defaults";
 import { nextSeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
+import { ensurePreparedRound } from "@/lib/game/round-service";
 import {
   createRoomState,
   getRoomStateBackendInfo,
@@ -13,6 +16,7 @@ import { dateAfterHours } from "@/lib/utils/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => {
   const now = new Date();
@@ -68,6 +72,13 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     uid: auth.uid,
     backend: backend.kind,
     envSource: backend.envSource ?? "memory",
+  });
+  after(async () => {
+    try {
+      await ensurePreparedRound({ roomId });
+    } catch (error) {
+      console.error("Deferred round preparation failed after room creation", error);
+    }
   });
   return ok({ roomId, code: roomId });
 });

@@ -6,12 +6,29 @@ export type RoomStatus =
   | "FINISHED";
 
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
+export type PreparedRoundStatus = "GENERATING" | "READY" | "FAILED";
 
 export type AspectRatio = "1:1" | "16:9" | "9:16";
 export type GameMode = "classic" | "memory" | "impostor";
 export type PlayerKind = "human" | "cpu";
 export type ImpostorRole = "agent" | "impostor";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
+export type ImageModel = "gemini" | "flux";
+
+export function normalizeImageModel(
+  value: unknown,
+  fallback: ImageModel = "gemini",
+): ImageModel {
+  if (value === "flux") {
+    return "flux";
+  }
+
+  if (value === "gemini" || value === "flash") {
+    return "gemini";
+  }
+
+  return fallback;
+}
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -34,7 +51,7 @@ export interface RoomSettings {
   roundSeconds: number;
   maxAttempts: number;
   aspectRatio: AspectRatio;
-  imageModel: "flash";
+  imageModel: ImageModel;
   hintLimit: number;
   totalRounds: number;
   gameMode: GameMode;
@@ -54,6 +71,23 @@ export interface RoomDoc {
   ui: {
     theme: "neo-brutal";
   };
+}
+
+export interface PreparedRoundDoc {
+  roundId: string;
+  index: number;
+  status: PreparedRoundStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  imageModel: ImageModel;
+  gmPrompt: string;
+  gmTitle: string;
+  gmTags: string[];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  targetImageUrl: string;
+  targetThumbUrl: string;
+  stylePresetId?: string;
+  errorMessage?: string;
 }
 
 export interface PlayerDoc {
@@ -151,6 +185,7 @@ export interface RoundPrivateDoc {
   expiresAt: Date;
   gmPrompt: string;
   gmNegativePrompt?: string;
+  stylePresetId?: string;
   safety: {
     blocked: boolean;
     reason?: string;

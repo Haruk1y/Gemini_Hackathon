@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type {
-  ErrorCode,
-  GameMode,
-  ImpostorRole,
-  PlayerKind,
-} from "@/lib/types/game";
 import { buildCurrentApiPath } from "@/lib/client/paths";
+import {
+  normalizeImageModel,
+  type PreparedRoundStatus,
+  type ErrorCode,
+  type GameMode,
+  type ImageModel,
+  type ImpostorRole,
+  type PlayerKind,
+} from "@/lib/types/game";
 
 export type RoomStatus =
   | "LOBBY"
@@ -24,12 +27,17 @@ export interface RoomData {
   status: RoomStatus;
   currentRoundId: string | null;
   roundIndex?: number;
+  nextRoundPreparation?: {
+    index?: number;
+    status?: PreparedRoundStatus;
+  } | null;
   settings?: {
     gameMode?: GameMode;
     maxPlayers?: number;
     roundSeconds?: number;
     maxAttempts?: number;
     aspectRatio?: "1:1" | "16:9" | "9:16";
+    imageModel?: ImageModel;
     hintLimit?: number;
     totalRounds?: number;
     cpuCount?: number;
@@ -220,6 +228,12 @@ function normalizePlayerKind(value: unknown): PlayerKind | null {
   return value === "human" || value === "cpu" ? value : null;
 }
 
+function normalizeImageModelSetting(value: unknown): ImageModel | null {
+  return value === "gemini" || value === "flux" || value === "flash"
+    ? normalizeImageModel(value)
+    : null;
+}
+
 function normalizeImpostorRole(value: unknown): ImpostorRole | null {
   return value === "agent" || value === "impostor" ? value : null;
 }
@@ -241,6 +255,19 @@ function normalizeRoomData(value: unknown): RoomData | null {
     status,
     currentRoundId: asString(value.currentRoundId),
     roundIndex: asNumber(value.roundIndex) ?? undefined,
+    nextRoundPreparation: isRecord(value.nextRoundPreparation)
+      ? {
+          index: asNumber(value.nextRoundPreparation.index) ?? undefined,
+          status:
+            value.nextRoundPreparation.status === "GENERATING" ||
+            value.nextRoundPreparation.status === "READY" ||
+            value.nextRoundPreparation.status === "FAILED"
+              ? value.nextRoundPreparation.status
+              : undefined,
+        }
+      : value.nextRoundPreparation === null
+        ? null
+        : undefined,
     settings: isRecord(value.settings)
       ? {
           gameMode: normalizeGameMode(value.settings.gameMode) ?? undefined,
@@ -253,6 +280,8 @@ function normalizeRoomData(value: unknown): RoomData | null {
             value.settings.aspectRatio === "9:16"
               ? value.settings.aspectRatio
               : undefined,
+          imageModel:
+            normalizeImageModelSetting(value.settings.imageModel) ?? undefined,
           hintLimit: asNumber(value.settings.hintLimit) ?? undefined,
           totalRounds: asNumber(value.settings.totalRounds) ?? undefined,
           cpuCount: asNumber(value.settings.cpuCount) ?? undefined,

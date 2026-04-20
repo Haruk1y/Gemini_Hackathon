@@ -38,10 +38,13 @@ vi.mock("@/lib/gemini/client", () => ({
     language === "ja"
       ? "画像の見た目比較で採点"
       : "Scored by visual similarity.",
+  scoreImageSimilarity: mockScoreImageSimilarity,
+}));
+
+vi.mock("@/lib/images", () => ({
   generateImage: mockGenerateImage,
   imageToBuffer: mockImageToBuffer,
   imageToPublicUrl: mockImageToPublicUrl,
-  scoreImageSimilarity: mockScoreImageSimilarity,
 }));
 
 vi.mock("@/lib/storage/upload-image", () => ({
@@ -64,7 +67,7 @@ function createRoundState() {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 1,
       gameMode: "classic",

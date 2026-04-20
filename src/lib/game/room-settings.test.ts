@@ -25,7 +25,7 @@ function createBaseState() {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
@@ -83,6 +83,7 @@ describe("updateRoomSettings", () => {
     });
 
     expect(settings.gameMode).toBe("memory");
+    expect(settings.imageModel).toBe("gemini");
     expect(settings.totalRounds).toBe(3);
     expect(settings.roundSeconds).toBe(45);
     expect(settings.maxAttempts).toBe(1);
@@ -148,13 +149,13 @@ describe("updateRoomSettings", () => {
 
     await expect(
       updateRoomSettings({
-        roomId: "ROOM1",
-        uid: "guest",
-        settings: {
-          gameMode: "memory",
-          totalRounds: 2,
-          roundSeconds: 30,
-          cpuCount: 0,
+      roomId: "ROOM1",
+      uid: "guest",
+      settings: {
+        gameMode: "memory",
+        totalRounds: 2,
+        roundSeconds: 30,
+        cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({
@@ -170,13 +171,13 @@ describe("updateRoomSettings", () => {
 
     await expect(
       updateRoomSettings({
-        roomId: "ROOM1",
-        uid: "host",
-        settings: {
-          gameMode: "memory",
-          totalRounds: 2,
-          roundSeconds: 30,
-          cpuCount: 0,
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "memory",
+        totalRounds: 2,
+        roundSeconds: 30,
+        cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({

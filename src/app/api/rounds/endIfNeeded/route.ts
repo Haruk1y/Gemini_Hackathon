@@ -7,6 +7,7 @@ import { LANGUAGE_COOKIE_NAME, normalizeLanguage } from "@/lib/i18n/language";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export const POST = withPostHandler(
   endRoundIfNeededSchema,

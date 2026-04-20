@@ -12,10 +12,13 @@ const mockScoreImageSimilarity = vi.fn();
 
 vi.mock("@/lib/gemini/client", () => ({
   generateGmPrompt: mockGenerateGmPrompt,
-  generateImage: mockGenerateImage,
   captionFromImage: mockCaptionFromImage,
   rewriteCpuPrompt: mockRewriteCpuPrompt,
   scoreImageSimilarity: mockScoreImageSimilarity,
+}));
+
+vi.mock("@/lib/images", () => ({
+  generateImage: mockGenerateImage,
   imageToBuffer: vi.fn(() => null),
   imageToPublicUrl: vi.fn((image: { directUrl?: string }) => image.directUrl ?? null),
 }));
@@ -55,7 +58,7 @@ function createLobbyState(cpuCount = 1) {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "impostor",

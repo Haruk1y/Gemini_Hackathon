@@ -58,7 +58,10 @@ export function shufflePlayers<T>(players: T[], random = Math.random): T[] {
 export async function updateRoomSettings(params: {
   roomId: string;
   uid: string;
-  settings: Pick<RoomSettings, "gameMode" | "totalRounds" | "roundSeconds" | "cpuCount">;
+  settings: Pick<
+    RoomSettings,
+    "gameMode" | "totalRounds" | "roundSeconds" | "cpuCount"
+  >;
 }): Promise<RoomSettings> {
   return withRoomLock(params.roomId, async () => {
     const state = await loadRoomState(params.roomId);

@@ -258,7 +258,9 @@ function SwipeValuePicker({
       >
         <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
           {previousOption
-            ? `${previousOption.label} ${previousOption.unitLabel}`
+            ? [previousOption.label, previousOption.unitLabel]
+                .filter(Boolean)
+                .join(" ")
             : ""}
         </span>
 
@@ -267,13 +269,17 @@ function SwipeValuePicker({
           <span className="text-[2.55rem] leading-none font-black tracking-[-0.04em]">
             {selectedOption.label}
           </span>
-          <span className="text-[11px] font-black tracking-[0.2em] uppercase">
-            {selectedOption.unitLabel}
-          </span>
+          {selectedOption.unitLabel ? (
+            <span className="text-[11px] font-black tracking-[0.2em] uppercase">
+              {selectedOption.unitLabel}
+            </span>
+          ) : null}
         </span>
 
         <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {nextOption ? `${nextOption.label} ${nextOption.unitLabel}` : ""}
+          {nextOption
+            ? [nextOption.label, nextOption.unitLabel].filter(Boolean).join(" ")
+            : ""}
         </span>
       </button>
     </div>
@@ -366,6 +372,7 @@ export default function LobbyPage() {
   );
   const me = displayPlayers.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
+  const currentImageModel = room?.settings?.imageModel ?? "gemini";
   const currentTotalRounds = room?.settings?.totalRounds ?? 1;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
@@ -377,8 +384,13 @@ export default function LobbyPage() {
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
   const displayCpuCount =
     me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
+  const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
+  const imageModelLabel =
+    currentImageModel === "flux"
+      ? copy.lobby.fluxModel
+      : copy.lobby.geminiModel;
   const readyCount = displayPlayers.filter((player) => player.ready).length;
   const everyoneReady =
     displayPlayers.length > 0 && readyCount === displayPlayers.length;
@@ -489,7 +501,7 @@ export default function LobbyPage() {
     const sequence = ++saveSequenceRef.current;
     const timerId = window.setTimeout(() => {
       void apiPost("/api/rooms/settings", {
-        roomId,
+          roomId,
         settings: {
           gameMode: draftGameMode,
           totalRounds: draftTotalRounds,
@@ -643,6 +655,17 @@ export default function LobbyPage() {
   const lobbyStatusMessage = (() => {
     if (actionError) {
       return resolveUiErrorMessage(language, actionError);
+    }
+
+    return null;
+  })();
+  const preparationMessage = (() => {
+    if (nextRoundPreparation?.status === "READY") {
+      return copy.common.nextRoundReady;
+    }
+
+    if (nextRoundPreparation?.status === "FAILED") {
+      return copy.lobby.nextRoundFallback;
     }
 
     return null;
@@ -867,7 +890,12 @@ export default function LobbyPage() {
               </Button>
             ) : (
               <p className="flex items-center rounded-[12px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 text-sm font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_70%,white)]">
-                {copy.lobby.waitingForHost}
+                {isGenerating ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {isGenerating
+                  ? copy.lobby.generatingTheme
+                  : copy.lobby.waitingForHost}
               </p>
             )}
 
@@ -881,6 +909,12 @@ export default function LobbyPage() {
                 {lobbyStatusMessage}
               </p>
             ) : null}
+
+            {!lobbyStatusMessage && preparationMessage ? (
+              <p className="mt-2 text-xs font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_72%,white)]">
+                {preparationMessage}
+              </p>
+            ) : null}
           </div>
         </Card>
 
@@ -892,6 +926,9 @@ export default function LobbyPage() {
             <div className="flex flex-wrap justify-end gap-1.5">
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                 {currentMode.label}
+              </Badge>
+              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
+                {imageModelLabel}
               </Badge>
               <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                 {displayTotalRounds} {copy.common.rounds}

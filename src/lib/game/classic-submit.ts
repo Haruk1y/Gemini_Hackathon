@@ -1,12 +1,14 @@
 import {
   fallbackJudgeNote,
+  scoreImageSimilarity,
+} from "@/lib/gemini/client";
+import { RESULTS_GRACE_SECONDS } from "@/lib/game/modes";
+import {
   generateImage,
   imageToBuffer,
   imageToPublicUrl,
-  scoreImageSimilarity,
   type GeneratedImage,
-} from "@/lib/gemini/client";
-import { RESULTS_GRACE_SECONDS } from "@/lib/game/modes";
+} from "@/lib/images";
 import { assertRoundSubmissionWindow } from "@/lib/game/round-validation";
 import type { Language } from "@/lib/i18n/language";
 import {
@@ -19,7 +21,11 @@ import {
 } from "@/lib/server/room-state";
 import { buildPlayerBestImagePath } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
-import type { RoomDoc, RoundPublicDoc } from "@/lib/types/game";
+import type {
+  ImageModel,
+  RoomDoc,
+  RoundPublicDoc,
+} from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
@@ -59,6 +65,7 @@ export interface ReservedClassicAttempt {
   attemptNo: number;
   createdAt: Date;
   aspectRatio: "1:1" | "16:9" | "9:16";
+  imageModel: ImageModel;
   targetImageUrl: string;
 }
 
@@ -192,7 +199,7 @@ async function resolveBestImageUrl(params: {
   prompt: string;
   image: GeneratedImage;
 }): Promise<string> {
-  const directUrl = imageToPublicUrl(params.image, params.prompt);
+  const directUrl = imageToPublicUrl(params.image);
   const imageBuffer = imageToBuffer(params.image);
 
   if (!imageBuffer || !params.image.base64Data) {
@@ -299,6 +306,7 @@ export function reserveClassicRoundAttemptInState(params: {
     attemptNo,
     createdAt,
     aspectRatio: room.settings.aspectRatio,
+    imageModel: room.settings.imageModel,
     targetImageUrl: round.targetImageUrl,
   };
 }
@@ -561,14 +569,14 @@ export async function submitClassicRoundAttemptWithReservation(params: {
       generatedImage = await generateImage({
         prompt: params.prompt,
         aspectRatio: params.reservedAttempt.aspectRatio,
+        imageModel: params.reservedAttempt.imageModel,
       });
     } catch (error) {
       params.logStageFailure?.("image_generation", context, error);
       throw error;
     }
 
-    const transientImageUrl =
-      imageToPublicUrl(generatedImage, params.prompt) ?? undefined;
+    const transientImageUrl = imageToPublicUrl(generatedImage) ?? undefined;
 
     let targetImageForJudge: GeneratedImage | null;
     let attemptImageForJudge: GeneratedImage | null;

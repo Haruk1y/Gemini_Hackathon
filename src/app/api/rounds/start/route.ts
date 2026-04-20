@@ -2,10 +2,15 @@ import { after } from "next/server";
 
 import { roomOnlySchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
-import { runImpostorCpuTurns, startRound } from "@/lib/game/round-service";
+import {
+  ensurePreparedRound,
+  runImpostorCpuTurns,
+  startRound,
+} from "@/lib/game/round-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
   const result = await startRound({
@@ -20,6 +25,13 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
         }
       });
     },
+  });
+  after(async () => {
+    try {
+      await ensurePreparedRound({ roomId: body.roomId });
+    } catch (error) {
+      console.error("Deferred round preparation failed after round start", error);
+    }
   });
   return ok({ roundId: result.roundId, roundIndex: result.roundIndex });
 });
