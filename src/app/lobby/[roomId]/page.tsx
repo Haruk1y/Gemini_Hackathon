@@ -890,7 +890,12 @@ export default function LobbyPage() {
               </Button>
             ) : (
               <p className="flex items-center rounded-[12px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 text-sm font-semibold text-[color:color-mix(in_srgb,var(--pmb-ink)_70%,white)]">
-                {copy.lobby.waitingForHost}
+                {isGenerating ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {isGenerating
+                  ? copy.lobby.generatingTheme
+                  : copy.lobby.waitingForHost}
               </p>
             )}
 
