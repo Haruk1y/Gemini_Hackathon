@@ -664,10 +664,6 @@ export default function LobbyPage() {
       return copy.common.nextRoundReady;
     }
 
-    if (nextRoundPreparation?.status === "GENERATING") {
-      return copy.lobby.nextRoundWarming;
-    }
-
     if (nextRoundPreparation?.status === "FAILED") {
       return copy.lobby.nextRoundFallback;
     }
