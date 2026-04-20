@@ -16,6 +16,12 @@ import {
   type Language,
 } from "@/lib/i18n/language";
 import {
+  imageToBuffer as bufferFromGeneratedImage,
+  imageToPublicUrl as directUrlFromGeneratedImage,
+  placeholderImageUrl,
+  type GeneratedImage,
+} from "@/lib/images/types";
+import {
   captionPrompt,
   cpuRewriteSystemPrompt,
   cpuRewriteUserPrompt,
@@ -42,6 +48,8 @@ const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
 const DEFAULT_NEGATIVE_PROMPT =
   "logo, watermark, text, brand name, famous character, trademark";
 const mockMode = process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
+
+export type { GeneratedImage } from "@/lib/images/types";
 
 function createClient(): GoogleGenAI | null {
   if (mockMode) {
@@ -440,11 +448,6 @@ function responseText(response: {
   return combined || null;
 }
 
-function placeholderUrl(prompt: string): string {
-  const text = encodeURIComponent(prompt.slice(0, 60));
-  return `https://placehold.co/1024x1024/FFF7E6/101010/png?text=${text}`;
-}
-
 function buildGmPromptFromText(promptText: string, aspectRatio: AspectRatio): GmPromptSchema {
   const prompt =
     promptText.length >= 30
@@ -650,12 +653,6 @@ function getAiClient(): GoogleGenAI {
   return ai;
 }
 
-export interface GeneratedImage {
-  mimeType: string;
-  base64Data?: string;
-  directUrl?: string;
-}
-
 export async function generateGmPrompt(params: {
   settings: RoomSettings;
 }): Promise<GmPromptSchema> {
@@ -772,7 +769,7 @@ export async function generateImage(params: {
   if (mockMode) {
     return {
       mimeType: "image/png",
-      directUrl: placeholderUrl(params.prompt),
+      directUrl: placeholderImageUrl(params.prompt),
     };
   }
 
@@ -1006,17 +1003,17 @@ export async function scoreImageSimilarity(params: {
 }
 
 export function imageToBuffer(image: GeneratedImage): Buffer | null {
-  if (!image.base64Data) return null;
-  return Buffer.from(image.base64Data, "base64");
+  return bufferFromGeneratedImage(image);
 }
 
 export function imageToPublicUrl(image: GeneratedImage, fallbackPrompt: string): string | null {
-  if (image.directUrl) {
-    return image.directUrl;
+  const directUrl = directUrlFromGeneratedImage(image);
+  if (directUrl) {
+    return directUrl;
   }
 
   if (mockMode) {
-    return placeholderUrl(fallbackPrompt);
+    return placeholderImageUrl(fallbackPrompt);
   }
 
   return null;

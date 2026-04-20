@@ -23,7 +23,7 @@ function createRoundState(promptStartsAt: Date, endsAt: Date) {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "memory",

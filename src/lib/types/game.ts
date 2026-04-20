@@ -12,6 +12,22 @@ export type GameMode = "classic" | "memory" | "impostor";
 export type PlayerKind = "human" | "cpu";
 export type ImpostorRole = "agent" | "impostor";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
+export type ImageModel = "gemini" | "flux";
+
+export function normalizeImageModel(
+  value: unknown,
+  fallback: ImageModel = "gemini",
+): ImageModel {
+  if (value === "flux") {
+    return "flux";
+  }
+
+  if (value === "gemini" || value === "flash") {
+    return "gemini";
+  }
+
+  return fallback;
+}
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -34,7 +50,7 @@ export interface RoomSettings {
   roundSeconds: number;
   maxAttempts: number;
   aspectRatio: AspectRatio;
-  imageModel: "flash";
+  imageModel: ImageModel;
   hintLimit: number;
   totalRounds: number;
   gameMode: GameMode;

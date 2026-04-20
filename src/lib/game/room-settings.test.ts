@@ -25,7 +25,7 @@ function createBaseState() {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
@@ -76,6 +76,7 @@ describe("updateRoomSettings", () => {
       uid: "host",
       settings: {
         gameMode: "memory",
+        imageModel: "flux",
         totalRounds: 3,
         roundSeconds: 45,
         cpuCount: 0,
@@ -83,6 +84,7 @@ describe("updateRoomSettings", () => {
     });
 
     expect(settings.gameMode).toBe("memory");
+    expect(settings.imageModel).toBe("flux");
     expect(settings.totalRounds).toBe(3);
     expect(settings.roundSeconds).toBe(45);
     expect(settings.maxAttempts).toBe(1);
@@ -97,6 +99,7 @@ describe("updateRoomSettings", () => {
       uid: "host",
       settings: {
         gameMode: "impostor",
+        imageModel: "gemini",
         totalRounds: 3,
         roundSeconds: 60,
         cpuCount: 2,
@@ -119,6 +122,7 @@ describe("updateRoomSettings", () => {
       uid: "host",
       settings: {
         gameMode: "impostor",
+        imageModel: "gemini",
         totalRounds: 3,
         roundSeconds: 60,
         cpuCount: 2,
@@ -130,6 +134,7 @@ describe("updateRoomSettings", () => {
       uid: "host",
       settings: {
         gameMode: "classic",
+        imageModel: "flux",
         totalRounds: 3,
         roundSeconds: 60,
         cpuCount: 0,
@@ -152,6 +157,7 @@ describe("updateRoomSettings", () => {
         uid: "guest",
         settings: {
           gameMode: "memory",
+          imageModel: "gemini",
           totalRounds: 2,
           roundSeconds: 30,
           cpuCount: 0,
@@ -174,6 +180,7 @@ describe("updateRoomSettings", () => {
         uid: "host",
         settings: {
           gameMode: "memory",
+          imageModel: "gemini",
           totalRounds: 2,
           roundSeconds: 30,
           cpuCount: 0,

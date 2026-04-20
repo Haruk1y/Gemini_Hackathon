@@ -108,7 +108,8 @@ const API_CODE_MESSAGES: Record<Language, Record<ErrorCode, string>> = {
     MAX_ATTEMPTS_REACHED: "これ以上は生成できません。",
     HINT_LIMIT_REACHED: "これ以上ヒントは使えません。",
     RATE_LIMIT: "処理が混み合っています。少し待ってから再試行してください。",
-    GEMINI_ERROR: "画像生成に失敗しました。少し待ってから再試行してください。",
+    GEMINI_ERROR:
+      "画像生成に失敗しました。画像生成プロバイダの設定を確認して、少し待ってから再試行してください。",
     GCP_ERROR: "Google Cloud 認証の更新が必要です。",
     INTERNAL_ERROR: "サーバーエラーが発生しました。しばらくしてから再試行してください。",
   },
@@ -124,7 +125,8 @@ const API_CODE_MESSAGES: Record<Language, Record<ErrorCode, string>> = {
     MAX_ATTEMPTS_REACHED: "You have no attempts left.",
     HINT_LIMIT_REACHED: "You have no hints left.",
     RATE_LIMIT: "The server is busy right now. Please try again in a moment.",
-    GEMINI_ERROR: "Image generation failed. Please try again in a moment.",
+    GEMINI_ERROR:
+      "Image generation failed. Check the configured image provider and try again in a moment.",
     GCP_ERROR: "Google Cloud authentication needs to be refreshed.",
     INTERNAL_ERROR: "A server error occurred. Please try again shortly.",
   },

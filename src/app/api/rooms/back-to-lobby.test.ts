@@ -28,7 +28,7 @@ function createResultsState() {
       roundSeconds: 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flash",
+      imageModel: "gemini",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "impostor",

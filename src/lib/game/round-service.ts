@@ -1,12 +1,8 @@
 import {
   captionFromImage,
   generateGmPrompt,
-  generateImage,
-  imageToBuffer,
-  imageToPublicUrl,
   rewriteCpuPrompt,
   scoreImageSimilarity,
-  type GeneratedImage,
 } from "@/lib/gemini/client";
 import { nextRoundId } from "@/lib/game/defaults";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
@@ -41,6 +37,12 @@ import {
   withRoomLock,
   withSubmitLock,
 } from "@/lib/server/room-state";
+import {
+  generateImage,
+  imageToBuffer,
+  imageToPublicUrl,
+  type GeneratedImage,
+} from "@/lib/images";
 import { buildRoundTargetImagePath } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
 import type {
@@ -111,7 +113,7 @@ function describeRoundGenerationError(error: unknown): AppError {
     if (error.code === "GEMINI_ERROR") {
       return new AppError(
         "GEMINI_ERROR",
-        "お題画像の生成に失敗しました。Gemini の設定または利用状況を確認して再試行してください。",
+        "お題画像の生成に失敗しました。画像生成プロバイダの設定または利用状況を確認して再試行してください。",
         true,
         502,
       );
@@ -182,7 +184,7 @@ async function resolveImageUrl(params: {
   prompt: string;
   image: Awaited<ReturnType<typeof generateImage>>;
 }): Promise<string> {
-  const directUrl = imageToPublicUrl(params.image, params.prompt);
+  const directUrl = imageToPublicUrl(params.image);
   const buffer = imageToBuffer(params.image);
 
   if (!buffer || !params.image.base64Data) {
@@ -429,8 +431,9 @@ async function executeImpostorTurn(params: {
     const generatedImage = await generateImage({
       prompt,
       aspectRatio: room.settings.aspectRatio,
+      imageModel: room.settings.imageModel,
     });
-    const transientImageUrl = imageToPublicUrl(generatedImage, prompt) ?? undefined;
+    const transientImageUrl = imageToPublicUrl(generatedImage) ?? undefined;
     const attemptImage = await imageForVisualScoring(generatedImage, transientImageUrl);
 
     if (!attemptImage?.base64Data) {
@@ -758,6 +761,7 @@ export async function startRound(params: {
     const targetImage = await generateImage({
       prompt: gmPrompt.prompt,
       aspectRatio: reservation.settings.aspectRatio,
+      imageModel: reservation.settings.imageModel,
     });
 
     const targetImageUrl = await resolveImageUrl({

@@ -31,7 +31,7 @@ const settings = {
   roundSeconds: 60,
   maxAttempts: 1,
   aspectRatio: "1:1" as const,
-  imageModel: "flash" as const,
+  imageModel: "gemini" as const,
   hintLimit: 0,
   totalRounds: 3,
   gameMode: "classic" as const,

@@ -202,6 +202,7 @@ function buildLobbySnapshot(state: RoomState, uid: string) {
         roundSeconds: state.room.settings.roundSeconds,
         maxAttempts: state.room.settings.maxAttempts,
         hintLimit: state.room.settings.hintLimit,
+        imageModel: state.room.settings.imageModel,
         totalRounds: state.room.settings.totalRounds,
         cpuCount: state.room.settings.cpuCount,
       },
@@ -259,6 +260,7 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
         roundSeconds: state.room.settings.roundSeconds,
         maxAttempts: state.room.settings.maxAttempts,
         hintLimit: state.room.settings.hintLimit,
+        imageModel: state.room.settings.imageModel,
         cpuCount: state.room.settings.cpuCount,
       },
     },
@@ -312,6 +314,7 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
       roundIndex: state.room.roundIndex,
       settings: {
         gameMode: state.room.settings.gameMode,
+        imageModel: state.room.settings.imageModel,
         totalRounds: state.room.settings.totalRounds,
         cpuCount: state.room.settings.cpuCount,
       },
