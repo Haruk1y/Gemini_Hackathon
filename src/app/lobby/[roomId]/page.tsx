@@ -338,6 +338,7 @@ export default function LobbyPage() {
   const router = useRouter();
   const { language, copy } = useLanguage();
   const { user, loading, error: authError } = useAuth();
+  const [isLeaving, setIsLeaving] = useState(false);
   const {
     snapshot,
     error: snapshotError,
@@ -345,7 +346,7 @@ export default function LobbyPage() {
   } = useRoomSync({
     roomId,
     view: "lobby",
-    enabled: Boolean(user) && !loading,
+    enabled: Boolean(user) && !loading && !isLeaving,
   });
 
   const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
@@ -362,6 +363,7 @@ export default function LobbyPage() {
   const [draftsReady, setDraftsReady] = useState(false);
   const [optimisticReady, setOptimisticReady] = useState<boolean | null>(null);
   const saveSequenceRef = useRef(0);
+  const autoReadyAttemptedRef = useRef(false);
 
   const room = snapshot.room;
   const players = snapshot.players;
@@ -562,15 +564,14 @@ export default function LobbyPage() {
 
   useRoomPresence({
     roomId,
-    enabled: Boolean(room && user),
+    enabled: Boolean(room && user) && !isLeaving,
   });
 
-  const onToggleReady = async () => {
-    if (!me || isGenerating) return;
-
+  const updateReady = async (nextReady: boolean, options?: { silent?: boolean }) => {
     setActionBusy("ready");
-    setActionError(null);
-    const nextReady = !me.ready;
+    if (!options?.silent) {
+      setActionError(null);
+    }
     setOptimisticReady(nextReady);
     try {
       await apiPost("/api/rooms/ready", {
@@ -579,10 +580,28 @@ export default function LobbyPage() {
       });
     } catch (error) {
       setOptimisticReady(null);
-      setActionError(toUiError(error, "readyUpdateFailed"));
+      if (!options?.silent) {
+        setActionError(toUiError(error, "readyUpdateFailed"));
+      }
     } finally {
       setActionBusy(null);
     }
+  };
+
+  useEffect(() => {
+    if (roomStatus !== "LOBBY" || !me || isLeaving) return;
+    if (me.ready || optimisticReady === true) return;
+    if (actionBusy === "ready" || autoReadyAttemptedRef.current) return;
+
+    autoReadyAttemptedRef.current = true;
+    void updateReady(true, { silent: true });
+  }, [actionBusy, isLeaving, me, optimisticReady, roomStatus]);
+
+  const onToggleReady = async () => {
+    if (!me || isGenerating) return;
+
+    const nextReady = !me.ready;
+    await updateReady(nextReady);
   };
 
   const onStart = async () => {
@@ -603,12 +622,14 @@ export default function LobbyPage() {
   };
 
   const onLeave = async () => {
+    setIsLeaving(true);
     setActionBusy("leave");
     setActionError(null);
     try {
       await leaveRoom({ roomId });
       router.replace(buildCurrentAppPath("/"));
     } catch (error) {
+      setIsLeaving(false);
       setActionError(toUiError(error, "leaveRoomFailed"));
     } finally {
       setActionBusy(null);
@@ -667,7 +688,7 @@ export default function LobbyPage() {
     return null;
   })();
 
-  if (loading || (isConnecting && !snapshotError && !room)) {
+  if (isLeaving || loading || (isConnecting && !snapshotError && !room)) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">{copy.lobby.loading}</Card>

@@ -24,6 +24,7 @@ import {
   type AttemptData,
   type PlayerData,
   type RoomData,
+  type RoomSyncSnapshot,
   type RoundData,
   type ScoreEntry,
   useRoomSync,
@@ -45,39 +46,55 @@ export default function ResultsPage() {
     view: "results",
     enabled: Boolean(user),
   });
-  const room = snapshot.room as RoomData | null;
-  const round = snapshot.round as RoundData | null;
-  const scores = snapshot.scores as ScoreEntry[];
-  const myAttempts = snapshot.attempts as AttemptData | null;
-  const voteProgress = snapshot.voteProgress;
-  const finalSimilarityScore = snapshot.finalSimilarityScore ?? null;
-  const turnTimeline = snapshot.turnTimeline;
-  const revealLocked = Boolean(snapshot.revealLocked);
-  const myRole = snapshot.myRole;
+  const [frozenResultsSnapshot, setFrozenResultsSnapshot] =
+    useState<RoomSyncSnapshot | null>(null);
+  const liveRoom = snapshot.room as RoomData | null;
+  const liveRound = snapshot.round as RoundData | null;
+  const liveRoomStatus = liveRoom?.status ?? null;
+
+  useEffect(() => {
+    if (liveRoomStatus === "RESULTS" && liveRound) {
+      setFrozenResultsSnapshot(snapshot);
+    }
+  }, [liveRoom, liveRoomStatus, liveRound, snapshot]);
+
+  const activeSnapshot =
+    liveRoomStatus === "LOBBY" && frozenResultsSnapshot
+      ? frozenResultsSnapshot
+      : snapshot;
+  const room = activeSnapshot.room as RoomData | null;
+  const round = activeSnapshot.round as RoundData | null;
+  const scores = activeSnapshot.scores as ScoreEntry[];
+  const myAttempts = activeSnapshot.attempts as AttemptData | null;
+  const voteProgress = activeSnapshot.voteProgress;
+  const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
+  const turnTimeline = activeSnapshot.turnTimeline;
+  const revealLocked = Boolean(activeSnapshot.revealLocked);
+  const myRole = activeSnapshot.myRole;
   const me = user?.uid
-    ? ((snapshot.players.find((player) => player.uid === user.uid) as
+    ? ((activeSnapshot.players.find((player) => player.uid === user.uid) as
         | PlayerData
         | undefined) ?? null)
     : null;
   const allowStayDuringRound = fromRound && room?.status !== "RESULTS";
 
   useEffect(() => {
-    if (!room) return;
-    if (room.status === "GENERATING_ROUND") {
+    if (!liveRoom) return;
+    if (liveRoom.status === "GENERATING_ROUND") {
       router.replace(buildCurrentAppPath(`/transition/${roomId}`));
       return;
     }
-    if (room.status === "IN_ROUND" && !allowStayDuringRound) {
+    if (liveRoom.status === "IN_ROUND" && !allowStayDuringRound) {
       router.replace(buildCurrentAppPath(`/round/${roomId}`));
     }
-    if (room.status === "LOBBY") {
+    if (liveRoom.status === "LOBBY" && !frozenResultsSnapshot) {
       router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
     }
-  }, [allowStayDuringRound, room, roomId, router]);
+  }, [allowStayDuringRound, frozenResultsSnapshot, liveRoom, roomId, router]);
 
   useEffect(() => {
-    if (!room || !round) return;
-    if (room.status !== "IN_ROUND" || !allowStayDuringRound) return;
+    if (!liveRoom || !liveRound) return;
+    if (liveRoom.status !== "IN_ROUND" || !allowStayDuringRound) return;
 
     const trigger = async () => {
       try {
@@ -85,7 +102,7 @@ export default function ResultsPage() {
           "/api/rounds/endIfNeeded",
           {
             roomId,
-            roundId: round.roundId,
+            roundId: liveRound.roundId,
           },
         );
       } catch (error) {
@@ -99,11 +116,11 @@ export default function ResultsPage() {
     }, 1_500);
 
     return () => clearInterval(intervalId);
-  }, [allowStayDuringRound, room, round, roomId]);
+  }, [allowStayDuringRound, liveRoom, liveRound, roomId]);
 
   useRoomPresence({
     roomId,
-    enabled: Boolean(room && user),
+    enabled: Boolean(liveRoom && user),
   });
 
   const sortedScores = useMemo(
@@ -121,6 +138,11 @@ export default function ResultsPage() {
     room?.settings?.gameMode === "impostor" &&
     round?.modeState?.kind === "impostor";
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
+  const canEnterLobby = liveRoomStatus === "LOBBY";
+  const canHostReturnRoomToLobby =
+    Boolean(me?.isHost) &&
+    liveRoomStatus === "RESULTS" &&
+    (isImpostorMode || isFinalRound);
   const myLatestAttempt =
     myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
@@ -161,6 +183,24 @@ export default function ResultsPage() {
     return [...orderedEntries, ...extraEntries];
   }, [round?.modeState?.turnOrder, turnTimeline]);
 
+  const lobbyHintMessage = (() => {
+    if (lobbyBusy) {
+      return copy.results.returningToLobby;
+    }
+
+    if (canEnterLobby) {
+      return copy.results.returnToLobbyHint;
+    }
+
+    if (isImpostorMode || isFinalRound) {
+      return me?.isHost
+        ? copy.results.returnToLobbyHint
+        : copy.results.waitingHostReturn;
+    }
+
+    return null;
+  })();
+
   const onNext = async () => {
     if (!me?.isHost || !room) return;
     router.push(buildCurrentAppPath(`/transition/${roomId}?start=1`));
@@ -168,6 +208,11 @@ export default function ResultsPage() {
 
   const onLeave = () => {
     const leave = async () => {
+      if (canEnterLobby) {
+        router.push(buildCurrentAppPath(`/lobby/${roomId}`));
+        return;
+      }
+
       if (isImpostorMode) {
         if (!me?.isHost || !isResultsPhase) return;
 
@@ -201,14 +246,15 @@ export default function ResultsPage() {
   };
 
   const onVote = async (targetUid: string) => {
-    if (!room || !round || !me || voteBusy || !revealLocked) return;
+    if (!liveRoom || !liveRound || !room || !round || !me || voteBusy || !revealLocked) return;
+    if (liveRoom.status !== "RESULTS") return;
 
     setVoteBusy(true);
     setVoteError(null);
     try {
       await apiPost("/api/rounds/vote", {
         roomId,
-        roundId: round.roundId,
+        roundId: liveRound.roundId,
         targetUid,
       });
     } catch (error) {
@@ -237,7 +283,7 @@ export default function ResultsPage() {
       finalSimilarityScore !== null &&
       (finalSimilarityScore >= 70 ||
         (accusedUid !== null && accusedUid === impostorUid));
-    const canReturnToLobby = Boolean(me?.isHost) && isResultsPhase;
+    const canReturnToLobby = canEnterLobby || canHostReturnRoomToLobby;
     const myVoteTargetUid = voteProgress?.meTargetUid ?? null;
     const useFixedDesktopVoteGrid = orderedTurnTimeline.length <= 6;
 
@@ -311,13 +357,9 @@ export default function ResultsPage() {
               <p className="text-xs font-semibold">
                 {copy.results.returningToLobby}
               </p>
-            ) : !me?.isHost ? (
+            ) : lobbyHintMessage ? (
               <p className="text-xs font-semibold">
-                {copy.results.waitingHostReturn}
-              </p>
-            ) : canReturnToLobby ? (
-              <p className="text-xs font-semibold">
-                {copy.results.returnToLobbyHint}
+                {lobbyHintMessage}
               </p>
             ) : null}
           </div>
@@ -549,7 +591,11 @@ export default function ResultsPage() {
                             <Button
                               type="button"
                               variant="ghost"
-                              disabled={voteBusy || isSelfCard}
+                              disabled={
+                                voteBusy ||
+                                isSelfCard ||
+                                liveRoomStatus !== "RESULTS"
+                              }
                               onClick={() => void onVote(entry.uid)}
                               className={cn(
                                 "w-full text-sm font-black",
@@ -668,7 +714,7 @@ export default function ResultsPage() {
                 type="button"
                 variant="ghost"
                 onClick={onLeave}
-                disabled={lobbyBusy}
+                disabled={lobbyBusy || (!canEnterLobby && !canHostReturnRoomToLobby)}
               >
                 {lobbyBusy ? (
                   <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
@@ -678,6 +724,9 @@ export default function ResultsPage() {
                 {copy.results.backToLobby}
               </Button>
             </div>
+            {lobbyHintMessage ? (
+              <p className="text-xs font-semibold">{lobbyHintMessage}</p>
+            ) : null}
             {!me?.isHost && !isFinalRound ? (
               <p className="text-xs font-semibold">
                 {copy.results.hostOnlyNextStep}
