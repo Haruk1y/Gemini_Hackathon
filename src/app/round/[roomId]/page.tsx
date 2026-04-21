@@ -880,9 +880,6 @@ export default function RoundPage() {
                     )}
                   </p>
                 ) : null}
-                {effectiveGeneratedImagePhase === "DONE" && latestAttempt?.judgeNote ? (
-                  <p className="mt-1">{latestAttempt.judgeNote}</p>
-                ) : null}
                 {effectiveGeneratedImagePhase === "SCORING" ? (
                   <p className="mt-1">{copy.round.judgeNotesAfterScoring}</p>
                 ) : null}
