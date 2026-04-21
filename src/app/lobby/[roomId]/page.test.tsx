@@ -13,12 +13,14 @@ const {
   useRoomSyncMock,
   useRoomPresenceMock,
   leaveRoomMock,
+  apiPostMock,
 } = vi.hoisted(() => ({
   replaceMock: vi.fn(),
   pushMock: vi.fn(),
   useRoomSyncMock: vi.fn(),
   useRoomPresenceMock: vi.fn(),
   leaveRoomMock: vi.fn(),
+  apiPostMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -42,6 +44,14 @@ vi.mock("@/components/providers/auth-provider", () => ({
   }),
 }));
 
+vi.mock("@/lib/client/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/client/api")>();
+  return {
+    ...actual,
+    apiPost: (path: string, body: Record<string, unknown>) => apiPostMock(path, body),
+  };
+});
+
 vi.mock("@/lib/client/room-sync", () => ({
   useRoomSync: (params: unknown) => useRoomSyncMock(params),
 }));
@@ -51,12 +61,16 @@ vi.mock("@/lib/client/room-presence", () => ({
   leaveRoom: (params: unknown) => leaveRoomMock(params),
 }));
 
-function createLobbySnapshot(playerUids: string[]) {
+function createLobbySnapshot(params?: {
+  meReady?: boolean;
+  otherReady?: boolean;
+  roomStatus?: "LOBBY" | "IN_ROUND" | "RESULTS" | "GENERATING_ROUND" | "FINISHED";
+}) {
   return {
     room: {
       roomId: "ROOM1",
       code: "ABC123",
-      status: "LOBBY" as const,
+      status: params?.roomStatus ?? "LOBBY",
       currentRoundId: null,
       settings: {
         gameMode: "classic" as const,
@@ -71,18 +85,28 @@ function createLobbySnapshot(playerUids: string[]) {
         cpuCount: 0,
       },
     },
-    players: playerUids.map((uid, index) => ({
-      uid,
-      displayName: index === 0 ? "Alice" : "Bob",
-      kind: "human" as const,
-      ready: false,
-      isHost: index === 0,
-      totalScore: 0,
-    })),
+    players: [
+      {
+        uid: "anon_1",
+        displayName: "Alice",
+        kind: "human" as const,
+        ready: params?.meReady ?? false,
+        isHost: true,
+        totalScore: 0,
+      },
+      {
+        uid: "anon_2",
+        displayName: "Bob",
+        kind: "human" as const,
+        ready: params?.otherReady ?? false,
+        isHost: false,
+        totalScore: 0,
+      },
+    ],
     round: null,
     scores: [],
     attempts: null,
-    playerCount: playerUids.length,
+    playerCount: 2,
     myRole: null,
     isMyTurn: false,
     currentTurnUid: null,
@@ -93,7 +117,7 @@ function createLobbySnapshot(playerUids: string[]) {
   };
 }
 
-describe("LobbyPage leave flow", () => {
+describe("LobbyPage", () => {
   let roomSyncState: {
     snapshot: ReturnType<typeof createLobbySnapshot>;
     error: null;
@@ -103,7 +127,7 @@ describe("LobbyPage leave flow", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/lobby/ROOM1");
     roomSyncState = {
-      snapshot: createLobbySnapshot(["anon_1", "anon_2"]),
+      snapshot: createLobbySnapshot({ meReady: true }),
       error: null,
       isConnecting: false,
     };
@@ -113,13 +137,135 @@ describe("LobbyPage leave flow", () => {
     useRoomSyncMock.mockReset();
     useRoomPresenceMock.mockReset();
     leaveRoomMock.mockReset();
+    apiPostMock.mockReset();
 
     useRoomSyncMock.mockImplementation(() => roomSyncState);
     useRoomPresenceMock.mockImplementation(() => undefined);
+    apiPostMock.mockResolvedValue({ ok: true, updated: true, ready: true });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("auto-readies the player once when they enter the lobby while waiting", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: false }),
+    };
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
+        roomId: "ROOM1",
+        ready: true,
+      });
+    });
+  });
+
+  it("does not auto-ready again after the player manually switches back to WAIT", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: false }),
+    };
+
+    const user = userEvent.setup();
+    const view = render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
+        roomId: "ROOM1",
+        ready: true,
+      });
+    });
+
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: true }),
+    };
+    view.rerender(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "READY" }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
+        roomId: "ROOM1",
+        ready: false,
+      });
+    });
+
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: false }),
+    };
+    view.rerender(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      const autoReadyCalls = apiPostMock.mock.calls.filter(
+        ([path, body]) =>
+          path === "/api/rooms/ready" &&
+          (body as { ready?: boolean }).ready === true,
+      );
+      expect(autoReadyCalls).toHaveLength(1);
+    });
+  });
+
+  it("auto-readies again when the lobby page is visited again later", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: false }),
+    };
+
+    const firstView = render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
+        roomId: "ROOM1",
+        ready: true,
+      });
+    });
+
+    firstView.unmount();
+    apiPostMock.mockClear();
+
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({ meReady: false }),
+    };
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
+        roomId: "ROOM1",
+        ready: true,
+      });
+    });
   });
 
   it("keeps showing the loading state instead of the roomSessionMismatch flash while leaving", async () => {
@@ -155,7 +301,11 @@ describe("LobbyPage leave flow", () => {
 
     roomSyncState = {
       ...roomSyncState,
-      snapshot: createLobbySnapshot(["anon_2"]),
+      snapshot: {
+        ...createLobbySnapshot({ meReady: true }),
+        players: [createLobbySnapshot({ meReady: true }).players[1]!],
+        playerCount: 1,
+      },
     };
     view.rerender(
       <LanguageProvider initialLanguage="en">

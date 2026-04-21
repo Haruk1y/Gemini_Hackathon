@@ -363,6 +363,7 @@ export default function LobbyPage() {
   const [draftsReady, setDraftsReady] = useState(false);
   const [optimisticReady, setOptimisticReady] = useState<boolean | null>(null);
   const saveSequenceRef = useRef(0);
+  const autoReadyAttemptedRef = useRef(false);
 
   const room = snapshot.room;
   const players = snapshot.players;
@@ -566,12 +567,11 @@ export default function LobbyPage() {
     enabled: Boolean(room && user) && !isLeaving,
   });
 
-  const onToggleReady = async () => {
-    if (!me || isGenerating) return;
-
+  const updateReady = async (nextReady: boolean, options?: { silent?: boolean }) => {
     setActionBusy("ready");
-    setActionError(null);
-    const nextReady = !me.ready;
+    if (!options?.silent) {
+      setActionError(null);
+    }
     setOptimisticReady(nextReady);
     try {
       await apiPost("/api/rooms/ready", {
@@ -580,10 +580,28 @@ export default function LobbyPage() {
       });
     } catch (error) {
       setOptimisticReady(null);
-      setActionError(toUiError(error, "readyUpdateFailed"));
+      if (!options?.silent) {
+        setActionError(toUiError(error, "readyUpdateFailed"));
+      }
     } finally {
       setActionBusy(null);
     }
+  };
+
+  useEffect(() => {
+    if (roomStatus !== "LOBBY" || !me || isLeaving) return;
+    if (me.ready || optimisticReady === true) return;
+    if (actionBusy === "ready" || autoReadyAttemptedRef.current) return;
+
+    autoReadyAttemptedRef.current = true;
+    void updateReady(true, { silent: true });
+  }, [actionBusy, isLeaving, me, optimisticReady, roomStatus]);
+
+  const onToggleReady = async () => {
+    if (!me || isGenerating) return;
+
+    const nextReady = !me.ready;
+    await updateReady(nextReady);
   };
 
   const onStart = async () => {
