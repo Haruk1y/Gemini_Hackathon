@@ -69,7 +69,8 @@ Optional values:
 Notes:
 
 - `GEMINI_API_KEY` is still required even when room image generation uses Flux. GM prompt generation, CPU rewrite, captioning, and image judging remain on Gemini.
-- `IMAGE_PROVIDER_DEFAULT` controls the default Create Room setting on the home screen.
+- `IMAGE_PROVIDER_DEFAULT` controls the default Create Room image model on the home screen.
+- `GEMINI_PROMPT_MODEL_DEFAULT` and `GEMINI_JUDGE_MODEL_DEFAULT` control the default `Prompt Model` / `Judge Model` toggles on the home screen.
 - `VERTEX_PROJECT_ID` can fall back to `GCP_PROJECT_ID`, but setting both explicitly is the least confusing option.
 - Local Flux development uses `gcloud auth application-default login`.
 - Vercel production in this project currently uses `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` for Flux because the target GCP org blocks Vercel OIDC provider creation.
@@ -110,6 +111,7 @@ Gameplay note:
 - `npm run typecheck`
 - `npm run test`
 - `npm run test:e2e`
+- `npm run eval:models`
 
 ## Runtime Architecture
 
@@ -133,7 +135,8 @@ Deploy the Next.js app to Vercel Production only. Preview is not part of the sup
 - Add the Upstash Redis integration and copy `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
 - Create a Vercel Blob store and set `BLOB_READ_WRITE_TOKEN`
 - Set `SESSION_SECRET`, `CRON_SECRET`, and `GEMINI_API_KEY`
-- Set `IMAGE_PROVIDER_DEFAULT=gemini` unless you want new rooms to default to `flux`
+- Set `IMAGE_PROVIDER_DEFAULT=flux` if you want new rooms to default to Flux
+- Set `GEMINI_PROMPT_MODEL_DEFAULT=flash-lite` and `GEMINI_JUDGE_MODEL_DEFAULT=flash-lite` if you want the debug toggles to default to Flash-Lite
 - Set `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `VERTEX_ENDPOINT_ID`, and `VERTEX_ENDPOINT_HOST`
 - Set `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` to a service account JSON for a principal that already has `roles/aiplatform.user` on the Vertex project
 - Do not set `GOOGLE_APPLICATION_CREDENTIALS` on Vercel
@@ -150,6 +153,36 @@ Recommended production checklist:
 - Verify room creation, prewarmed round 1, Gemini round start, Flux round start, `Next Round`, replay reset, and cleanup cron
 
 See [docs/vercel-production-deploy-ja.md](docs/vercel-production-deploy-ja.md) for the project-specific production steps.
+
+## Fast Model Eval
+
+When you want to compare `gemini-2.5-flash` and `gemini-2.5-flash-lite` before changing live gameplay behavior, use the local benchmark script:
+
+```bash
+gcloud auth application-default login
+npm run eval:models
+```
+
+Useful flags:
+
+- `npm run eval:models -- --smoke`
+- `npm run eval:models -- --include-claude`
+- `npm run eval:models -- --output docs/model-eval-latest.json`
+
+Useful env override:
+
+- `MODEL_EVAL_GCP_PROJECT_ID=sc-ai-innovation-lab-2-dev npm run eval:models`
+
+What it measures:
+
+- GM prompt generation with structured JSON output
+- Visual judge scoring with image input + structured JSON output
+- p50 / p95 latency
+- schema success rate
+- judge sanity via `same / near / different` score ordering
+- optional Claude 3.5 Haiku access probe on Vertex Model Garden
+
+See [docs/fast-model-eval-ja.md](docs/fast-model-eval-ja.md) for the eval flow and interpretation.
 
 ## Notes
 

@@ -40,6 +40,8 @@ async function createLobbyState() {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "flux",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",
@@ -75,6 +77,26 @@ async function createLobbyState() {
   };
 
   return state;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForPreparedSlot(roomId: string) {
+  const { loadRoomState } = await loadRoomStateModule();
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const state = await loadRoomState(roomId);
+    if (state?.preparedRound) {
+      return state.preparedRound;
+    }
+    await sleep(20);
+  }
+
+  throw new Error("prepared round slot was not created in time");
 }
 
 describe("prepared round lifecycle", () => {
@@ -153,14 +175,101 @@ describe("prepared round lifecycle", () => {
     expect(mockGenerateImage).not.toHaveBeenCalled();
   });
 
-  it("falls back to synchronous generation when the prepared slot is still generating", async () => {
+  it("waits for an in-flight prepared round and reuses it without regenerating", async () => {
+    const { loadRoomState, saveRoomState } = await loadRoomStateModule();
+    await saveRoomState(await createLobbyState());
+
+    let resolvePrompt:
+      | ((value: {
+          title: string;
+          difficulty: number;
+          tags: string[];
+          prompt: string;
+          negativePrompt: string;
+          mustInclude: string[];
+          mustAvoid: string[];
+          stylePresetId: string;
+        }) => void)
+      | null = null;
+    let resolveImage:
+      | ((value: {
+          mimeType: string;
+          directUrl: string;
+        }) => void)
+      | null = null;
+
+    mockGenerateGmPrompt.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+    mockGenerateImage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveImage = resolve;
+        }),
+    );
+
+    const { ensurePreparedRound, startRound } = await import(
+      "@/lib/game/round-service"
+    );
+
+    const preparePromise = ensurePreparedRound({ roomId: "ROOM1" });
+    await waitForPreparedSlot("ROOM1");
+
+    const startPromise = startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    await sleep(60);
+    expect(mockGenerateGmPrompt).toHaveBeenCalledTimes(1);
+    expect(mockGenerateImage).not.toHaveBeenCalled();
+
+    expect(resolvePrompt).not.toBeNull();
+    resolvePrompt!({
+      title: "Paper fox",
+      difficulty: 3,
+      tags: ["paper", "fox", "market"],
+      prompt: "A paper fox in a tiny market square, paper cut collage illustration, no text",
+      negativePrompt: "",
+      mustInclude: [],
+      mustAvoid: [],
+      stylePresetId: "paper-cut-collage",
+    });
+
+    await sleep(60);
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+
+    expect(resolveImage).not.toBeNull();
+    resolveImage!({
+      mimeType: "image/png",
+      directUrl: "https://example.com/generated-target.png",
+    });
+
+    const result = await startPromise;
+    await preparePromise;
+
+    const latest = await loadRoomState("ROOM1");
+    expect(result).toEqual({
+      roundId: "round-1",
+      roundIndex: 1,
+    });
+    expect(latest?.room.currentRoundId).toBe("round-1");
+    expect(latest?.preparedRound).toBeNull();
+    expect(mockGenerateGmPrompt).toHaveBeenCalledTimes(1);
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to synchronous generation when the prepared slot has already failed", async () => {
     const { loadRoomState, saveRoomState } = await loadRoomStateModule();
     const state = await createLobbyState();
     const now = new Date("2026-04-07T10:00:05.000Z");
     state.preparedRound = {
       roundId: "round-1",
       index: 1,
-      status: "GENERATING",
+      status: "FAILED",
       createdAt: now,
       updatedAt: now,
       imageModel: "flux",
@@ -170,6 +279,7 @@ describe("prepared round lifecycle", () => {
       difficulty: 3,
       targetImageUrl: "",
       targetThumbUrl: "",
+      errorMessage: "generation failed",
     };
     state.roundSequence = 1;
     await saveRoomState(state);

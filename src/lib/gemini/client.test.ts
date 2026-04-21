@@ -32,6 +32,8 @@ const settings = {
   maxAttempts: 1,
   aspectRatio: "1:1" as const,
   imageModel: "gemini" as const,
+  promptModel: "flash" as const,
+  judgeModel: "flash" as const,
   hintLimit: 0,
   totalRounds: 3,
   gameMode: "classic" as const,
@@ -64,6 +66,9 @@ describe("generateGmPrompt", () => {
     });
 
     expect(googleGenAICtor).toHaveBeenCalledWith({ apiKey: "test-api-key" });
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash",
+    });
     expect(result.title).toContain("floating lantern market");
     expect(result.difficulty).toBe(3);
     expect(result.tags).toEqual(expect.arrayContaining(["floating", "lantern", "market"]));
@@ -90,6 +95,25 @@ describe("generateGmPrompt", () => {
 
     expect(result.title).toContain("rainy rooftop duel");
     expect(result.tags).toEqual(expect.arrayContaining(["rainy", "rooftop", "duel"]));
+  });
+
+  it("uses flash-lite for gm prompt generation when requested", async () => {
+    generateContent.mockResolvedValue({
+      text:
+        "A playful moon rabbit holding a lantern, simple garden background, flat lighting, no text",
+    });
+
+    const { generateGmPrompt } = await import("@/lib/gemini/client");
+    await generateGmPrompt({
+      settings: {
+        ...settings,
+        promptModel: "flash-lite",
+      },
+    });
+
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash-lite",
+    });
   });
 
   it("fails when Gemini returns empty prompt text", async () => {
@@ -144,6 +168,36 @@ describe("captionFromImage", () => {
     expect(result.scene).toContain("Prompt-guided scene");
     expect(result.mainSubjects.length).toBeGreaterThan(0);
   });
+
+  it("uses flash-lite for caption generation when requested", async () => {
+    generateContent.mockResolvedValue({
+      text: JSON.stringify({
+        scene: "Lantern market at dusk",
+        mainSubjects: ["lanterns"],
+        keyObjects: ["canal"],
+        colors: ["amber"],
+        style: "poster illustration",
+        composition: "centered",
+        textInImage: null,
+      }),
+    });
+
+    const { captionFromImage } = await import("@/lib/gemini/client");
+    await captionFromImage(
+      {
+        mimeType: "image/png",
+        base64Data: Buffer.from("fake-image").toString("base64"),
+      },
+      "fallback prompt",
+      {
+        promptModel: "flash-lite",
+      },
+    );
+
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash-lite",
+    });
+  });
 });
 
 describe("rewriteCpuPrompt", () => {
@@ -188,6 +242,32 @@ describe("rewriteCpuPrompt", () => {
     expect(result).toContain("night market");
     expect(result).toContain("lantern fox");
     expect(result).not.toContain("```");
+  });
+
+  it("uses flash-lite for cpu prompt rewrites when requested", async () => {
+    generateContent.mockResolvedValue({
+      text: "A tidy seaside market with striped awnings and no text",
+    });
+
+    const { rewriteCpuPrompt } = await import("@/lib/gemini/client");
+    await rewriteCpuPrompt({
+      role: "agent",
+      reconstructedPrompt: "seaside market",
+      caption: {
+        scene: "Seaside market",
+        mainSubjects: ["stall"],
+        keyObjects: ["awning"],
+        colors: ["blue"],
+        style: "flat poster",
+        composition: "centered",
+        textInImage: null,
+      },
+      promptModel: "flash-lite",
+    });
+
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash-lite",
+    });
   });
 });
 
@@ -347,6 +427,9 @@ describe("generateImage", () => {
     });
 
     expect(result.score).toBe(100);
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash",
+    });
     expect(result.matchedElements).toEqual([
       "one",
       "two",
@@ -355,6 +438,44 @@ describe("generateImage", () => {
       "five",
       "six",
     ]);
+  });
+
+  it("uses flash-lite for visual scoring when requested", async () => {
+    generateContent.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  score: 88,
+                  matchedElements: ["subject"],
+                  missingElements: ["background"],
+                  note: "close match",
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const { scoreImageSimilarity } = await import("@/lib/gemini/client");
+    await scoreImageSimilarity({
+      targetImage: {
+        mimeType: "image/png",
+        base64Data: Buffer.from("fake-image").toString("base64"),
+      },
+      attemptImage: {
+        mimeType: "image/png",
+        base64Data: Buffer.from("fake-image").toString("base64"),
+      },
+      judgeModel: "flash-lite",
+    });
+
+    expect(generateContent.mock.calls[0]?.[0]).toMatchObject({
+      model: "gemini-2.5-flash-lite",
+    });
   });
 
   it("classifies invalid API key failures", async () => {

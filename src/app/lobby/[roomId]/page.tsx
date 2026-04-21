@@ -660,10 +660,6 @@ export default function LobbyPage() {
     return null;
   })();
   const preparationMessage = (() => {
-    if (nextRoundPreparation?.status === "READY") {
-      return copy.common.nextRoundReady;
-    }
-
     if (nextRoundPreparation?.status === "FAILED") {
       return copy.lobby.nextRoundFallback;
     }

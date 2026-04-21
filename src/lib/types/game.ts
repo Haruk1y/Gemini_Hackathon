@@ -14,6 +14,7 @@ export type PlayerKind = "human" | "cpu";
 export type ImpostorRole = "agent" | "impostor";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
 export type ImageModel = "gemini" | "flux";
+export type TextModelVariant = "flash" | "flash-lite";
 
 export function normalizeImageModel(
   value: unknown,
@@ -25,6 +26,27 @@ export function normalizeImageModel(
 
   if (value === "gemini" || value === "flash") {
     return "gemini";
+  }
+
+  return fallback;
+}
+
+export function normalizeTextModelVariant(
+  value: unknown,
+  fallback: TextModelVariant = "flash",
+): TextModelVariant {
+  if (
+    value === "flash-lite" ||
+    value === "gemini-2.5-flash-lite"
+  ) {
+    return "flash-lite";
+  }
+
+  if (
+    value === "flash" ||
+    value === "gemini-2.5-flash"
+  ) {
+    return "flash";
   }
 
   return fallback;
@@ -52,6 +74,8 @@ export interface RoomSettings {
   maxAttempts: number;
   aspectRatio: AspectRatio;
   imageModel: ImageModel;
+  promptModel: TextModelVariant;
+  judgeModel: TextModelVariant;
   hintLimit: number;
   totalRounds: number;
   gameMode: GameMode;
@@ -202,7 +226,7 @@ export interface AttemptItem {
   matchedElements?: string[];
   missingElements?: string[];
   judgeNote?: string;
-  status?: "SCORING" | "DONE";
+  status?: "GENERATING" | "SCORING" | "DONE";
 }
 
 export interface AttemptsPrivateDoc {

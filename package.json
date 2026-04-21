@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "format": "prettier --check ."
+    "format": "prettier --check .",
+    "eval:models": "node scripts/evals/model-benchmark.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.42.0",

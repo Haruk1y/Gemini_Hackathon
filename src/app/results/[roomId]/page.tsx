@@ -280,11 +280,7 @@ export default function ResultsPage() {
               <Badge className="bg-[var(--pmb-red)] text-white">
                 <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
               </Badge>
-            ) : (
-              <Badge className="bg-[var(--pmb-green)]">
-                {copy.common.nextRoundReady}
-              </Badge>
-            )}
+            ) : null}
             <div className="flex w-full flex-wrap gap-2 md:justify-end">
               {!isFinalRound ? (
                 <Button
@@ -612,9 +608,6 @@ export default function ResultsPage() {
                                     copy.common.none,
                                 )}
                               </p>
-                              {entry.judgeNote ? (
-                                <p className="mt-1">{entry.judgeNote}</p>
-                              ) : null}
                               <p className="mt-1">
                                 {copy.common.votedFor(
                                   votedPlayer?.displayName ??
@@ -658,11 +651,7 @@ export default function ResultsPage() {
               <Badge className="bg-[var(--pmb-red)] text-white">
                 <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
               </Badge>
-            ) : (
-              <Badge className="bg-[var(--pmb-green)]">
-                {copy.common.nextRoundReady}
-              </Badge>
-            )}
+            ) : null}
             <div className="flex flex-wrap justify-end gap-2">
               {!isFinalRound ? (
                 <Button
@@ -820,9 +809,6 @@ export default function ResultsPage() {
                   ) : (
                     <p className="mt-1">{copy.results.noMissing}</p>
                   )}
-                  {myLatestAttempt.judgeNote ? (
-                    <p className="mt-1">{myLatestAttempt.judgeNote}</p>
-                  ) : null}
                 </>
               ) : (
                 <p>{copy.results.noJudgeNotesYet}</p>

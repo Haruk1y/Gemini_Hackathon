@@ -40,6 +40,8 @@ function createClassicRoundState() {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "gemini",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 1,
       gameMode: "classic",
@@ -140,7 +142,7 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
                 prompt,
                 imageUrl: "",
                 score: null,
-                status: "SCORING",
+                status: "GENERATING",
                 createdAt,
               },
             ],
@@ -204,7 +206,7 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
       state?.attempts["round-1"]?.host?.attempts[0],
     ).toMatchObject({
       prompt: "partial timeout draft",
-      status: "SCORING",
+      status: "GENERATING",
     });
   });
 });

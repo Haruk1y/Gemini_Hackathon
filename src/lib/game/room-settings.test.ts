@@ -26,6 +26,8 @@ function createBaseState() {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "gemini",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 3,
       gameMode: "classic",

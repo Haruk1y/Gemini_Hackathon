@@ -62,6 +62,16 @@ import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 type CpuTurnScheduler = (params: { roomId: string; roundId: string }) => void | Promise<void>;
 
+const PREPARED_ROUND_POLL_INTERVAL_MS = 120;
+const PREPARED_ROUND_WAIT_TIMEOUT_MS = 45_000;
+const PREPARED_ROUND_STALE_MS = 45_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 interface RoundMaterial {
   roundId: string;
   roundIndex: number;
@@ -80,7 +90,10 @@ function hasScoringAttempts(
   attemptsByUid: Record<string, { attempts: Array<{ status?: string }> }> | undefined,
 ): boolean {
   return Object.values(attemptsByUid ?? {}).some((attemptDoc) =>
-    attemptDoc.attempts.some((attempt) => attempt.status === "SCORING"),
+    attemptDoc.attempts.some(
+      (attempt) =>
+        attempt.status === "GENERATING" || attempt.status === "SCORING",
+    ),
   );
 }
 
@@ -208,6 +221,150 @@ function currentStylePresetIds(state: RoomState): string[] {
   }
 
   return [...ids];
+}
+
+function isPreparedRoundStale(preparedRound: PreparedRoundDoc, now = Date.now()): boolean {
+  const updatedAt = parseDate(preparedRound.updatedAt)?.getTime();
+  const createdAt = parseDate(preparedRound.createdAt)?.getTime();
+  const baseline = updatedAt ?? createdAt ?? now;
+  return now - baseline > PREPARED_ROUND_STALE_MS;
+}
+
+async function waitForPreparedRound(params: {
+  roomId: string;
+  roundId: string;
+  roundIndex: number;
+  timeoutMs?: number;
+}): Promise<PreparedRoundDoc | null> {
+  const deadline = Date.now() + (params.timeoutMs ?? PREPARED_ROUND_WAIT_TIMEOUT_MS);
+
+  while (Date.now() < deadline) {
+    const state = await loadRoomState(params.roomId);
+    const preparedRound = state?.preparedRound;
+
+    if (
+      !preparedRound ||
+      preparedRound.roundId !== params.roundId ||
+      preparedRound.index !== params.roundIndex
+    ) {
+      return null;
+    }
+
+    if (preparedRound.status === "READY" || preparedRound.status === "FAILED") {
+      return preparedRound;
+    }
+
+    if (isPreparedRoundStale(preparedRound)) {
+      return null;
+    }
+
+    await sleep(PREPARED_ROUND_POLL_INTERVAL_MS);
+  }
+
+  return null;
+}
+
+async function isPreparedRoundReservationActive(params: {
+  roomId: string;
+  roundId: string;
+  roundIndex: number;
+}): Promise<boolean> {
+  const state = await loadRoomState(params.roomId);
+  const preparedRound = state?.preparedRound;
+
+  return Boolean(
+    preparedRound &&
+      preparedRound.roundId === params.roundId &&
+      preparedRound.index === params.roundIndex &&
+      preparedRound.status === "GENERATING",
+  );
+}
+
+function reserveSynchronousRoundStartInState(params: {
+  state: RoomState;
+  room: RoomState["room"];
+  expectedRoundIndex: number;
+}): {
+  kind: "reserved";
+  previousStatus: RoomStatus;
+  previousRoundId: string | null;
+  previousRoundIndex: number;
+  roundId: string;
+  roundIndex: number;
+  settings: RoomState["room"]["settings"];
+  expiresAt: Date;
+  createdAt: Date;
+  excludeStylePresetIds: string[];
+} {
+  const nextIndex = params.room.roundIndex + 1;
+  if (nextIndex !== params.expectedRoundIndex) {
+    throw new AppError("ROUND_CLOSED", "Round generation state was replaced", false, 409);
+  }
+
+  if (params.state.preparedRound?.index === nextIndex) {
+    params.state.preparedRound = null;
+  }
+
+  const roundId = allocateRoundId(params.state);
+  const now = new Date();
+  const expiresAt = dateAfterHours(24);
+  const previousStatus = params.room.status;
+  const previousRoundId = params.room.currentRoundId;
+  const previousRoundIndex = params.room.roundIndex;
+  const excludeStylePresetIds = currentStylePresetIds(params.state);
+
+  assertRoomTransition(params.room.status, "GENERATING_ROUND");
+
+  params.room.status = "GENERATING_ROUND";
+  params.room.currentRoundId = roundId;
+  params.room.roundIndex = nextIndex;
+
+  params.state.rounds[roundId] = createBaseRoundDoc({
+    roundId,
+    roundIndex: nextIndex,
+    now,
+    expiresAt,
+  });
+  params.state.roundPrivates[roundId] = {
+    roundId,
+    createdAt: now,
+    expiresAt,
+    gmPrompt: "",
+    gmNegativePrompt: "",
+    safety: {
+      blocked: false,
+    },
+  };
+
+  return {
+    kind: "reserved" as const,
+    previousStatus: previousStatus as RoomStatus,
+    previousRoundId,
+    previousRoundIndex,
+    roundId,
+    roundIndex: nextIndex,
+    settings: params.room.settings,
+    expiresAt,
+    createdAt: now,
+    excludeStylePresetIds,
+  };
+}
+
+async function reserveSynchronousRoundStart(params: {
+  roomId: string;
+  expectedRoundIndex: number;
+}): Promise<ReturnType<typeof reserveSynchronousRoundStartInState>> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const reservation = reserveSynchronousRoundStartInState({
+      state: state!,
+      room,
+      expectedRoundIndex: params.expectedRoundIndex,
+    });
+    await saveRoomState(bumpRoomVersion(state!));
+    return reservation;
+  });
 }
 
 async function fetchImageBytes(url: string): Promise<GeneratedImage | null> {
@@ -492,13 +649,16 @@ async function executeImpostorTurn(params: {
     let prompt = params.submittedPrompt?.trim() ?? "";
 
     if (player.kind === "cpu") {
-      const caption = await captionFromImage(referenceImage, "reconstruct the image");
+      const caption = await captionFromImage(referenceImage, "reconstruct the image", {
+        promptModel: room.settings.promptModel,
+      });
       const reconstructedPrompt = reconstructPromptFromCaption(caption);
       prompt =
         (await rewriteCpuPrompt({
           role,
           caption,
           reconstructedPrompt,
+          promptModel: room.settings.promptModel,
         })) ??
         buildTelephonePrompt({
           role,
@@ -523,6 +683,7 @@ async function executeImpostorTurn(params: {
     const judged = await scoreImageSimilarity({
       targetImage: referenceImage,
       attemptImage,
+      judgeModel: room.settings.judgeModel,
     });
 
     const isLastTurn = round.modeState.currentTurnIndex >= round.modeState.turnOrder.length - 1;
@@ -537,6 +698,7 @@ async function executeImpostorTurn(params: {
       const finalResult = await scoreImageSimilarity({
         targetImage: originalTarget,
         attemptImage,
+        judgeModel: room.settings.judgeModel,
       });
 
       finalJudge = {
@@ -901,11 +1063,32 @@ export async function ensurePreparedRound(params: {
       settings: reservation.settings,
       excludeStylePresetIds: reservation.excludeStylePresetIds,
     });
+
+    if (
+      !(await isPreparedRoundReservationActive({
+        roomId: params.roomId,
+        roundId: reservation.roundId,
+        roundIndex: reservation.roundIndex,
+      }))
+    ) {
+      return;
+    }
+
     const targetImage = await generateImage({
       prompt: gmPrompt.prompt,
       aspectRatio: reservation.settings.aspectRatio,
       imageModel: reservation.settings.imageModel,
     });
+
+    if (
+      !(await isPreparedRoundReservationActive({
+        roomId: params.roomId,
+        roundId: reservation.roundId,
+        roundIndex: reservation.roundIndex,
+      }))
+    ) {
+      return;
+    }
 
     const targetImageUrl = await resolveImageUrl({
       roomId: params.roomId,
@@ -1040,55 +1223,28 @@ export async function startRound(params: {
       };
     }
 
-    if (state!.preparedRound?.index === nextIndex) {
-      state!.preparedRound = null;
+    if (
+      preparedRound &&
+      preparedRound.index === nextIndex &&
+      preparedRound.status === "GENERATING" &&
+      !isPreparedRoundStale(preparedRound)
+    ) {
+      return {
+        kind: "waiting-prepared" as const,
+        roundId: preparedRound.roundId,
+        roundIndex: nextIndex,
+        settings: room.settings,
+      };
     }
 
-    const roundId = allocateRoundId(state!);
-    const now = new Date();
-    const expiresAt = dateAfterHours(24);
-    const previousStatus = room.status;
-    const previousRoundId = room.currentRoundId;
-    const previousRoundIndex = room.roundIndex;
-    const excludeStylePresetIds = currentStylePresetIds(state!);
-
-    assertRoomTransition(room.status, "GENERATING_ROUND");
-
-    room.status = "GENERATING_ROUND";
-    room.currentRoundId = roundId;
-    room.roundIndex = nextIndex;
-
-    state!.rounds[roundId] = createBaseRoundDoc({
-      roundId,
-      roundIndex: nextIndex,
-      now,
-      expiresAt,
+    const nextReservation = reserveSynchronousRoundStartInState({
+      state: state!,
+      room,
+      expectedRoundIndex: nextIndex,
     });
-    state!.roundPrivates[roundId] = {
-      roundId,
-      createdAt: now,
-      expiresAt,
-      gmPrompt: "",
-      gmNegativePrompt: "",
-      safety: {
-        blocked: false,
-      },
-    };
-
     await saveRoomState(bumpRoomVersion(state!));
 
-    return {
-      kind: "reserved" as const,
-      previousStatus: previousStatus as RoomStatus,
-      previousRoundId,
-      previousRoundIndex,
-      roundId,
-      roundIndex: nextIndex,
-      settings: room.settings,
-      expiresAt,
-      createdAt: now,
-      excludeStylePresetIds,
-    };
+    return nextReservation;
   });
 
   if (reservation.kind === "prepared") {
@@ -1105,6 +1261,106 @@ export async function startRound(params: {
       roundIndex: reservation.roundIndex,
     };
   }
+
+  if (reservation.kind === "waiting-prepared") {
+    const preparedRound = await waitForPreparedRound({
+      roomId: params.roomId,
+      roundId: reservation.roundId,
+      roundIndex: reservation.roundIndex,
+    });
+
+    if (preparedRound?.status === "READY") {
+      const materialized = await withRoomLock(params.roomId, async () => {
+        const state = await loadRoomState(params.roomId);
+        const room = requireRoom(state?.room);
+
+        if (
+          room.status === "IN_ROUND" &&
+          room.currentRoundId === reservation.roundId &&
+          room.roundIndex === reservation.roundIndex
+        ) {
+          return {
+            roundId: reservation.roundId,
+            roundIndex: reservation.roundIndex,
+          };
+        }
+
+        const latestPrepared = state?.preparedRound;
+        const nextIndex = room.roundIndex + 1;
+
+        if (
+          latestPrepared &&
+          latestPrepared.roundId === reservation.roundId &&
+          latestPrepared.index === nextIndex &&
+          latestPrepared.status === "READY"
+        ) {
+          assertRoomTransition(room.status, "IN_ROUND");
+          applyMaterializedRound({
+            state: state!,
+            room,
+            material: toRoundMaterialFromPrepared(latestPrepared),
+          });
+          state!.preparedRound = null;
+          await saveRoomState(bumpRoomVersion(state!));
+
+          return {
+            roundId: latestPrepared.roundId,
+            roundIndex: latestPrepared.index,
+          };
+        }
+
+        return null;
+      });
+
+      if (materialized) {
+        if (reservation.settings.gameMode === "impostor") {
+          await continueImpostorCpuTurns({
+            roomId: params.roomId,
+            roundId: materialized.roundId,
+            scheduleCpuTurns: params.scheduleCpuTurns,
+          });
+        }
+
+        return materialized;
+      }
+    }
+
+    const nextReservation = await reserveSynchronousRoundStart({
+      roomId: params.roomId,
+      expectedRoundIndex: reservation.roundIndex,
+    });
+
+    return startRoundWithReservedGeneration({
+      reservation: nextReservation,
+      roomId: params.roomId,
+      scheduleCpuTurns: params.scheduleCpuTurns,
+    });
+  }
+
+  return startRoundWithReservedGeneration({
+    reservation,
+    roomId: params.roomId,
+    scheduleCpuTurns: params.scheduleCpuTurns,
+  });
+}
+
+async function startRoundWithReservedGeneration(params: {
+  reservation: {
+    kind: "reserved";
+    previousStatus: RoomStatus;
+    previousRoundId: string | null;
+    previousRoundIndex: number;
+    roundId: string;
+    roundIndex: number;
+    settings: RoomState["room"]["settings"];
+    expiresAt: Date;
+    createdAt: Date;
+    excludeStylePresetIds: string[];
+  };
+  roomId: string;
+  scheduleCpuTurns?: CpuTurnScheduler;
+}): Promise<{ roundId: string; roundIndex: number }> {
+  const reservation = params.reservation;
 
   try {
     const gmPrompt = await generateGmPrompt({

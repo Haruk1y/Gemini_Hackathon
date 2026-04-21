@@ -31,6 +31,8 @@ function createClassicRoundState(params: {
       maxAttempts: 1,
       aspectRatio: "1:1",
       imageModel: "gemini",
+      promptModel: "flash",
+      judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 1,
       gameMode: "classic",
@@ -139,6 +141,51 @@ describe("endRoundIfNeeded classic/memory timing", () => {
                 imageUrl: "",
                 score: null,
                 status: "SCORING",
+                createdAt: new Date("2026-04-07T10:00:50.000Z"),
+              },
+            ],
+            updatedAt: new Date("2026-04-07T10:00:50.000Z"),
+          },
+        },
+      }),
+    );
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+      }),
+    ).resolves.toEqual({ status: "IN_ROUND" });
+
+    const state = await loadRoomState("ROOM1");
+    expect(state?.room.status).toBe("IN_ROUND");
+    expect(state?.rounds["round-1"]?.status).toBe("IN_ROUND");
+    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
+      "2026-04-07T10:01:09.000Z",
+    );
+  });
+
+  it("keeps the round open while a started submission is still generating", async () => {
+    await saveRoomState(
+      createClassicRoundState({
+        promptStartsAt: new Date("2026-04-07T10:00:10.000Z"),
+        endsAt: new Date("2026-04-07T10:01:09.000Z"),
+        attempts: {
+          host: {
+            uid: "host",
+            roundId: "round-1",
+            expiresAt: dateAfterHours(24),
+            attemptsUsed: 1,
+            hintUsed: 0,
+            bestScore: 0,
+            bestAttemptNo: null,
+            attempts: [
+              {
+                attemptNo: 1,
+                prompt: "ongoing prompt",
+                imageUrl: "",
+                score: null,
+                status: "GENERATING",
                 createdAt: new Date("2026-04-07T10:00:50.000Z"),
               },
             ],
