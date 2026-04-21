@@ -25,6 +25,7 @@
 
 必須:
 
+- `APP_BASE_URL`
 - `SESSION_SECRET`
 - `GEMINI_API_KEY`
 - `UPSTASH_REDIS_REST_URL`
@@ -42,6 +43,19 @@
 - `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON`
 
 この project では Production に `GOOGLE_APPLICATION_CREDENTIALS` は設定しません。
+
+`APP_BASE_URL` は canonical な本番 origin を指し、`ASSET_PREFIX` を明示しない場合は embedded / playtest 配信時の asset origin source of truth としても使われます。
+
+任意:
+
+- `ASSET_PREFIX`
+- `NEXT_PUBLIC_APP_ORIGIN`
+
+使い分け:
+
+- 通常は `APP_BASE_URL` だけ設定する
+- asset の配信先だけ別にしたいときだけ `ASSET_PREFIX` を使う
+- クライアント向け origin を `APP_BASE_URL` と別にしたいときだけ `NEXT_PUBLIC_APP_ORIGIN` を使う
 
 ## Google Cloud 側
 
@@ -63,6 +77,7 @@ npx vercel env ls production
 Production 用 env を追加:
 
 ```bash
+echo "https://your-project.vercel.app" | npx vercel env add APP_BASE_URL production
 echo "gemini" | npx vercel env add IMAGE_PROVIDER_DEFAULT production
 ```
 
