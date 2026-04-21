@@ -48,13 +48,24 @@ describe("game defaults", () => {
     expect(merged.imageModel).toBe("gemini");
   });
 
-  it("falls back to GEMINI_TEXT_MODEL when the new defaults are unset", async () => {
-    process.env.GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite";
+  it("keeps the home screen text-model defaults on flash-lite even when GEMINI_TEXT_MODEL is flash", async () => {
+    process.env.GEMINI_TEXT_MODEL = "gemini-2.5-flash";
     vi.resetModules();
 
     const { DEFAULT_ROOM_SETTINGS: defaults } = await import("@/lib/game/defaults");
 
     expect(defaults.promptModel).toBe("flash-lite");
     expect(defaults.judgeModel).toBe("flash-lite");
+  });
+
+  it("allows prompt and judge defaults to be overridden explicitly", async () => {
+    process.env.GEMINI_PROMPT_MODEL_DEFAULT = "flash";
+    process.env.GEMINI_JUDGE_MODEL_DEFAULT = "flash";
+    vi.resetModules();
+
+    const { DEFAULT_ROOM_SETTINGS: defaults } = await import("@/lib/game/defaults");
+
+    expect(defaults.promptModel).toBe("flash");
+    expect(defaults.judgeModel).toBe("flash");
   });
 });

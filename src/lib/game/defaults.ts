@@ -10,22 +10,12 @@ export function resolveDefaultImageModel(): ImageModel {
   return normalizeImageModel(process.env.IMAGE_PROVIDER_DEFAULT, "flux");
 }
 
-function resolveLegacyTextModelDefault(): TextModelVariant {
-  return normalizeTextModelVariant(process.env.GEMINI_TEXT_MODEL, "flash-lite");
-}
-
 export function resolveDefaultPromptModel(): TextModelVariant {
-  return normalizeTextModelVariant(
-    process.env.GEMINI_PROMPT_MODEL_DEFAULT,
-    resolveLegacyTextModelDefault(),
-  );
+  return normalizeTextModelVariant(process.env.GEMINI_PROMPT_MODEL_DEFAULT, "flash-lite");
 }
 
 export function resolveDefaultJudgeModel(): TextModelVariant {
-  return normalizeTextModelVariant(
-    process.env.GEMINI_JUDGE_MODEL_DEFAULT,
-    resolveLegacyTextModelDefault(),
-  );
+  return normalizeTextModelVariant(process.env.GEMINI_JUDGE_MODEL_DEFAULT, "flash-lite");
 }
 
 export const DEFAULT_ROOM_SETTINGS: RoomSettings = {

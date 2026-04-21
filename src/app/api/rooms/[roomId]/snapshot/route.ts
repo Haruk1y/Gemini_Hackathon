@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 
 import { verifySessionCookie } from "@/lib/auth/verify-session";
-import { endRoundIfNeeded } from "@/lib/game/round-service";
+import {
+  endRoundIfNeeded,
+  ensurePreparedRound,
+  shouldEnsurePreparedRound,
+} from "@/lib/game/round-service";
 import {
   buildRoomViewSnapshot,
   type RoomViewName,
@@ -69,6 +73,21 @@ export async function GET(
           attempts: null,
           playerCount: 0,
         },
+      });
+    }
+
+    const shouldRetryPreparedRound =
+      state &&
+      (view === "lobby" || view === "results") &&
+      shouldEnsurePreparedRound({ state });
+
+    if (shouldRetryPreparedRound) {
+      after(async () => {
+        try {
+          await ensurePreparedRound({ roomId });
+        } catch (error) {
+          console.error("Deferred round preparation failed during snapshot polling", error);
+        }
       });
     }
 
