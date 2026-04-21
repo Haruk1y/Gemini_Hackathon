@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/yajima/Documents/Gemini_Hackathon log --all --oneline)",
+      "Bash(python3 -c \"import openpyxl, pptx, docx, yaml; print\\('all ok'\\)\")",
+      "Bash(python3 -m pip install --user --quiet openpyxl python-pptx python-docx pyyaml)",
+      "Bash(python3 -c \"import openpyxl, pptx, docx, yaml; print\\('openpyxl', openpyxl.__version__\\); print\\('pptx', pptx.__version__\\); print\\('docx ok'\\); print\\('yaml ok'\\)\")",
+      "Bash(python3 scripts/subsidy/fill_all.py)",
+      "Bash(python3 -c ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/yajima/Documents/Gemini_Hackathon/docs",
+      "/tmp/prompdojo_forms",
+      "/private/tmp/prompdojo_forms"
+    ]
+  }
+}
