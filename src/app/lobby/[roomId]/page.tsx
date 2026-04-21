@@ -338,6 +338,7 @@ export default function LobbyPage() {
   const router = useRouter();
   const { language, copy } = useLanguage();
   const { user, loading, error: authError } = useAuth();
+  const [isLeaving, setIsLeaving] = useState(false);
   const {
     snapshot,
     error: snapshotError,
@@ -345,7 +346,7 @@ export default function LobbyPage() {
   } = useRoomSync({
     roomId,
     view: "lobby",
-    enabled: Boolean(user) && !loading,
+    enabled: Boolean(user) && !loading && !isLeaving,
   });
 
   const [actionBusy, setActionBusy] = useState<ActionBusy>(null);
@@ -562,7 +563,7 @@ export default function LobbyPage() {
 
   useRoomPresence({
     roomId,
-    enabled: Boolean(room && user),
+    enabled: Boolean(room && user) && !isLeaving,
   });
 
   const onToggleReady = async () => {
@@ -603,12 +604,14 @@ export default function LobbyPage() {
   };
 
   const onLeave = async () => {
+    setIsLeaving(true);
     setActionBusy("leave");
     setActionError(null);
     try {
       await leaveRoom({ roomId });
       router.replace(buildCurrentAppPath("/"));
     } catch (error) {
+      setIsLeaving(false);
       setActionError(toUiError(error, "leaveRoomFailed"));
     } finally {
       setActionBusy(null);
@@ -667,7 +670,7 @@ export default function LobbyPage() {
     return null;
   })();
 
-  if (loading || (isConnecting && !snapshotError && !room)) {
+  if (isLeaving || loading || (isConnecting && !snapshotError && !room)) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
         <Card className="bg-white">{copy.lobby.loading}</Card>
