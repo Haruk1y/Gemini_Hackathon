@@ -299,6 +299,40 @@ describe("prepared round lifecycle", () => {
     expect(latest?.preparedRound).toBeNull();
   });
 
+  it("retries a stale in-flight prepared round instead of leaving it stuck", async () => {
+    const { loadRoomState, saveRoomState } = await loadRoomStateModule();
+    const state = await createLobbyState();
+    const staleTime = new Date("2026-04-07T09:58:30.000Z");
+    state.preparedRound = {
+      roundId: "round-1",
+      index: 1,
+      status: "GENERATING",
+      createdAt: staleTime,
+      updatedAt: staleTime,
+      imageModel: "flux",
+      gmPrompt: "",
+      gmTitle: "Preparing...",
+      gmTags: [],
+      difficulty: 3,
+      targetImageUrl: "",
+      targetThumbUrl: "",
+    };
+    state.roundSequence = 1;
+    await saveRoomState(state);
+
+    const { ensurePreparedRound } = await import("@/lib/game/round-service");
+    await ensurePreparedRound({ roomId: "ROOM1" });
+
+    const latest = await loadRoomState("ROOM1");
+    expect(latest?.preparedRound).toMatchObject({
+      roundId: "round-2",
+      index: 1,
+      status: "READY",
+      targetImageUrl: "https://example.com/generated-target.png",
+    });
+    expect(latest?.roundSequence).toBe(2);
+  });
+
   it("keeps the round sequence across replay resets so the next replay gets a new round id", async () => {
     const { loadRoomState, saveRoomState } = await loadRoomStateModule();
     await saveRoomState(await createLobbyState());

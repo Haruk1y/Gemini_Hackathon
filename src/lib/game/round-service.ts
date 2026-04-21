@@ -223,11 +223,50 @@ function currentStylePresetIds(state: RoomState): string[] {
   return [...ids];
 }
 
-function isPreparedRoundStale(preparedRound: PreparedRoundDoc, now = Date.now()): boolean {
+export function isPreparedRoundStale(
+  preparedRound: PreparedRoundDoc,
+  now = Date.now(),
+): boolean {
   const updatedAt = parseDate(preparedRound.updatedAt)?.getTime();
   const createdAt = parseDate(preparedRound.createdAt)?.getTime();
   const baseline = updatedAt ?? createdAt ?? now;
   return now - baseline > PREPARED_ROUND_STALE_MS;
+}
+
+export function shouldEnsurePreparedRound(params: {
+  state: RoomState;
+  now?: number;
+}): boolean {
+  const { state } = params;
+  const room = state.room;
+
+  if (room.status === "FINISHED") {
+    return false;
+  }
+
+  const nextIndex = room.roundIndex + 1;
+  if (nextIndex > room.settings.totalRounds) {
+    return false;
+  }
+
+  const preparedRound = state.preparedRound;
+  if (!preparedRound) {
+    return true;
+  }
+
+  if (preparedRound.index !== nextIndex) {
+    return true;
+  }
+
+  if (preparedRound.status === "FAILED") {
+    return true;
+  }
+
+  if (preparedRound.status === "GENERATING") {
+    return isPreparedRoundStale(preparedRound, params.now);
+  }
+
+  return false;
 }
 
 async function waitForPreparedRound(params: {
@@ -1025,11 +1064,15 @@ export async function ensurePreparedRound(params: {
     }
 
     const currentPrepared = state.preparedRound;
-    if (
+    const hasFreshPreparedRound =
       currentPrepared &&
       currentPrepared.index === nextIndex &&
-      (currentPrepared.status === "GENERATING" || currentPrepared.status === "READY")
-    ) {
+      (
+        currentPrepared.status === "READY" ||
+        (currentPrepared.status === "GENERATING" && !isPreparedRoundStale(currentPrepared))
+      );
+
+    if (hasFreshPreparedRound) {
       return null;
     }
 
