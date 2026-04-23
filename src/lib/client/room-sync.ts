@@ -695,8 +695,7 @@ export function useRoomSync(params: {
     let disposed = false;
     let timerId: number | null = null;
     let version = -1;
-    const intervalMs =
-      params.view === "lobby" || params.view === "transition" ? 250 : 500;
+    const intervalMs = 1000;
 
     const poll = async () => {
       const controller = new AbortController();
