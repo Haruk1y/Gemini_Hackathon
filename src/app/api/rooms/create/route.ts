@@ -4,6 +4,7 @@ import { createRoomSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import { mergeRoomSettings } from "@/lib/game/defaults";
 import { nextSeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
+import { assertModeCompatibleSettings } from "@/lib/game/room-service";
 import { ensurePreparedRound } from "@/lib/game/round-service";
 import {
   createRoomState,
@@ -22,6 +23,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
   const now = new Date();
   const expiresAt = dateAfterHours(24);
   const settings = mergeRoomSettings(body.settings);
+  assertModeCompatibleSettings(settings);
 
   let roomId = "";
   for (let i = 0; i < 8; i += 1) {

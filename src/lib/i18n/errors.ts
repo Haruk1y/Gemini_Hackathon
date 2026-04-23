@@ -52,6 +52,8 @@ type ApiMessageKey =
   | "voteCpu"
   | "voteClosed"
   | "votesLocked"
+  | "alreadyGuessed"
+  | "changeModeRequiresGemini"
   | "roomMissing"
   | "playerMissing"
   | "roundMissing"
@@ -107,6 +109,8 @@ const API_CODE_MESSAGES: Record<Language, Record<ErrorCode, string>> = {
     ROUND_CLOSED: "このラウンドは現在操作できません。",
     MAX_ATTEMPTS_REACHED: "これ以上は生成できません。",
     HINT_LIMIT_REACHED: "これ以上ヒントは使えません。",
+    ALREADY_GUESSED: "このラウンドではすでにクリック済みです。",
+    MODE_REQUIRES_GEMINI: "このモードは Gemini 画像編集が必要です。",
     RATE_LIMIT: "処理が混み合っています。少し待ってから再試行してください。",
     GEMINI_ERROR:
       "画像生成に失敗しました。画像生成プロバイダの設定を確認して、少し待ってから再試行してください。",
@@ -124,6 +128,8 @@ const API_CODE_MESSAGES: Record<Language, Record<ErrorCode, string>> = {
     ROUND_CLOSED: "This round is not available right now.",
     MAX_ATTEMPTS_REACHED: "You have no attempts left.",
     HINT_LIMIT_REACHED: "You have no hints left.",
+    ALREADY_GUESSED: "You already clicked once in this round.",
+    MODE_REQUIRES_GEMINI: "This mode requires Gemini image editing.",
     RATE_LIMIT: "The server is busy right now. Please try again in a moment.",
     GEMINI_ERROR:
       "Image generation failed. Check the configured image provider and try again in a moment.",
@@ -148,6 +154,8 @@ const API_MESSAGE_MAP: Record<string, ApiMessageKey> = {
   "Round already ended": "roundAlreadyEnded",
   "自分自身には投票できません。": "voteSelf",
   "CPU players cannot vote via API": "voteCpu",
+  "You already submitted a click for this round.": "alreadyGuessed",
+  "Change mode requires Gemini image editing.": "changeModeRequiresGemini",
   "Result voting is not active": "voteClosed",
   "Votes are already locked": "votesLocked",
   "Room does not exist": "roomMissing",
@@ -183,6 +191,9 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     roundAlreadyEnded: "このラウンドはすでに終了しています。",
     voteSelf: "自分自身には投票できません。",
     voteCpu: "CPU は API から投票できません。",
+    alreadyGuessed: "このラウンドではすでにクリック済みです。",
+    changeModeRequiresGemini:
+      "変化探しモードは Gemini の画像編集に対応したルームでのみ使えます。",
     voteClosed: "投票フェーズは現在終了しています。",
     votesLocked: "投票はすでに確定しています。",
     roomMissing: "ルームが存在しません。",
@@ -221,6 +232,9 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     roundAlreadyEnded: "This round has already ended.",
     voteSelf: "You cannot vote for yourself.",
     voteCpu: "CPU players cannot vote through the API.",
+    alreadyGuessed: "You already clicked once in this round.",
+    changeModeRequiresGemini:
+      "Spot the Change is only available in rooms using Gemini image editing.",
     voteClosed: "Voting is no longer active.",
     votesLocked: "Votes are already locked.",
     roomMissing: "The room does not exist.",

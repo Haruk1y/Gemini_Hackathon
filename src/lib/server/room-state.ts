@@ -42,6 +42,7 @@ interface MemoryValue {
 const memoryKv = new Map<string, MemoryValue>();
 const memorySorted = new Map<string, Map<string, number>>();
 const memoryLocks = new Map<string, MemoryValue>();
+let redisFallbackToMemory = false;
 
 function stateKey(roomId: string) {
   return `room:${roomId}:state`;
@@ -121,6 +122,10 @@ function pruneMemoryEntries() {
 let redisClient: Redis | null | undefined;
 
 function resolveRedisConfig(env: NodeJS.ProcessEnv = process.env) {
+  if (env.ROOM_STATE_FORCE_MEMORY === "true") {
+    return null;
+  }
+
   const restUrl = env.UPSTASH_REDIS_REST_URL?.trim();
   const restToken = env.UPSTASH_REDIS_REST_TOKEN?.trim();
   if (restUrl && restToken) {
@@ -148,6 +153,13 @@ function resolveRoomStateBackend(env: NodeJS.ProcessEnv = process.env): {
   kind: RoomStateBackend;
   envSource: RedisEnvSource;
 } {
+  if (redisFallbackToMemory || env.ROOM_STATE_FORCE_MEMORY === "true") {
+    return {
+      kind: "memory",
+      envSource: null,
+    };
+  }
+
   const config = resolveRedisConfig(env);
   if (config) {
     return {
@@ -187,6 +199,62 @@ function getRedisClient(): Redis | null {
   return redisClient;
 }
 
+function isDevelopmentMemoryFallbackEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return env.NODE_ENV !== "production";
+}
+
+function isUpstashRequestLimitError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : error && typeof error === "object" && "message" in error
+          ? String(error.message)
+          : "";
+
+  return /max requests limit exceeded/i.test(message);
+}
+
+function normalizeRedisStorageError(error: unknown): AppError | null {
+  if (isUpstashRequestLimitError(error)) {
+    return new AppError(
+      "INTERNAL_ERROR",
+      "Upstash Redis request limit exceeded. This is a request quota issue, not a full database. Upgrade or reset the Upstash database quota, or disable Redis for local development.",
+      false,
+      503,
+    );
+  }
+
+  return null;
+}
+
+function mirrorMemoryValue(key: string, value: string, expiresAtMs: number) {
+  memoryKv.set(key, {
+    value,
+    expiresAt: expiresAtMs,
+  });
+}
+
+function mirrorExpiringRoom(roomId: string, expiresAtMs: number) {
+  const current = memorySorted.get(ROOM_EXPIRING_KEY) ?? new Map<string, number>();
+  current.set(roomId, expiresAtMs);
+  memorySorted.set(ROOM_EXPIRING_KEY, current);
+}
+
+function activateRedisMemoryFallback(error: unknown): boolean {
+  if (!isDevelopmentMemoryFallbackEnabled() || !isUpstashRequestLimitError(error)) {
+    return false;
+  }
+
+  redisFallbackToMemory = true;
+  redisClient = null;
+  console.warn(
+    "Upstash Redis request quota exceeded. Falling back to in-memory room state for local development.",
+  );
+  return true;
+}
+
 export function getRoomStateBackendInfo() {
   const backend = resolveRoomStateBackend();
   getRedisClient();
@@ -196,7 +264,13 @@ export function getRoomStateBackendInfo() {
 async function getValue(key: string): Promise<unknown | null> {
   const redis = getRedisClient();
   if (redis) {
-    return (await redis.get(key)) ?? null;
+    try {
+      return (await redis.get(key)) ?? null;
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
   pruneMemoryEntries();
@@ -208,21 +282,32 @@ async function setValue(key: string, value: string, expiresAtMs: number): Promis
   const ttlSeconds = Math.max(60, Math.ceil((expiresAtMs - Date.now()) / 1000));
 
   if (redis) {
-    await redis.set(key, value, { ex: ttlSeconds });
-    return;
+    try {
+      await redis.set(key, value, { ex: ttlSeconds });
+      if (isDevelopmentMemoryFallbackEnabled()) {
+        mirrorMemoryValue(key, value, expiresAtMs);
+      }
+      return;
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
-  memoryKv.set(key, {
-    value,
-    expiresAt: Date.now() + ttlSeconds * 1000,
-  });
+  mirrorMemoryValue(key, value, Date.now() + ttlSeconds * 1000);
 }
 
 async function deleteValue(key: string): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
-    await redis.del(key);
-    return;
+    try {
+      await redis.del(key);
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
   memoryKv.delete(key);
@@ -231,20 +316,32 @@ async function deleteValue(key: string): Promise<void> {
 async function addExpiringRoom(roomId: string, expiresAtMs: number): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
-    await redis.zadd(ROOM_EXPIRING_KEY, { score: expiresAtMs, member: roomId });
-    return;
+    try {
+      await redis.zadd(ROOM_EXPIRING_KEY, { score: expiresAtMs, member: roomId });
+      if (isDevelopmentMemoryFallbackEnabled()) {
+        mirrorExpiringRoom(roomId, expiresAtMs);
+      }
+      return;
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
-  const current = memorySorted.get(ROOM_EXPIRING_KEY) ?? new Map<string, number>();
-  current.set(roomId, expiresAtMs);
-  memorySorted.set(ROOM_EXPIRING_KEY, current);
+  mirrorExpiringRoom(roomId, expiresAtMs);
 }
 
 async function removeExpiringRoom(roomId: string): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
-    await redis.zrem(ROOM_EXPIRING_KEY, roomId);
-    return;
+    try {
+      await redis.zrem(ROOM_EXPIRING_KEY, roomId);
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
   memorySorted.get(ROOM_EXPIRING_KEY)?.delete(roomId);
@@ -253,12 +350,18 @@ async function removeExpiringRoom(roomId: string): Promise<void> {
 export async function listExpiredRoomIds(limit: number, now = new Date()): Promise<string[]> {
   const redis = getRedisClient();
   if (redis) {
-    return await redis.zrange<string[]>(
-      ROOM_EXPIRING_KEY,
-      "-inf",
-      now.getTime(),
-      { byScore: true, offset: 0, count: limit },
-    );
+    try {
+      return await redis.zrange<string[]>(
+        ROOM_EXPIRING_KEY,
+        "-inf",
+        now.getTime(),
+        { byScore: true, offset: 0, count: limit },
+      );
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
   pruneMemoryEntries();
@@ -274,13 +377,19 @@ export async function listExpiredRoomIds(limit: number, now = new Date()): Promi
 
 async function acquireLock(key: string, ttlMs: number): Promise<string> {
   const token = nanoid(18);
-  const redis = getRedisClient();
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
+    const redis = getRedisClient();
     if (redis) {
-      const result = await redis.set(key, token, { nx: true, px: ttlMs });
-      if (result === "OK") {
-        return token;
+      try {
+        const result = await redis.set(key, token, { nx: true, px: ttlMs });
+        if (result === "OK") {
+          return token;
+        }
+      } catch (error) {
+        if (!activateRedisMemoryFallback(error)) {
+          throw normalizeRedisStorageError(error) ?? error;
+        }
       }
     } else {
       pruneMemoryEntries();
@@ -300,12 +409,18 @@ async function acquireLock(key: string, ttlMs: number): Promise<string> {
 async function releaseLock(key: string, token: string): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
-    await redis.eval(
-      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
-      [key],
-      [token],
-    );
-    return;
+    try {
+      await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+        [key],
+        [token],
+      );
+      return;
+    } catch (error) {
+      if (!activateRedisMemoryFallback(error)) {
+        throw normalizeRedisStorageError(error) ?? error;
+      }
+    }
   }
 
   const existing = memoryLocks.get(key);
@@ -382,8 +497,11 @@ export const __test__ = {
     memorySorted.clear();
     memoryLocks.clear();
     redisClient = null;
+    redisFallbackToMemory = false;
   },
   deserializeState,
+  isUpstashRequestLimitError,
+  normalizeRedisStorageError,
   resolveRedisConfig,
   resolveRoomStateBackend,
 };

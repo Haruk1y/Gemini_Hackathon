@@ -146,6 +146,28 @@ describe("updateRoomSettings", () => {
     expect(cpuPlayers).toHaveLength(0);
   });
 
+  it("rejects change mode when the room is using Flux", async () => {
+    const state = createBaseState();
+    state.room.settings.imageModel = "flux";
+    await saveRoomState(state);
+
+    await expect(
+      updateRoomSettings({
+        roomId: "ROOM1",
+        uid: "host",
+        settings: {
+          gameMode: "change",
+          totalRounds: 3,
+          roundSeconds: 30,
+          cpuCount: 0,
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "MODE_REQUIRES_GEMINI",
+      status: 409,
+    });
+  });
+
   it("rejects non-host players", async () => {
     await saveRoomState(createBaseState());
 

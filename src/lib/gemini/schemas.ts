@@ -27,6 +27,21 @@ export const visualScoreSchema = z.object({
   note: z.string().max(240).default(""),
 });
 
+export const changeEditPlanSchema = z.object({
+  summary: z.string().min(3).max(120),
+  editPrompt: z.string().min(40).max(500),
+});
+
+export const singleChangeValidationSchema = z.object({
+  valid: z.boolean(),
+  changedObject: z.string().max(80).default(""),
+  note: z.string().max(200).default(""),
+});
+
 export type GmPromptSchema = z.infer<typeof gmPromptSchema>;
 export type CaptionSchema = z.infer<typeof captionSchema>;
 export type VisualScoreSchema = z.infer<typeof visualScoreSchema>;
+export type ChangeEditPlanSchema = z.infer<typeof changeEditPlanSchema>;
+export type SingleChangeValidationSchema = z.infer<
+  typeof singleChangeValidationSchema
+>;

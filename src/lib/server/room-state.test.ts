@@ -90,11 +90,53 @@ describe("room-state backend resolution", () => {
     });
   });
 
+  it("allows forcing the memory backend even when Upstash env vars are set", () => {
+    const backend = __test__.resolveRoomStateBackend({
+      NODE_ENV: "development",
+      ROOM_STATE_FORCE_MEMORY: "true",
+      UPSTASH_REDIS_REST_URL: "https://redis.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "rest-token",
+    });
+
+    expect(backend).toEqual({
+      kind: "memory",
+      envSource: null,
+    });
+  });
+
   it("rejects memory fallback in production", () => {
     expect(() =>
       __test__.resolveRoomStateBackend({
         NODE_ENV: "production",
       }),
     ).toThrow("Redis storage is not configured in production.");
+  });
+});
+
+describe("room-state Upstash error handling", () => {
+  it("detects the Upstash request quota error", () => {
+    expect(
+      __test__.isUpstashRequestLimitError(
+        new Error(
+          "ERR max requests limit exceeded. Limit: 500000, Usage: 500000.",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("normalizes the Upstash request quota error into a helpful AppError", () => {
+    const normalized = __test__.normalizeRedisStorageError(
+      new Error(
+        "ERR max requests limit exceeded. Limit: 500000, Usage: 500000.",
+      ),
+    );
+
+    expect(normalized).toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 503,
+      retryable: false,
+    });
+    expect(normalized?.message).toContain("request quota");
+    expect(normalized?.message).toContain("not a full database");
   });
 });

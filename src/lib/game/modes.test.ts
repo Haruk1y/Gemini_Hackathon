@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CHANGE_DEFAULT_ROUND_SECONDS,
   getGameModeDefinition,
   getRoundSchedule,
   getRoundSubmissionDeadline,
   isPostDeadlineGraceActive,
+  isRoundSecondsAllowedForMode,
+  normalizeRoundSecondsForMode,
 } from "@/lib/game/modes";
 
 describe("game modes", () => {
@@ -43,6 +46,18 @@ describe("game modes", () => {
     ).toBe("2026-04-07T10:01:10.000Z");
   });
 
+  it("keeps change mode prompts open immediately", () => {
+    const startedAt = new Date("2026-04-07T10:00:00.000Z");
+    const schedule = getRoundSchedule({
+      gameMode: "change",
+      roundSeconds: 30,
+      startedAt,
+    });
+
+    expect(schedule.promptStartsAt.toISOString()).toBe(startedAt.toISOString());
+    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(30_000);
+  });
+
   it("detects the post-deadline grace window after countdown expiry", () => {
     const promptStartsAt = new Date("2026-04-07T10:00:10.000Z");
 
@@ -68,6 +83,17 @@ describe("game modes", () => {
   it("returns localized game mode copy", () => {
     expect(getGameModeDefinition("memory", "ja").label).toBe("記憶勝負");
     expect(getGameModeDefinition("memory", "en").label).toBe("Memory Match");
+    expect(getGameModeDefinition("change", "ja").label).toBe("変化探し");
     expect(getGameModeDefinition("impostor", "en").shortLabel).toBe("Impostor");
+  });
+
+  it("validates change-mode round durations separately", () => {
+    expect(isRoundSecondsAllowedForMode("change", 15)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 30)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 45)).toBe(false);
+    expect(normalizeRoundSecondsForMode("change", 45)).toBe(
+      CHANGE_DEFAULT_ROUND_SECONDS,
+    );
+    expect(normalizeRoundSecondsForMode("classic", 15)).toBe(60);
   });
 });

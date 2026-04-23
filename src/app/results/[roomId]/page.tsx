@@ -32,6 +32,12 @@ import {
 import { getGameModeDefinition } from "@/lib/game/modes";
 import { cn } from "@/lib/utils/cn";
 
+function resolveAspectRatioClass(aspectRatio?: "1:1" | "16:9" | "9:16") {
+  if (aspectRatio === "16:9") return "aspect-video";
+  if (aspectRatio === "9:16") return "aspect-[9/16]";
+  return "aspect-square";
+}
+
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -66,6 +72,7 @@ export default function ResultsPage() {
   const round = activeSnapshot.round as RoundData | null;
   const scores = activeSnapshot.scores as ScoreEntry[];
   const myAttempts = activeSnapshot.attempts as AttemptData | null;
+  const changeResults = activeSnapshot.changeResults ?? [];
   const voteProgress = activeSnapshot.voteProgress;
   const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
   const turnTimeline = activeSnapshot.turnTimeline;
@@ -137,6 +144,9 @@ export default function ResultsPage() {
   const isImpostorMode =
     room?.settings?.gameMode === "impostor" &&
     round?.modeState?.kind === "impostor";
+  const isChangeMode =
+    room?.settings?.gameMode === "change" &&
+    round?.modeState?.kind === "change";
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
   const canEnterLobby = liveRoomStatus === "LOBBY";
   const canHostReturnRoomToLobby =
@@ -182,6 +192,23 @@ export default function ResultsPage() {
 
     return [...orderedEntries, ...extraEntries];
   }, [round?.modeState?.turnOrder, turnTimeline]);
+  const sortedChangeResults = useMemo(
+    () =>
+      [...changeResults].sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.submitted !== b.submitted) return a.submitted ? -1 : 1;
+        const aCreated =
+          typeof a.createdAt === "string"
+            ? new Date(a.createdAt).getTime()
+            : Number.MAX_SAFE_INTEGER;
+        const bCreated =
+          typeof b.createdAt === "string"
+            ? new Date(b.createdAt).getTime()
+            : Number.MAX_SAFE_INTEGER;
+        return aCreated - bCreated;
+      }),
+    [changeResults],
+  );
 
   const lobbyHintMessage = (() => {
     if (lobbyBusy) {
@@ -269,6 +296,255 @@ export default function ResultsPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
         <Card className="bg-white">{copy.results.loading}</Card>
+      </main>
+    );
+  }
+
+  if (isChangeMode) {
+    const canReturnToLobby = canEnterLobby || canHostReturnRoomToLobby;
+    const answerBox = round.reveal?.answerBox;
+    const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
+    const aspectClass = resolveAspectRatioClass(room.settings?.aspectRatio);
+
+    return (
+      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+        <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
+          <div>
+            <p className="text-sm font-black tracking-wide uppercase">
+              {copy.common.roundResult(round.index)}
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h1 className="text-4xl leading-none md:text-5xl">
+                {copy.results.clickResults}
+              </h1>
+              <Badge className="bg-white">{currentMode.label}</Badge>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            {isFinalRound ? (
+              <Badge className="bg-[var(--pmb-red)] text-white">
+                <Flag className="mr-1 h-3.5 w-3.5" /> {copy.common.finalRound}
+              </Badge>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              {!isFinalRound ? (
+                <Button
+                  type="button"
+                  variant="accent"
+                  onClick={onNext}
+                  disabled={!me?.isHost || !isResultsPhase}
+                >
+                  <ChevronRight className="mr-1 h-4 w-4" />
+                  {copy.results.nextRound}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onLeave}
+                disabled={lobbyBusy || !canReturnToLobby}
+              >
+                {lobbyBusy ? (
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <LogOut className="mr-2 h-4 w-4" />
+                )}
+                {copy.results.backToLobby}
+              </Button>
+            </div>
+            {lobbyHintMessage ? (
+              <p className="text-xs font-semibold">{lobbyHintMessage}</p>
+            ) : null}
+            {!me?.isHost && !isFinalRound ? (
+              <p className="text-xs font-semibold">
+                {copy.results.hostOnlyNextStep}
+              </p>
+            ) : null}
+          </div>
+        </header>
+
+        {!isResultsPhase && waitingMessage ? (
+          <Card className="bg-white p-3">
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              {waitingMessage}
+            </p>
+          </Card>
+        ) : null}
+
+        <section className="min-h-0 flex-1 overflow-hidden">
+          <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+            <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="min-h-0 overflow-y-auto pr-1">
+                <div className="grid gap-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {[
+                      {
+                        label: copy.results.beforeImage,
+                        imageUrl: round.targetImageUrl,
+                      },
+                      {
+                        label: copy.results.afterImage,
+                        imageUrl: changedImageUrl,
+                      },
+                    ].map((entry) => (
+                      <div key={entry.label}>
+                        <p className="mb-2 text-base font-black">
+                          {entry.label}
+                        </p>
+                        <div
+                          className={cn(
+                            "relative w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white",
+                            aspectClass,
+                          )}
+                        >
+                          <img
+                            src={
+                              entry.imageUrl ||
+                              placeholderImageUrl(
+                                `${round.gmTitle}-${entry.label}`,
+                              )
+                            }
+                            alt={entry.label}
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
+                          {answerBox ? (
+                            <span
+                              className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
+                              style={{
+                                left: `${answerBox.x * 100}%`,
+                                top: `${answerBox.y * 100}%`,
+                                width: `${answerBox.width * 100}%`,
+                                height: `${answerBox.height * 100}%`,
+                              }}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                    <p className="text-xs font-black tracking-[0.16em] uppercase">
+                      {copy.results.changeSummary}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold">
+                      {round.reveal?.changeSummary ?? copy.common.none}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                    <p className="text-xs font-black tracking-[0.16em] uppercase">
+                      {copy.results.answerArea}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold">
+                      {answerBox
+                        ? `${Math.round(answerBox.x * 100)}%, ${Math.round(answerBox.y * 100)}%`
+                        : copy.common.none}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 overflow-hidden lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                <p className="text-base font-black md:text-lg">
+                  {copy.results.clickResults}
+                </p>
+                <div className="mt-3 grid min-h-0 gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+                  {sortedChangeResults.map((entry) => (
+                    <div
+                      key={entry.uid}
+                      className={cn(
+                        "flex min-h-0 flex-col rounded-lg border-4 border-[var(--pmb-ink)] p-3",
+                        entry.hit
+                          ? "bg-[var(--pmb-green)]/35"
+                          : entry.submitted
+                            ? "bg-[var(--pmb-red)]/20"
+                            : "bg-[var(--pmb-base)]",
+                      )}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-black">
+                          {entry.displayName}
+                        </p>
+                        {entry.uid === user?.uid ? (
+                          <Badge className="bg-white px-2 py-0 text-[10px]">
+                            {copy.common.you}
+                          </Badge>
+                        ) : null}
+                        <Badge
+                          className={
+                            entry.hit
+                              ? "bg-[var(--pmb-green)] text-white"
+                              : entry.submitted
+                                ? "bg-[var(--pmb-red)] text-white"
+                                : "bg-white"
+                          }
+                        >
+                          {entry.submitted
+                            ? entry.hit
+                              ? copy.common.hit
+                              : copy.common.miss
+                            : copy.common.notSubmitted}
+                        </Badge>
+                      </div>
+
+                      <div
+                        className={cn(
+                          "relative mt-3 w-full overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-white",
+                          aspectClass,
+                        )}
+                      >
+                        <img
+                          src={
+                            changedImageUrl ||
+                            placeholderImageUrl(entry.displayName)
+                          }
+                          alt={entry.displayName}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                        {answerBox ? (
+                          <span
+                            className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
+                            style={{
+                              left: `${answerBox.x * 100}%`,
+                              top: `${answerBox.y * 100}%`,
+                              width: `${answerBox.width * 100}%`,
+                              height: `${answerBox.height * 100}%`,
+                            }}
+                          />
+                        ) : null}
+                        {entry.point ? (
+                          <span
+                            className={cn(
+                              "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
+                              entry.hit
+                                ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
+                                : "border-[var(--pmb-red)] bg-[var(--pmb-red)]",
+                            )}
+                            style={{
+                              left: `${entry.point.x * 100}%`,
+                              top: `${entry.point.y * 100}%`,
+                            }}
+                          />
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 space-y-1 text-sm font-semibold">
+                        <p>{copy.common.points(entry.score)}</p>
+                        <p>
+                          {entry.rank
+                            ? copy.results.rankLabel(entry.rank)
+                            : copy.results.noClick}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Card>
+        </section>
       </main>
     );
   }

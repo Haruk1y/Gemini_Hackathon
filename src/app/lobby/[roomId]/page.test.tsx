@@ -269,9 +269,9 @@ describe("LobbyPage", () => {
   });
 
   it("keeps showing the loading state instead of the roomSessionMismatch flash while leaving", async () => {
-    let resolveLeave: (() => void) | null = null;
+    let resolveLeave: (() => void) | undefined;
     const leavePromise = new Promise<void>((resolve) => {
-      resolveLeave = resolve;
+      resolveLeave = () => resolve();
     });
     leaveRoomMock.mockReturnValue(leavePromise);
 

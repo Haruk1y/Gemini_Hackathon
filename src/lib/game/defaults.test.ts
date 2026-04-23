@@ -40,6 +40,18 @@ describe("game defaults", () => {
     expect(merged.totalRounds).toBe(3);
   });
 
+  it("normalizes change mode settings to 30 seconds and zero CPUs by default", () => {
+    const merged = mergeRoomSettings({
+      gameMode: "change",
+      roundSeconds: 60,
+      cpuCount: 3,
+    });
+
+    expect(merged.gameMode).toBe("change");
+    expect(merged.roundSeconds).toBe(30);
+    expect(merged.cpuCount).toBe(0);
+  });
+
   it("normalizes the legacy flash image model to gemini", () => {
     const merged = mergeRoomSettings({
       imageModel: "flash" as never,

@@ -39,7 +39,13 @@ import {
   type UiError,
 } from "@/lib/i18n/errors";
 import { useRoomSync } from "@/lib/client/room-sync";
-import { getGameModeDefinition, getGameModeOptions } from "@/lib/game/modes";
+import {
+  CHANGE_ROUND_SECONDS_OPTIONS,
+  getGameModeDefinition,
+  getGameModeOptions,
+  normalizeRoundSecondsForMode,
+  STANDARD_ROUND_SECONDS_OPTIONS,
+} from "@/lib/game/modes";
 import type { GameMode } from "@/lib/types/game";
 
 type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
@@ -87,23 +93,19 @@ const ROUND_OPTIONS: readonly PickerOption[] = [
   },
 ];
 
-const ROUND_TIME_OPTIONS: readonly PickerOption[] = [
-  {
-    value: 30,
-    label: "30",
+const STANDARD_ROUND_TIME_OPTIONS: readonly PickerOption[] =
+  STANDARD_ROUND_SECONDS_OPTIONS.map((value) => ({
+    value,
+    label: String(value),
     unitLabel: "SEC",
-  },
-  {
-    value: 45,
-    label: "45",
+  }));
+
+const CHANGE_ROUND_TIME_OPTIONS: readonly PickerOption[] =
+  CHANGE_ROUND_SECONDS_OPTIONS.map((value) => ({
+    value,
+    label: String(value),
     unitLabel: "SEC",
-  },
-  {
-    value: 60,
-    label: "60",
-    unitLabel: "SEC",
-  },
-];
+  }));
 
 function formatSettingsKey(
   gameMode: GameMode,
@@ -389,6 +391,10 @@ export default function LobbyPage() {
   const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
+  const roundTimeOptions =
+    draftGameMode === "change"
+      ? CHANGE_ROUND_TIME_OPTIONS
+      : STANDARD_ROUND_TIME_OPTIONS;
   const imageModelLabel =
     currentImageModel === "flux"
       ? copy.lobby.fluxModel
@@ -425,8 +431,10 @@ export default function LobbyPage() {
   const settingsDirty = currentSettingsKey !== draftSettingsKey;
   const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
+    (displayGameMode === "change"
+      ? humanPlayerCount >= 2
+      : displayPlayers.length >= (displayGameMode === "impostor" ? 2 : 1)) &&
     Boolean(me?.isHost) &&
-    displayPlayers.length >= (displayGameMode === "impostor" ? 2 : 1) &&
     everyoneReady &&
     !isGenerating &&
     actionBusy === null &&
@@ -542,6 +550,18 @@ export default function LobbyPage() {
     if (draftCpuCount <= maxCpuCount) return;
     setDraftCpuCount(maxCpuCount);
   }, [draftCpuCount, draftsReady, hostCanEdit, maxCpuCount]);
+
+  useEffect(() => {
+    if (!draftsReady) return;
+
+    const normalized = normalizeRoundSecondsForMode(
+      draftGameMode,
+      draftRoundSeconds,
+    );
+    if (normalized !== draftRoundSeconds) {
+      setDraftRoundSeconds(normalized);
+    }
+  }, [draftGameMode, draftRoundSeconds, draftsReady]);
 
   useEffect(() => {
     if (settingsDirty) return;
@@ -985,6 +1005,8 @@ export default function LobbyPage() {
             <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
               {gameModeOptions.map((mode) => {
                 const selected = draftGameMode === mode.mode;
+                const disabledByImageModel =
+                  mode.mode === "change" && currentImageModel !== "gemini";
                 const Icon =
                   mode.mode === "classic"
                     ? Eye
@@ -996,8 +1018,17 @@ export default function LobbyPage() {
                   <button
                     key={mode.mode}
                     type="button"
-                    onClick={() => setDraftGameMode(mode.mode)}
-                    disabled={!hostCanEdit}
+                    onClick={() => {
+                      if (!hostCanEdit || disabledByImageModel) return;
+                      setDraftGameMode(mode.mode);
+                      setDraftRoundSeconds(
+                        normalizeRoundSecondsForMode(
+                          mode.mode,
+                          draftRoundSeconds,
+                        ),
+                      );
+                    }}
+                    disabled={!hostCanEdit || disabledByImageModel}
                     className={[
                       "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
                       "disabled:cursor-not-allowed disabled:opacity-70",
@@ -1022,6 +1053,11 @@ export default function LobbyPage() {
                     <p className="mt-2 min-h-[2.45rem] text-[13px] leading-[1.3] font-semibold">
                       {mode.description}
                     </p>
+                    {disabledByImageModel ? (
+                      <p className="mt-auto pt-2 text-[11px] font-semibold text-[var(--pmb-red)]">
+                        {copy.lobby.changeRequiresGemini}
+                      </p>
+                    ) : null}
                   </button>
                 );
               })}
@@ -1045,7 +1081,7 @@ export default function LobbyPage() {
 
             <SwipeValuePicker
               label="Time"
-              options={ROUND_TIME_OPTIONS}
+              options={roundTimeOptions}
               value={draftRoundSeconds}
               onChange={setDraftRoundSeconds}
               disabled={!hostCanEdit}

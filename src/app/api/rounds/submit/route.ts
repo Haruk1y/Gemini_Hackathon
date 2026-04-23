@@ -62,6 +62,15 @@ export const POST = withPostHandler(submitSchema, async ({ body, auth, request }
     request.cookies.get(LANGUAGE_COOKIE_NAME)?.value,
   );
 
+  if (currentRoom?.settings.gameMode === "change") {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Change mode uses click submissions instead of text prompts.",
+      false,
+      409,
+    );
+  }
+
   if (currentRoom?.settings.gameMode === "impostor") {
     await submitImpostorTurn({
       roomId: body.roomId,

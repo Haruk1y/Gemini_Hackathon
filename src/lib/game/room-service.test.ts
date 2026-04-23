@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { __test__ as roundServiceTest } from "@/lib/game/round-service";
 import { AppError } from "@/lib/utils/errors";
-import { assertCanStartRound, selectNextHost, shufflePlayers } from "@/lib/game/room-service";
+import {
+  assertCanStartRound,
+  assertModeCompatibleSettings,
+  selectNextHost,
+  shufflePlayers,
+} from "@/lib/game/room-service";
 
 describe("room-service", () => {
   describe("selectNextHost", () => {
@@ -47,6 +52,32 @@ describe("room-service", () => {
     it("rejects start when someone is not ready", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }, { ready: false }]),
+      ).toThrow(AppError);
+    });
+
+    it("rejects start when the minimum player count is not met", () => {
+      expect(() =>
+        assertCanStartRound([{ ready: true }], { minPlayers: 2 }),
+      ).toThrow(AppError);
+    });
+  });
+
+  describe("assertModeCompatibleSettings", () => {
+    it("allows change mode with Gemini", () => {
+      expect(() =>
+        assertModeCompatibleSettings({
+          gameMode: "change",
+          imageModel: "gemini",
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects change mode with Flux", () => {
+      expect(() =>
+        assertModeCompatibleSettings({
+          gameMode: "change",
+          imageModel: "flux",
+        }),
       ).toThrow(AppError);
     });
   });

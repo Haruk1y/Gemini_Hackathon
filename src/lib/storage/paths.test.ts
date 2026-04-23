@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPlayerBestImagePath,
+  buildRoundChangedImagePath,
   buildRoundTargetImagePath,
 } from "@/lib/storage/paths";
 
@@ -9,6 +10,12 @@ describe("storage paths", () => {
   it("stores target images at a stable round target path", () => {
     expect(buildRoundTargetImagePath("ROOM1", "round-1")).toBe(
       "rooms/ROOM1/rounds/round-1/target.png",
+    );
+  });
+
+  it("stores changed images at a stable round path", () => {
+    expect(buildRoundChangedImagePath("ROOM1", "round-1")).toBe(
+      "rooms/ROOM1/rounds/round-1/changed.png",
     );
   });
 

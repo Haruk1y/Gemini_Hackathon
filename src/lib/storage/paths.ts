@@ -2,6 +2,10 @@ export function buildRoundTargetImagePath(roomId: string, roundId: string): stri
   return `rooms/${roomId}/rounds/${roundId}/target.png`;
 }
 
+export function buildRoundChangedImagePath(roomId: string, roundId: string): string {
+  return `rooms/${roomId}/rounds/${roundId}/changed.png`;
+}
+
 export function buildPlayerBestImagePath(
   roomId: string,
   roundId: string,

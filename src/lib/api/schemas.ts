@@ -7,14 +7,14 @@ const safeDisplayName = z
   .max(24)
   .regex(/^[\p{L}\p{N}_\-\s]+$/u, "Display name includes invalid characters");
 
-export const gameModeSchema = z.enum(["classic", "memory", "impostor"]);
+export const gameModeSchema = z.enum(["classic", "memory", "change", "impostor"]);
 export const imageModelSchema = z.enum(["gemini", "flux"]);
 export const textModelVariantSchema = z.enum(["flash", "flash-lite"]);
 
 export const roomSettingsSchema = z
   .object({
     maxPlayers: z.number().int().min(2).max(10),
-    roundSeconds: z.number().int().min(30).max(60),
+    roundSeconds: z.number().int().min(15).max(60),
     maxAttempts: z.number().int().min(1).max(1),
     aspectRatio: z.enum(["1:1", "16:9", "9:16"]),
     imageModel: imageModelSchema,
@@ -51,7 +51,7 @@ export const roomSettingsUpdateSchema = z.object({
   settings: z.object({
     gameMode: gameModeSchema,
     totalRounds: z.number().int().min(1).max(3),
-    roundSeconds: z.number().int().min(30).max(60),
+    roundSeconds: z.number().int().min(15).max(60),
     cpuCount: z.number().int().min(0).max(6),
   }),
 });
@@ -65,6 +65,13 @@ export const submitSchema = z.object({
 export const roundSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
+});
+
+export const clickSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
 });
 
 export const endRoundIfNeededSchema = z.object({

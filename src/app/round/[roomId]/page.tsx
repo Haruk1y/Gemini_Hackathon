@@ -45,6 +45,15 @@ type SubmitResponse = Record<string, unknown> & {
   imageUrl: string;
 };
 
+type ClickResponse = {
+  ok: true;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  submittedCount: number;
+  correctCount: number;
+};
+
 type EndRoundResponse = {
   ok: true;
   status: "IN_ROUND" | "RESULTS";
@@ -52,6 +61,14 @@ type EndRoundResponse = {
 };
 
 type GeneratedImagePhase = "IDLE" | "GENERATING" | "SCORING" | "DONE";
+
+function resolveAspectRatioClass(
+  aspectRatio?: "1:1" | "16:9" | "9:16",
+) {
+  if (aspectRatio === "16:9") return "aspect-video";
+  if (aspectRatio === "9:16") return "aspect-[9/16]";
+  return "aspect-square";
+}
 
 function resolveGeneratedImagePhase(attempt: AttemptData["attempts"][number] | null): GeneratedImagePhase {
   if (!attempt) {
@@ -106,6 +123,10 @@ export default function RoundPage() {
   const [resultCountdownSeconds, setResultCountdownSeconds] = useState<
     number | null
   >(null);
+  const [localSelectedPoint, setLocalSelectedPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const endCalled = useRef(false);
   const endRoundRetrier = useRef<ReturnType<
@@ -144,8 +165,14 @@ export default function RoundPage() {
     currentGameMode === "impostor" && round?.modeState?.kind === "impostor"
       ? round.modeState
       : null;
+  const changeModeState =
+    currentGameMode === "change" && round?.modeState?.kind === "change"
+      ? round.modeState
+      : null;
+  const isChangeMode = Boolean(changeModeState);
   const isImpostorMode = Boolean(impostorModeState);
   const isMyTurn = Boolean(snapshot.isMyTurn);
+  const mySubmission = snapshot.mySubmission;
   const myRole = snapshot.myRole;
   const currentTurnUid =
     snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
@@ -157,12 +184,17 @@ export default function RoundPage() {
   const currentTurnName =
     currentTurnPlayer?.displayName ??
     (isCpuTurn ? copy.common.cpu : copy.common.otherPlayer);
+  const humanPlayerCount = derivedPlayers.filter(
+    (player) => player.kind === "human",
+  ).length;
   const completedTurns =
     impostorModeState?.phase === "CHAIN"
       ? (impostorModeState.currentTurnIndex ?? 0)
       : (impostorModeState?.turnOrder?.length ?? 0);
   const turnTotal = impostorModeState?.turnOrder?.length ?? 0;
   const roundSeconds = room?.settings?.roundSeconds ?? 60;
+  const changeSubmittedCount = changeModeState?.submittedCount ?? 0;
+  const changeCorrectCount = changeModeState?.correctCount ?? 0;
 
   useEffect(() => {
     if (!round || !room) {
@@ -222,6 +254,7 @@ export default function RoundPage() {
     endCalled.current = false;
     endRoundRetrier.current?.cancel();
     endRoundRetrier.current = null;
+    setLocalSelectedPoint(null);
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
 
   useEffect(() => {
@@ -327,6 +360,10 @@ export default function RoundPage() {
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
   );
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
+  const everyoneSubmittedInChange =
+    isChangeMode &&
+    humanPlayerCount > 0 &&
+    changeSubmittedCount >= humanPlayerCount;
   const postDeadlineGraceActive =
     isRoundLive &&
     isPostDeadlineGraceActive({
@@ -335,7 +372,9 @@ export default function RoundPage() {
       roundSeconds,
     });
   const autoEndingSoon =
-    isRoundLive && (everyoneScored || postDeadlineGraceActive);
+    isRoundLive &&
+    ((isChangeMode ? everyoneSubmittedInChange : everyoneScored) ||
+      postDeadlineGraceActive);
   const visibleSecondsLeft = autoEndingSoon ? 0 : secondsLeft;
   const isPreviewPhase =
     currentGameMode === "memory" &&
@@ -347,6 +386,20 @@ export default function RoundPage() {
     currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
+  const changeAspectClass = resolveAspectRatioClass(room?.settings?.aspectRatio);
+  const changeBaseOpacity = (() => {
+    if (!isChangeMode || !isRoundLive) return 1;
+
+    const promptStartsAt = parseDate(round?.promptStartsAt);
+    if (!promptStartsAt) return 1;
+
+    const elapsedMs = Date.now() - promptStartsAt.getTime();
+    const progress = Math.min(
+      1,
+      Math.max(0, elapsedMs / (roundSeconds * 1000)),
+    );
+    return 1 - progress;
+  })();
   const impostorReferenceImageUrl =
     impostorModeState?.chainImageUrl || round?.targetImageUrl || "";
 
@@ -381,7 +434,7 @@ export default function RoundPage() {
   useEffect(() => {
     if (!room || !round) return;
     if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
-    if (!everyoneScored) return;
+    if (!(isChangeMode ? everyoneSubmittedInChange : everyoneScored)) return;
 
     const timeoutId = setTimeout(() => {
       void apiPost("/api/rounds/endIfNeeded", {
@@ -390,10 +443,10 @@ export default function RoundPage() {
       }).catch((err) => {
         console.error("auto endIfNeeded failed", err);
       });
-    }, 10_500);
+    }, isChangeMode ? 250 : 10_500);
 
     return () => clearTimeout(timeoutId);
-  }, [everyoneScored, room, round, roomId]);
+  }, [everyoneScored, everyoneSubmittedInChange, isChangeMode, room, round, roomId]);
 
   useRoomPresence({
     roomId,
@@ -422,6 +475,27 @@ export default function RoundPage() {
     }
   };
 
+  const submitChangeClick = async (x: number, y: number) => {
+    if (!round || !isChangeMode || !isRoundLive || mySubmission) return;
+
+    setSubmitPending(true);
+    setFeedback(null);
+
+    try {
+      await apiPost<ClickResponse>("/api/rounds/click", {
+        roomId,
+        roundId: round.roundId,
+        x,
+        y,
+      });
+      setFeedback(null);
+    } catch (error) {
+      setFeedback(toUiError(error, "submitPromptFailed"));
+    } finally {
+      setSubmitPending(false);
+    }
+  };
+
   const onBackToLobby = () => {
     router.push(buildCurrentAppPath(`/results/${roomId}?from=round`));
   };
@@ -430,6 +504,203 @@ export default function RoundPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
         <Card className="bg-white">{copy.round.loading}</Card>
+      </main>
+    );
+  }
+
+  if (isChangeMode && changeModeState) {
+    const changeMarkerPoint = mySubmission?.point ?? localSelectedPoint;
+    const changeMarkerClass = mySubmission
+      ? mySubmission.hit
+        ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
+        : "border-[var(--pmb-red)] bg-[var(--pmb-red)]"
+      : "border-[var(--pmb-yellow)] bg-[var(--pmb-yellow)]";
+
+    return (
+      <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+        <Card className="bg-white p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-2xl leading-none font-black uppercase md:text-3xl">
+                  Round {round.index}
+                </p>
+                <Badge className="bg-[var(--pmb-yellow)] text-[var(--pmb-ink)]">
+                  {currentMode.label}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm font-semibold">
+                {copy.round.changeInstructions}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CountdownTimer secondsLeft={visibleSecondsLeft} />
+              <Card className="bg-[var(--pmb-base)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                <p className="text-xs font-black tracking-[0.18em] uppercase">
+                  {copy.round.changeProgressLabel}
+                </p>
+                <p className="mt-1 font-mono text-lg font-black">
+                  {copy.round.changeSubmittedCount(
+                    changeSubmittedCount,
+                    humanPlayerCount,
+                  )}
+                </p>
+                <p className="text-xs font-semibold">
+                  {copy.round.changeCorrectCount(changeCorrectCount)}
+                </p>
+              </Card>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onBackToLobby}
+                disabled={isBusy || (isRoundLive && !autoEndingSoon)}
+                className={
+                  autoEndingSoon
+                    ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
+                    : ""
+                }
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {autoEndingSoon
+                  ? copy.round.resultsScreenCountdown(
+                      resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
+                    )
+                  : copy.round.resultsScreen}
+              </Button>
+            </div>
+          </div>
+          {feedback ? (
+            <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">
+              {resolveUiErrorMessage(language, feedback)}
+            </p>
+          ) : mySubmission ? (
+            <p className="mt-3 text-sm font-semibold">
+              {mySubmission.hit
+                ? copy.round.changeHit
+                : copy.round.changeMiss}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm font-semibold">
+              {submitPending
+                ? copy.round.changeSubmitted
+                : copy.round.changeSelectionHint}
+            </p>
+          )}
+        </Card>
+
+        <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1.35fr_0.65fr]">
+          <Card className="bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base">{copy.round.changeClickToGuess}</h3>
+              <div className="flex gap-2 text-xs font-black uppercase">
+                <Badge className="bg-white px-2 py-0 text-[10px]">
+                  {copy.round.changeBeforeLabel}
+                </Badge>
+                <Badge className="bg-[var(--pmb-blue)] px-2 py-0 text-[10px] text-white">
+                  {copy.round.changeAfterLabel}
+                </Badge>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={!isRoundLive || submitPending || Boolean(mySubmission)}
+              onClick={(event) => {
+                if (!isRoundLive || submitPending || mySubmission) return;
+
+                const rect = event.currentTarget.getBoundingClientRect();
+                const x = Math.min(
+                  1,
+                  Math.max(0, (event.clientX - rect.left) / rect.width),
+                );
+                const y = Math.min(
+                  1,
+                  Math.max(0, (event.clientY - rect.top) / rect.height),
+                );
+
+                setLocalSelectedPoint({ x, y });
+                void submitChangeClick(x, y);
+              }}
+              className={[
+                "relative mt-3 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white text-left",
+                changeAspectClass,
+                mySubmission
+                  ? "cursor-default"
+                  : "cursor-crosshair transition-transform duration-150 hover:-translate-y-0.5 hover:translate-x-0.5",
+                "disabled:cursor-not-allowed disabled:opacity-100",
+              ].join(" ")}
+            >
+              <img
+                src={
+                  changeModeState.changedImageUrl ||
+                  placeholderImageUrl(`${round.gmTitle}-changed`)
+                }
+                alt={copy.round.changeAfterLabel}
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={(event) =>
+                  applyImageFallback(
+                    event.currentTarget,
+                    `${round.gmTitle}-changed`,
+                  )
+                }
+              />
+              <img
+                src={
+                  round.targetImageUrl ||
+                  placeholderImageUrl(round.gmTitle || "target")
+                }
+                alt={copy.round.changeBeforeLabel}
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ opacity: changeBaseOpacity }}
+                onError={(event) =>
+                  applyImageFallback(
+                    event.currentTarget,
+                    round.gmTitle || "target",
+                  )
+                }
+              />
+              <div className="absolute inset-x-0 top-0 flex justify-between bg-black/35 px-3 py-2 text-[11px] font-black tracking-[0.18em] text-white uppercase">
+                <span>{copy.round.changeBeforeLabel}</span>
+                <span>{copy.round.changeAfterLabel}</span>
+              </div>
+              {changeMarkerPoint ? (
+                <span
+                  className={[
+                    "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
+                    changeMarkerClass,
+                  ].join(" ")}
+                  style={{
+                    left: `${changeMarkerPoint.x * 100}%`,
+                    top: `${changeMarkerPoint.y * 100}%`,
+                  }}
+                />
+              ) : null}
+            </button>
+          </Card>
+
+          <div className="flex min-h-0 flex-col gap-3">
+            <Scoreboard entries={scores} myUid={user?.uid} />
+
+            <Card className="bg-white p-3">
+              <h3 className="text-base">{copy.results.yourClick}</h3>
+              <div className="mt-3 space-y-2 text-sm font-semibold">
+                <p>
+                  {mySubmission
+                    ? `${mySubmission.hit ? copy.common.hit : copy.common.miss} / ${copy.common.points(mySubmission.score)}`
+                    : copy.common.notSubmitted}
+                </p>
+                {mySubmission?.rank ? (
+                  <p>{copy.results.rankLabel(mySubmission.rank)}</p>
+                ) : null}
+                <p>
+                  {mySubmission
+                    ? copy.round.changeAlreadyLocked
+                    : copy.round.changeWaitingForOthers}
+                </p>
+              </div>
+            </Card>
+          </div>
+        </section>
       </main>
     );
   }

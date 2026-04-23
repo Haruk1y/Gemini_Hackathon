@@ -1,10 +1,26 @@
 import {
   captionFromImage,
+  generateChangeEditPlan,
+  generateChangeScenePrompt,
   generateGmPrompt,
   rewriteCpuPrompt,
   scoreImageSimilarity,
+  validateSingleChangeEdit,
 } from "@/lib/gemini/client";
 import { nextRoundId } from "@/lib/game/defaults";
+import {
+  CHANGE_MIN_PLAYERS,
+  countCorrectChangeGuesses,
+  countSubmittedChangeGuesses,
+  createChangeSubmission,
+  createMockChangeRoundAssets,
+  isPointInsideNormalizedBox,
+  listHumanPlayers,
+} from "@/lib/game/change-mode";
+import {
+  ChangeImageDiffError,
+  computeLocalizedChangeImageDiff,
+} from "@/lib/game/change-image-diff";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import {
   buildTelephonePrompt,
@@ -27,6 +43,7 @@ import {
   getRoundSubmissionDeadline,
   RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
+import { assertRoundSubmissionWindow } from "@/lib/game/round-validation";
 import { DEFAULT_LANGUAGE, type Language } from "@/lib/i18n/language";
 import { assertCanStartRound } from "@/lib/game/room-service";
 import { assertRoomTransition } from "@/lib/game/state-machine";
@@ -44,18 +61,27 @@ import {
   imageToPublicUrl,
   type GeneratedImage,
 } from "@/lib/images";
-import { buildRoundTargetImagePath } from "@/lib/storage/paths";
+import {
+  buildRoundChangedImagePath,
+  buildRoundTargetImagePath,
+} from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
 import type {
+  ChangePreparedRoundState,
+  ChangeRoundModeState,
+  ChangeRoundPrivateState,
+  ChangeSubmission,
   ImpostorFinalJudge,
   ImpostorRoundModeState,
   ImpostorRoundPrivateState,
   ImpostorTurnRecord,
+  NormalizedPoint,
   PlayerDoc,
   PreparedRoundDoc,
   RoundPrivateDoc,
   RoundPublicDoc,
   RoomStatus,
+  RoomSettings,
 } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
@@ -84,6 +110,7 @@ interface RoundMaterial {
   targetImageUrl: string;
   targetThumbUrl: string;
   stylePresetId?: string;
+  modeState?: ChangePreparedRoundState;
 }
 
 function hasScoringAttempts(
@@ -202,6 +229,7 @@ function toRoundMaterialFromPrepared(
     targetImageUrl: preparedRound.targetImageUrl,
     targetThumbUrl: preparedRound.targetThumbUrl,
     stylePresetId: preparedRound.stylePresetId,
+    modeState: preparedRound.modeState,
   };
 }
 
@@ -472,9 +500,10 @@ async function resolveImageUrl(params: {
 
   try {
     return await uploadImageToStorage({
-      path:
-        params.subPath === "target.png"
-          ? buildRoundTargetImagePath(params.roomId, params.roundId)
+      path: params.subPath === "target.png"
+        ? buildRoundTargetImagePath(params.roomId, params.roundId)
+        : params.subPath === "changed.png"
+          ? buildRoundChangedImagePath(params.roomId, params.roundId)
           : `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
       buffer,
       mimeType: params.image.mimeType,
@@ -506,6 +535,248 @@ async function resolveTurnImageUrl(params: {
     prompt: params.prompt,
     image: params.image,
   });
+}
+
+function isMockChangeGenerationMode() {
+  return process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
+}
+
+function changeImageToDiffSource(image: GeneratedImage): Uint8Array | string {
+  if (image.mimeType !== "image/png") {
+    throw new AppError(
+      "GEMINI_ERROR",
+      "Change mode currently requires PNG image data for diffing.",
+      true,
+      502,
+    );
+  }
+
+  if (image.base64Data) {
+    return Buffer.from(image.base64Data, "base64");
+  }
+
+  if (typeof image.directUrl === "string" && image.directUrl.startsWith("data:image/png;base64,")) {
+    return image.directUrl;
+  }
+
+  throw new AppError(
+    "GEMINI_ERROR",
+    "Localized change detection needs binary PNG image data.",
+    true,
+    502,
+  );
+}
+
+async function buildChangeRoundMaterial(params: {
+  roomId: string;
+  roundId: string;
+  roundIndex: number;
+  createdAt: Date;
+  expiresAt: Date;
+  settings: RoomSettings;
+}): Promise<RoundMaterial> {
+  if (params.settings.imageModel !== "gemini") {
+    throw new AppError(
+      "MODE_REQUIRES_GEMINI",
+      "Change mode requires Gemini image editing.",
+      false,
+      409,
+    );
+  }
+
+  if (isMockChangeGenerationMode()) {
+    const mockAssets = createMockChangeRoundAssets();
+    return {
+      roundId: params.roundId,
+      roundIndex: params.roundIndex,
+      createdAt: params.createdAt,
+      expiresAt: params.expiresAt,
+      gmPrompt:
+        "A realistic kitchen counter scene with many small household props, stable camera, soft natural daylight, no text",
+      gmTitle: "Kitchen Counter",
+      gmTags: ["change", "kitchen", "props"],
+      difficulty: 2,
+      targetImageUrl: mockAssets.baseImage.directUrl ?? "",
+      targetThumbUrl: mockAssets.baseImage.directUrl ?? "",
+      stylePresetId: "change-realistic",
+      modeState: {
+        kind: "change",
+        changedImageUrl: mockAssets.changedImage.directUrl ?? "",
+        answerBox: mockAssets.answerBox,
+        changeSummary: mockAssets.changeSummary,
+      },
+    };
+  }
+
+  const gmPrompt = await generateChangeScenePrompt({
+    settings: params.settings,
+    promptModel: params.settings.promptModel,
+  });
+  const baseImage = await generateImage({
+    prompt: gmPrompt.prompt,
+    aspectRatio: params.settings.aspectRatio,
+    imageModel: params.settings.imageModel,
+  });
+  const baseImageForModeling = await imageForVisualScoring(
+    baseImage,
+    imageToPublicUrl(baseImage) ?? undefined,
+  );
+
+  if (!baseImageForModeling) {
+    throw new AppError(
+      "GEMINI_ERROR",
+      "Failed to prepare the base image for change generation.",
+      true,
+      502,
+    );
+  }
+
+  const caption = await captionFromImage(baseImageForModeling, gmPrompt.prompt, {
+    promptModel: params.settings.promptModel,
+  });
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const editPlan = await generateChangeEditPlan({
+        caption,
+        promptModel: params.settings.promptModel,
+      });
+      const changedImage = await generateImage({
+        prompt: editPlan.editPrompt,
+        aspectRatio: params.settings.aspectRatio,
+        imageModel: params.settings.imageModel,
+        sourceImage: baseImageForModeling,
+      });
+      const changedImageForModeling = await imageForVisualScoring(
+        changedImage,
+        imageToPublicUrl(changedImage) ?? undefined,
+      );
+
+      if (!changedImageForModeling) {
+        throw new AppError(
+          "GEMINI_ERROR",
+          "Failed to prepare the edited image for localized diffing.",
+          true,
+          502,
+        );
+      }
+
+      const diff = computeLocalizedChangeImageDiff(
+        changeImageToDiffSource(baseImageForModeling),
+        changeImageToDiffSource(changedImageForModeling),
+        {
+          paddingPixels: 12,
+          maxDiffAreaRatio: 0.18,
+        },
+      );
+      const validation = await validateSingleChangeEdit({
+        beforeImage: baseImageForModeling,
+        afterImage: changedImageForModeling,
+        answerBox: diff.normalizedBoundingBox,
+        promptModel: params.settings.promptModel,
+      });
+
+      if (!validation.valid) {
+        lastError = new AppError(
+          "GEMINI_ERROR",
+          validation.note || "Edited image was not localized to one object.",
+          true,
+          502,
+        );
+        continue;
+      }
+
+      const targetImageUrl = await resolveImageUrl({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        subPath: "target.png",
+        prompt: gmPrompt.prompt,
+        image: baseImage,
+      });
+      const changedImageUrl = await resolveImageUrl({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        subPath: "changed.png",
+        prompt: editPlan.editPrompt,
+        image: changedImage,
+      });
+
+      return {
+        roundId: params.roundId,
+        roundIndex: params.roundIndex,
+        createdAt: params.createdAt,
+        expiresAt: params.expiresAt,
+        gmPrompt: gmPrompt.prompt,
+        gmTitle: gmPrompt.title,
+        gmTags: gmPrompt.tags,
+        difficulty: gmPrompt.difficulty as RoundPublicDoc["difficulty"],
+        targetImageUrl,
+        targetThumbUrl: targetImageUrl,
+        stylePresetId: gmPrompt.stylePresetId,
+        modeState: {
+          kind: "change",
+          changedImageUrl,
+          answerBox: diff.normalizedBoundingBox,
+          changeSummary: editPlan.summary,
+        },
+      };
+    } catch (error) {
+      if (
+        error instanceof ChangeImageDiffError ||
+        (error instanceof AppError && error.code === "GEMINI_ERROR")
+      ) {
+        lastError = error;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw (
+    lastError ??
+    new AppError(
+      "GEMINI_ERROR",
+      "Failed to prepare a localized single-object change.",
+      true,
+      502,
+    )
+  );
+}
+
+function requireChangeRoundState(
+  round: RoundPublicDoc | undefined,
+  roundPrivate: RoundPrivateDoc | undefined,
+): {
+  round: RoundPublicDoc & { modeState: ChangeRoundModeState };
+  roundPrivate: RoundPrivateDoc & { modeState: ChangeRoundPrivateState };
+} {
+  if (!round || !roundPrivate || round.modeState?.kind !== "change" || !roundPrivate.modeState) {
+    throw new AppError("ROUND_NOT_FOUND", "Change round state is missing", false, 404);
+  }
+
+  return {
+    round: round as RoundPublicDoc & { modeState: ChangeRoundModeState },
+    roundPrivate: roundPrivate as RoundPrivateDoc & { modeState: ChangeRoundPrivateState },
+  };
+}
+
+function syncChangeRoundStats(params: {
+  round: RoundPublicDoc & { modeState: ChangeRoundModeState };
+  roundPrivate: RoundPrivateDoc & { modeState: ChangeRoundPrivateState };
+}) {
+  const submittedCount = countSubmittedChangeGuesses(params.roundPrivate.modeState);
+  const correctCount = countCorrectChangeGuesses(params.roundPrivate.modeState);
+  const topScore = Object.values(params.roundPrivate.modeState.submissionsByUid).reduce(
+    (highest, entry) => Math.max(highest, entry.score),
+    0,
+  );
+
+  params.round.modeState.submittedCount = submittedCount;
+  params.round.modeState.correctCount = correctCount;
+  params.round.stats.submissions = submittedCount;
+  params.round.stats.topScore = topScore;
 }
 
 function requireImpostorRoundState(
@@ -921,6 +1192,96 @@ export async function voteInRound(params: {
   });
 }
 
+export async function submitChangeRoundClick(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  point: NormalizedPoint;
+}): Promise<{
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  submittedCount: number;
+  correctCount: number;
+}> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const player = requirePlayer(state?.players[params.uid]);
+    const validated = requireChangeRoundState(
+      state?.rounds[params.roundId],
+      state?.roundPrivates[params.roundId],
+    );
+
+    if (room.settings.gameMode !== "change") {
+      throw new AppError("VALIDATION_ERROR", "Change mode is not active.", false, 409);
+    }
+
+    if (player.kind !== "human") {
+      throw new AppError("VALIDATION_ERROR", "CPU players cannot click via API", false, 409);
+    }
+
+    if (validated.roundPrivate.modeState.submissionsByUid[player.uid]) {
+      throw new AppError(
+        "ALREADY_GUESSED",
+        "You already submitted a click for this round.",
+        false,
+        409,
+      );
+    }
+
+    assertRoundSubmissionWindow({
+      room,
+      round: validated.round,
+      roundId: params.roundId,
+      now: new Date(),
+    });
+
+    const hit = isPointInsideNormalizedBox(
+      params.point,
+      validated.roundPrivate.modeState.answerBox,
+    );
+    const rank = hit
+      ? countCorrectChangeGuesses(validated.roundPrivate.modeState) + 1
+      : null;
+    const submission = createChangeSubmission({
+      player,
+      point: params.point,
+      hit,
+      rank,
+    });
+
+    validated.roundPrivate.modeState.submissionsByUid[player.uid] = submission;
+    syncChangeRoundStats({
+      round: validated.round,
+      roundPrivate: validated.roundPrivate,
+    });
+
+    if (submission.score > 0) {
+      const roundScores = state!.scores[params.roundId] ?? {};
+      roundScores[player.uid] = {
+        uid: player.uid,
+        displayName: player.displayName,
+        bestScore: submission.score,
+        bestImageUrl: "",
+        updatedAt: submission.createdAt,
+        expiresAt: dateAfterHours(24),
+      };
+      state!.scores[params.roundId] = roundScores;
+      player.totalScore += submission.score;
+    }
+
+    await saveRoomState(bumpRoomVersion(state!));
+    return {
+      hit: submission.hit,
+      score: submission.score,
+      rank: submission.rank,
+      submittedCount: validated.round.modeState.submittedCount,
+      correctCount: validated.round.modeState.correctCount,
+    };
+  });
+}
+
 function createBaseRoundDoc(params: {
   roundId: string;
   roundIndex: number;
@@ -994,7 +1355,29 @@ function applyMaterializedRound(params: {
     },
   };
 
-  if (params.room.settings.gameMode === "impostor") {
+  if (params.room.settings.gameMode === "change") {
+    if (!params.material.modeState || params.material.modeState.kind !== "change") {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Prepared change round assets are missing.",
+        true,
+        500,
+      );
+    }
+
+    round.modeState = {
+      kind: "change",
+      baseImageUrl: params.material.targetImageUrl,
+      changedImageUrl: params.material.modeState.changedImageUrl,
+      submittedCount: 0,
+      correctCount: 0,
+    };
+    roundPrivate.modeState = {
+      answerBox: params.material.modeState.answerBox,
+      changeSummary: params.material.modeState.changeSummary,
+      submissionsByUid: {},
+    };
+  } else if (params.room.settings.gameMode === "impostor") {
     const players = sortPlayersBySeatOrder(Object.values(params.state.players));
     const assignment = chooseImpostorAssignments(players);
 
@@ -1102,44 +1485,74 @@ export async function ensurePreparedRound(params: {
   }
 
   try {
-    const gmPrompt = await generateGmPrompt({
-      settings: reservation.settings,
-      excludeStylePresetIds: reservation.excludeStylePresetIds,
-    });
+    const material: RoundMaterial | null =
+      reservation.settings.gameMode === "change"
+        ? await buildChangeRoundMaterial({
+            roomId: params.roomId,
+            roundId: reservation.roundId,
+            roundIndex: reservation.roundIndex,
+            createdAt: reservation.createdAt,
+            expiresAt: reservation.expiresAt,
+            settings: reservation.settings,
+          })
+        : await (async () => {
+            const gmPrompt = await generateGmPrompt({
+              settings: reservation.settings,
+              excludeStylePresetIds: reservation.excludeStylePresetIds,
+            });
 
-    if (
-      !(await isPreparedRoundReservationActive({
-        roomId: params.roomId,
-        roundId: reservation.roundId,
-        roundIndex: reservation.roundIndex,
-      }))
-    ) {
+            if (
+              !(await isPreparedRoundReservationActive({
+                roomId: params.roomId,
+                roundId: reservation.roundId,
+                roundIndex: reservation.roundIndex,
+              }))
+            ) {
+              return null;
+            }
+
+            const targetImage = await generateImage({
+              prompt: gmPrompt.prompt,
+              aspectRatio: reservation.settings.aspectRatio,
+              imageModel: reservation.settings.imageModel,
+            });
+
+            if (
+              !(await isPreparedRoundReservationActive({
+                roomId: params.roomId,
+                roundId: reservation.roundId,
+                roundIndex: reservation.roundIndex,
+              }))
+            ) {
+              return null;
+            }
+
+            const targetImageUrl = await resolveImageUrl({
+              roomId: params.roomId,
+              roundId: reservation.roundId,
+              subPath: "target.png",
+              prompt: gmPrompt.prompt,
+              image: targetImage,
+            });
+
+            return {
+              roundId: reservation.roundId,
+              roundIndex: reservation.roundIndex,
+              createdAt: reservation.createdAt,
+              expiresAt: reservation.expiresAt,
+              gmPrompt: gmPrompt.prompt,
+              gmTitle: gmPrompt.title,
+              gmTags: gmPrompt.tags,
+              difficulty: gmPrompt.difficulty as RoundPublicDoc["difficulty"],
+              targetImageUrl,
+              targetThumbUrl: targetImageUrl,
+              stylePresetId: gmPrompt.stylePresetId,
+            } satisfies RoundMaterial;
+          })();
+
+    if (!material) {
       return;
     }
-
-    const targetImage = await generateImage({
-      prompt: gmPrompt.prompt,
-      aspectRatio: reservation.settings.aspectRatio,
-      imageModel: reservation.settings.imageModel,
-    });
-
-    if (
-      !(await isPreparedRoundReservationActive({
-        roomId: params.roomId,
-        roundId: reservation.roundId,
-        roundIndex: reservation.roundIndex,
-      }))
-    ) {
-      return;
-    }
-
-    const targetImageUrl = await resolveImageUrl({
-      roomId: params.roomId,
-      roundId: reservation.roundId,
-      subPath: "target.png",
-      prompt: gmPrompt.prompt,
-      image: targetImage,
-    });
 
     await withRoomLock(params.roomId, async () => {
       const state = await loadRoomState(params.roomId);
@@ -1158,13 +1571,14 @@ export async function ensurePreparedRound(params: {
         ...state.preparedRound,
         status: "READY",
         updatedAt: new Date(),
-        gmPrompt: gmPrompt.prompt,
-        gmTitle: gmPrompt.title,
-        gmTags: gmPrompt.tags,
-        difficulty: gmPrompt.difficulty as RoundPublicDoc["difficulty"],
-        targetImageUrl,
-        targetThumbUrl: targetImageUrl,
-        stylePresetId: gmPrompt.stylePresetId,
+        gmPrompt: material.gmPrompt,
+        gmTitle: material.gmTitle,
+        gmTags: material.gmTags,
+        difficulty: material.difficulty,
+        targetImageUrl: material.targetImageUrl,
+        targetThumbUrl: material.targetThumbUrl,
+        stylePresetId: material.stylePresetId,
+        modeState: material.modeState,
         errorMessage: undefined,
       };
 
@@ -1224,13 +1638,20 @@ export async function startRound(params: {
     const players = Object.values(state!.players).map((candidate) => ({
       ready: Boolean(candidate.ready),
       lastSeenAt: parseDate(candidate.lastSeenAt),
+      kind: candidate.kind,
     }));
 
     const nowMs = Date.now();
     const activePlayers = players.filter(
       (candidate) => !candidate.lastSeenAt || nowMs - candidate.lastSeenAt.getTime() <= 90_000,
     );
-    assertCanStartRound(activePlayers.length > 0 ? activePlayers : players);
+    const readyPlayers = activePlayers.length > 0 ? activePlayers : players;
+    const minPlayers = room.settings.gameMode === "change" ? CHANGE_MIN_PLAYERS : 1;
+    const eligiblePlayers =
+      room.settings.gameMode === "change"
+        ? readyPlayers.filter((candidate) => candidate.kind === "human")
+        : readyPlayers;
+    assertCanStartRound(eligiblePlayers, { minPlayers });
 
     const nextIndex = room.roundIndex + 1;
     if (nextIndex > room.settings.totalRounds) {
@@ -1406,23 +1827,49 @@ async function startRoundWithReservedGeneration(params: {
   const reservation = params.reservation;
 
   try {
-    const gmPrompt = await generateGmPrompt({
-      settings: reservation.settings,
-      excludeStylePresetIds: reservation.excludeStylePresetIds,
-    });
-    const targetImage = await generateImage({
-      prompt: gmPrompt.prompt,
-      aspectRatio: reservation.settings.aspectRatio,
-      imageModel: reservation.settings.imageModel,
-    });
+    const material: RoundMaterial =
+      reservation.settings.gameMode === "change"
+        ? await buildChangeRoundMaterial({
+            roomId: params.roomId,
+            roundId: reservation.roundId,
+            roundIndex: reservation.roundIndex,
+            createdAt: reservation.createdAt,
+            expiresAt: reservation.expiresAt,
+            settings: reservation.settings,
+          })
+        : await (async () => {
+            const gmPrompt = await generateGmPrompt({
+              settings: reservation.settings,
+              excludeStylePresetIds: reservation.excludeStylePresetIds,
+            });
+            const targetImage = await generateImage({
+              prompt: gmPrompt.prompt,
+              aspectRatio: reservation.settings.aspectRatio,
+              imageModel: reservation.settings.imageModel,
+            });
 
-    const targetImageUrl = await resolveImageUrl({
-      roomId: params.roomId,
-      roundId: reservation.roundId,
-      subPath: "target.png",
-      prompt: gmPrompt.prompt,
-      image: targetImage,
-      });
+            const targetImageUrl = await resolveImageUrl({
+              roomId: params.roomId,
+              roundId: reservation.roundId,
+              subPath: "target.png",
+              prompt: gmPrompt.prompt,
+              image: targetImage,
+            });
+
+            return {
+              roundId: reservation.roundId,
+              roundIndex: reservation.roundIndex,
+              createdAt: reservation.createdAt,
+              expiresAt: reservation.expiresAt,
+              gmPrompt: gmPrompt.prompt,
+              gmTitle: gmPrompt.title,
+              gmTags: gmPrompt.tags,
+              difficulty: gmPrompt.difficulty as RoundPublicDoc["difficulty"],
+              targetImageUrl,
+              targetThumbUrl: targetImageUrl,
+              stylePresetId: gmPrompt.stylePresetId,
+            } satisfies RoundMaterial;
+          })();
 
     await withRoomLock(params.roomId, async () => {
       const state = await loadRoomState(params.roomId);
@@ -1438,17 +1885,7 @@ async function startRoundWithReservedGeneration(params: {
         state: state!,
         room,
         material: {
-          roundId: reservation.roundId,
-          roundIndex: reservation.roundIndex,
-          createdAt: reservation.createdAt,
-          expiresAt: reservation.expiresAt,
-          gmPrompt: gmPrompt.prompt,
-          gmTitle: gmPrompt.title,
-          gmTags: gmPrompt.tags,
-          difficulty: gmPrompt.difficulty as RoundPublicDoc["difficulty"],
-          targetImageUrl,
-          targetThumbUrl: targetImageUrl,
-          stylePresetId: gmPrompt.stylePresetId,
+          ...material,
         },
       });
       await saveRoomState(bumpRoomVersion(state!));
@@ -1547,6 +1984,92 @@ async function finalizeClassicResultsIfNeeded(params: {
       gmPromptPublic: roundPrivate?.gmPrompt ?? "",
     };
 
+    latestRoom.status = "RESULTS";
+
+    await saveRoomState(bumpRoomVersion(latestState!));
+    return { status: "RESULTS" };
+  });
+}
+
+async function finalizeChangeResultsIfNeeded(params: {
+  roomId: string;
+  roundId: string;
+}): Promise<{ status: "IN_ROUND" | "RESULTS" }> {
+  return withRoomLock(params.roomId, async () => {
+    const latestState = await loadRoomState(params.roomId);
+    const latestRoom = requireRoom(latestState?.room);
+    const validated = requireChangeRoundState(
+      latestState?.rounds[params.roundId],
+      latestState?.roundPrivates[params.roundId],
+    );
+
+    if (
+      latestRoom.status !== "IN_ROUND" ||
+      validated.round.status !== "IN_ROUND" ||
+      latestRoom.currentRoundId !== params.roundId
+    ) {
+      return {
+        status: latestRoom.status === "RESULTS" ? "RESULTS" : "IN_ROUND",
+      };
+    }
+
+    const endsAt = parseDate(validated.round.endsAt);
+    if (!endsAt) {
+      return { status: "IN_ROUND" };
+    }
+
+    syncChangeRoundStats({
+      round: validated.round,
+      roundPrivate: validated.roundPrivate,
+    });
+
+    const humanCount = listHumanPlayers(latestState!.players).length;
+    const everyoneSubmitted =
+      humanCount > 0 &&
+      validated.round.modeState.submittedCount >= humanCount;
+    const now = Date.now();
+    const submissionDeadline = getRoundSubmissionDeadline({
+      promptStartsAt: validated.round.promptStartsAt,
+      roundSeconds: latestRoom.settings.roundSeconds,
+    });
+    const isGraceWindow = Boolean(
+      submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
+    );
+    const isShortenedResultsCountdown = Boolean(
+      submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
+    );
+
+    if (
+      everyoneSubmitted &&
+      submissionDeadline &&
+      !isShortenedResultsCountdown &&
+      now < endsAt.getTime()
+    ) {
+      validated.round.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
+      await saveRoomState(bumpRoomVersion(latestState!));
+      return { status: "IN_ROUND" };
+    }
+
+    if (
+      submissionDeadline &&
+      now >= submissionDeadline.getTime() &&
+      !isGraceWindow &&
+      !isShortenedResultsCountdown
+    ) {
+      validated.round.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
+      await saveRoomState(bumpRoomVersion(latestState!));
+      return { status: "IN_ROUND" };
+    }
+
+    if (now < endsAt.getTime()) {
+      return { status: "IN_ROUND" };
+    }
+
+    validated.round.status = "RESULTS";
+    validated.round.reveal = {
+      answerBox: validated.roundPrivate.modeState.answerBox,
+      changeSummary: validated.roundPrivate.modeState.changeSummary,
+    };
     latestRoom.status = "RESULTS";
 
     await saveRoomState(bumpRoomVersion(latestState!));
@@ -1696,6 +2219,13 @@ export async function endRoundIfNeeded(params: {
 
   if (!roundDoc) {
     throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
+  }
+
+  if (room.settings.gameMode === "change" && roundDoc.modeState?.kind === "change") {
+    return finalizeChangeResultsIfNeeded({
+      roomId: params.roomId,
+      roundId: params.roundId,
+    });
   }
 
   if (room.settings.gameMode !== "impostor" || roundDoc.modeState?.kind !== "impostor") {
