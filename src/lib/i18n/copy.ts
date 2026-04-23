@@ -86,7 +86,7 @@ const TRANSLATIONS = {
       advancedSettings: "詳細な設定",
       changePickerAria: (label: string) => `${label} を変更`,
       changeRequiresGemini:
-        "変化探しは Gemini の画像編集が使えるルームでのみ選べます。",
+        "アハ体験は Gemini の画像編集が使えるルームでのみ選べます。",
     },
     round: {
       loading: "ラウンド準備中...",
@@ -103,7 +103,7 @@ const TRANSLATIONS = {
       changeSubmittedCount: (submitted: number, total: number) =>
         `${submitted}/${total} CLICKED`,
       changeCorrectCount: (count: number) => `${count} HIT`,
-      changeProgressLabel: "Change Progress",
+      changeProgressLabel: "アハ体験",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
       yourTurnMessage: "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。",
@@ -183,7 +183,7 @@ const TRANSLATIONS = {
       hostOnlyNextStep: "次の進行はホストのみ実行できます。",
       startingNextRound: "次ラウンド開始中...",
       targetImage: "お題画像",
-      changeSummary: "変化内容",
+      changeSummary: "編集プロンプト",
       answerArea: "正解エリア",
       beforeImage: "Before",
       afterImage: "After",
@@ -305,7 +305,7 @@ const TRANSLATIONS = {
       advancedSettings: "Advanced Settings",
       changePickerAria: (label: string) => `Change ${label}`,
       changeRequiresGemini:
-        "Spot the Change is only available in rooms using Gemini image editing.",
+        "Aha Moment is only available in rooms using Gemini image editing.",
     },
     round: {
       loading: "Preparing round...",
@@ -323,7 +323,7 @@ const TRANSLATIONS = {
       changeSubmittedCount: (submitted: number, total: number) =>
         `${submitted}/${total} CLICKED`,
       changeCorrectCount: (count: number) => `${count} HIT`,
-      changeProgressLabel: "Change Progress",
+      changeProgressLabel: "Aha Moment",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
       yourTurnMessage: "It is your turn. Write a prompt as if you are passing the image to the next player.",
@@ -403,7 +403,7 @@ const TRANSLATIONS = {
       hostOnlyNextStep: "Only the host can trigger the next step.",
       startingNextRound: "Starting next round...",
       targetImage: "Target Image",
-      changeSummary: "Change Summary",
+      changeSummary: "Edit Prompt",
       answerArea: "Answer Area",
       beforeImage: "Before",
       afterImage: "After",

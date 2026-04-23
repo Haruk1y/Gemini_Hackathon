@@ -70,6 +70,42 @@ function resolveAspectRatioClass(
   return "aspect-square";
 }
 
+function resolveAspectRatioValue(
+  aspectRatio?: "1:1" | "16:9" | "9:16",
+) {
+  if (aspectRatio === "16:9") return 16 / 9;
+  if (aspectRatio === "9:16") return 9 / 16;
+  return 1;
+}
+
+function fitStageToContainer(
+  containerWidth: number,
+  containerHeight: number,
+  aspectRatio: number,
+) {
+  if (
+    !Number.isFinite(containerWidth) ||
+    !Number.isFinite(containerHeight) ||
+    containerWidth <= 0 ||
+    containerHeight <= 0
+  ) {
+    return null;
+  }
+
+  const widthFromHeight = containerHeight * aspectRatio;
+  if (widthFromHeight <= containerWidth) {
+    return {
+      width: widthFromHeight,
+      height: containerHeight,
+    };
+  }
+
+  return {
+    width: containerWidth,
+    height: containerWidth / aspectRatio,
+  };
+}
+
 function resolveGeneratedImagePhase(attempt: AttemptData["attempts"][number] | null): GeneratedImagePhase {
   if (!attempt) {
     return "IDLE";
@@ -129,9 +165,16 @@ export default function RoundPage() {
   } | null>(null);
 
   const endCalled = useRef(false);
+  const changeStageContainerRef = useRef<HTMLDivElement | null>(null);
+  const changeStageRef = useRef<HTMLDivElement | null>(null);
+  const resultCountdownFallbackTargetRef = useRef<number | null>(null);
   const endRoundRetrier = useRef<ReturnType<
     typeof createEndRoundRetrier
   > | null>(null);
+  const [changeStageSize, setChangeStageSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const derivedRoom = snapshot.room as RoomData | null;
   const derivedRound = snapshot.round as RoundData | null;
   const derivedScores = snapshot.scores as ScoreEntry[];
@@ -254,8 +297,67 @@ export default function RoundPage() {
     endCalled.current = false;
     endRoundRetrier.current?.cancel();
     endRoundRetrier.current = null;
+    resultCountdownFallbackTargetRef.current = null;
     setLocalSelectedPoint(null);
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
+
+  useEffect(() => {
+    if (!isChangeMode) {
+      setChangeStageSize(null);
+      return;
+    }
+
+    const container = changeStageContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frameId = 0;
+    const update = () => {
+      const rect = container.getBoundingClientRect();
+      const fitted = fitStageToContainer(
+        rect.width,
+        rect.height,
+        resolveAspectRatioValue(room?.settings?.aspectRatio),
+      );
+
+      setChangeStageSize((previous) => {
+        if (!fitted) {
+          return null;
+        }
+
+        if (
+          previous &&
+          Math.abs(previous.width - fitted.width) < 1 &&
+          Math.abs(previous.height - fitted.height) < 1
+        ) {
+          return previous;
+        }
+
+        return fitted;
+      });
+    };
+
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(update);
+    };
+
+    scheduleUpdate();
+    window.addEventListener("resize", scheduleUpdate);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    observer?.observe(container);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, [isChangeMode, room?.settings?.aspectRatio, round?.roundId]);
 
   useEffect(() => {
     if (!room || !round) return;
@@ -405,23 +507,28 @@ export default function RoundPage() {
 
   useEffect(() => {
     if (!autoEndingSoon) {
+      resultCountdownFallbackTargetRef.current = null;
       setResultCountdownSeconds(null);
       return;
     }
 
     const parsedEndsAt = parseDate(round?.endsAt);
-    const fallbackEndsAt = new Date(
-      Date.now() + RESULTS_GRACE_SECONDS * 1000,
-    );
-    const countdownTarget =
-      parsedEndsAt && parsedEndsAt.getTime() > Date.now()
-        ? parsedEndsAt
-        : fallbackEndsAt;
+    const now = Date.now();
+    const countdownTargetMs =
+      parsedEndsAt && parsedEndsAt.getTime() > now
+        ? parsedEndsAt.getTime()
+        : (() => {
+            if (resultCountdownFallbackTargetRef.current == null) {
+              resultCountdownFallbackTargetRef.current =
+                now + RESULTS_GRACE_SECONDS * 1000;
+            }
+            return resultCountdownFallbackTargetRef.current;
+          })();
 
     const update = () => {
       const leftSeconds = Math.max(
         0,
-        Math.ceil((countdownTarget.getTime() - Date.now()) / 1000),
+        Math.ceil((countdownTargetMs - Date.now()) / 1000),
       );
       setResultCountdownSeconds(leftSeconds);
     };
@@ -517,7 +624,7 @@ export default function RoundPage() {
       : "border-[var(--pmb-yellow)] bg-[var(--pmb-yellow)]";
 
     return (
-      <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-7xl flex-col gap-3 overflow-hidden px-4 py-3 md:px-6">
         <Card className="bg-white p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -588,8 +695,8 @@ export default function RoundPage() {
           )}
         </Card>
 
-        <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1.35fr_0.65fr]">
-          <Card className="bg-white p-3">
+        <section className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.35fr_0.65fr]">
+          <Card className="flex min-h-0 flex-col overflow-hidden bg-white p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base">{copy.round.changeClickToGuess}</h3>
               <div className="flex gap-2 text-xs font-black uppercase">
@@ -602,80 +709,108 @@ export default function RoundPage() {
               </div>
             </div>
 
-            <button
-              type="button"
-              disabled={!isRoundLive || submitPending || Boolean(mySubmission)}
-              onClick={(event) => {
-                if (!isRoundLive || submitPending || mySubmission) return;
-
-                const rect = event.currentTarget.getBoundingClientRect();
-                const x = Math.min(
-                  1,
-                  Math.max(0, (event.clientX - rect.left) / rect.width),
-                );
-                const y = Math.min(
-                  1,
-                  Math.max(0, (event.clientY - rect.top) / rect.height),
-                );
-
-                setLocalSelectedPoint({ x, y });
-                void submitChangeClick(x, y);
-              }}
-              className={[
-                "relative mt-3 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white text-left",
-                changeAspectClass,
-                mySubmission
-                  ? "cursor-default"
-                  : "cursor-crosshair transition-transform duration-150 hover:-translate-y-0.5 hover:translate-x-0.5",
-                "disabled:cursor-not-allowed disabled:opacity-100",
-              ].join(" ")}
+            <div
+              ref={changeStageContainerRef}
+              className="mt-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)]"
             >
-              <img
-                src={
-                  changeModeState.changedImageUrl ||
-                  placeholderImageUrl(`${round.gmTitle}-changed`)
-                }
-                alt={copy.round.changeAfterLabel}
-                className="absolute inset-0 h-full w-full object-cover"
-                onError={(event) =>
-                  applyImageFallback(
-                    event.currentTarget,
-                    `${round.gmTitle}-changed`,
-                  )
-                }
-              />
-              <img
-                src={
-                  round.targetImageUrl ||
-                  placeholderImageUrl(round.gmTitle || "target")
-                }
-                alt={copy.round.changeBeforeLabel}
-                className="absolute inset-0 h-full w-full object-cover"
-                style={{ opacity: changeBaseOpacity }}
-                onError={(event) =>
-                  applyImageFallback(
-                    event.currentTarget,
-                    round.gmTitle || "target",
-                  )
-                }
-              />
-              <div className="absolute inset-x-0 top-0 flex justify-between bg-black/35 px-3 py-2 text-[11px] font-black tracking-[0.18em] text-white uppercase">
-                <span>{copy.round.changeBeforeLabel}</span>
-                <span>{copy.round.changeAfterLabel}</span>
-              </div>
-              {changeMarkerPoint ? (
-                <span
+              <button
+                type="button"
+                disabled={!isRoundLive || submitPending || Boolean(mySubmission)}
+                onClick={(event) => {
+                  if (!isRoundLive || submitPending || mySubmission) return;
+
+                  const rect =
+                    changeStageRef.current?.getBoundingClientRect() ??
+                    event.currentTarget.getBoundingClientRect();
+                  const localX = event.clientX - rect.left;
+                  const localY = event.clientY - rect.top;
+
+                  if (
+                    localX < 0 ||
+                    localY < 0 ||
+                    localX > rect.width ||
+                    localY > rect.height
+                  ) {
+                    return;
+                  }
+
+                  const x = Math.min(1, Math.max(0, localX / rect.width));
+                  const y = Math.min(1, Math.max(0, localY / rect.height));
+
+                  setLocalSelectedPoint({ x, y });
+                  void submitChangeClick(x, y);
+                }}
+                className={[
+                  "flex h-full w-full items-center justify-center overflow-hidden bg-white text-left",
+                  mySubmission
+                    ? "cursor-default"
+                    : "cursor-crosshair transition-transform duration-150 hover:-translate-y-0.5 hover:translate-x-0.5",
+                  "disabled:cursor-not-allowed disabled:opacity-100",
+                ].join(" ")}
+              >
+                <div
+                  ref={changeStageRef}
                   className={[
-                    "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
-                    changeMarkerClass,
+                    "relative w-full max-w-full overflow-hidden rounded-md bg-white shadow-[0_0_0_2px_var(--pmb-ink)]",
+                    !changeStageSize ? changeAspectClass : "",
                   ].join(" ")}
-                  style={{
-                    left: `${changeMarkerPoint.x * 100}%`,
-                    top: `${changeMarkerPoint.y * 100}%`,
-                  }}
-                />
-              ) : null}
-            </button>
+                  style={
+                    changeStageSize
+                      ? {
+                          width: `${changeStageSize.width}px`,
+                          height: `${changeStageSize.height}px`,
+                        }
+                      : undefined
+                  }
+                >
+                  <img
+                    src={
+                      changeModeState.changedImageUrl ||
+                      placeholderImageUrl(`${round.gmTitle}-changed`)
+                    }
+                    alt={copy.round.changeAfterLabel}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(event) =>
+                      applyImageFallback(
+                        event.currentTarget,
+                        `${round.gmTitle}-changed`,
+                      )
+                    }
+                  />
+                  <img
+                    src={
+                      round.targetImageUrl ||
+                      placeholderImageUrl(round.gmTitle || "target")
+                    }
+                    alt={copy.round.changeBeforeLabel}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    style={{ opacity: changeBaseOpacity }}
+                    onError={(event) =>
+                      applyImageFallback(
+                        event.currentTarget,
+                        round.gmTitle || "target",
+                      )
+                    }
+                  />
+                  <div className="absolute inset-x-0 top-0 flex justify-between bg-black/35 px-3 py-2 text-[11px] font-black tracking-[0.18em] text-white uppercase">
+                    <span>{copy.round.changeBeforeLabel}</span>
+                    <span>{copy.round.changeAfterLabel}</span>
+                  </div>
+                  {changeMarkerPoint ? (
+                    <span
+                      className={[
+                        "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
+                        changeMarkerClass,
+                      ].join(" ")}
+                      style={{
+                        left: `${changeMarkerPoint.x * 100}%`,
+                        top: `${changeMarkerPoint.y * 100}%`,
+                      }}
+                    />
+                  ) : null}
+                </div>
+              </button>
+            </div>
           </Card>
 
           <div className="flex min-h-0 flex-col gap-3">

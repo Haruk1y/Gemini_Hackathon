@@ -607,7 +607,7 @@ function buildChangeScenePromptFromText(
 
   const tags = uniqueStrings([
     ...promptKeywords(prompt),
-    "spot the change",
+    "aha moment",
     "photorealistic",
     aspectRatio.replace(":", "x"),
   ]).slice(0, 6);
@@ -619,7 +619,7 @@ function buildChangeScenePromptFromText(
       tags:
         tags.length >= 2
           ? tags
-          : ["spot the change", aspectRatio.replace(":", "x")],
+          : ["aha moment", aspectRatio.replace(":", "x")],
       prompt,
       negativePrompt:
         "text, logo, watermark, brand name, poster, sign, crowd, close-up face, illustration, cartoon, painting",

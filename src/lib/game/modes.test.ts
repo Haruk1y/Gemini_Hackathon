@@ -83,7 +83,8 @@ describe("game modes", () => {
   it("returns localized game mode copy", () => {
     expect(getGameModeDefinition("memory", "ja").label).toBe("記憶勝負");
     expect(getGameModeDefinition("memory", "en").label).toBe("Memory Match");
-    expect(getGameModeDefinition("change", "ja").label).toBe("変化探し");
+    expect(getGameModeDefinition("change", "ja").label).toBe("アハ体験");
+    expect(getGameModeDefinition("change", "en").label).toBe("Aha Moment");
     expect(getGameModeDefinition("impostor", "en").shortLabel).toBe("Impostor");
   });
 

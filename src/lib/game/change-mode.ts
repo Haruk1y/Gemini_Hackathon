@@ -10,7 +10,7 @@ import type {
   PlayerDoc,
 } from "@/lib/types/game";
 
-export const CHANGE_MIN_PLAYERS = 2;
+export const CHANGE_MIN_PLAYERS = 1;
 export const CHANGE_SCORE_FLOOR = 20;
 export const CHANGE_SCORE_STEP = 20;
 export const CHANGE_SCORE_START = 100;
@@ -132,7 +132,8 @@ export function createMockChangeRoundAssets(): {
       directUrl: pngToDataUrl(changedPng),
     },
     answerBox,
-    changeSummary: "yellow mug becomes blue bottle",
+    changeSummary:
+      "Edit the source image by changing exactly one small table object: replace the yellow mug with a blue glass bottle. Keep the same camera angle, framing, lighting, shadows, background, and every other object unchanged. Return only the edited image.",
   };
 }
 

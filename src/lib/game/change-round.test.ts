@@ -232,4 +232,49 @@ describe("change round service", () => {
       changeSummary: "yellow mug becomes blue bottle",
     });
   });
+
+  it("does not keep extending the results countdown after entering the grace window", async () => {
+    await saveRoomState(createChangeRoundState());
+
+    await submitChangeRoundClick({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "host",
+      point: { x: 0.5, y: 0.4 },
+    });
+    await submitChangeRoundClick({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "guest",
+      point: { x: 0.1, y: 0.1 },
+    });
+
+    vi.setSystemTime(new Date("2026-04-07T10:00:29.000Z"));
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+      }),
+    ).resolves.toEqual({ status: "IN_ROUND" });
+
+    let state = await loadRoomState("ROOM1");
+    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
+      "2026-04-07T10:00:39.000Z",
+    );
+
+    vi.setSystemTime(new Date("2026-04-07T10:00:30.000Z"));
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+      }),
+    ).resolves.toEqual({ status: "IN_ROUND" });
+
+    state = await loadRoomState("ROOM1");
+    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
+      "2026-04-07T10:00:39.000Z",
+    );
+  });
 });

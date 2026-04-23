@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { __test__ as roundServiceTest } from "@/lib/game/round-service";
 import { AppError } from "@/lib/utils/errors";
 import {
+  CHANGE_START_MIN_PLAYERS,
   assertCanStartRound,
   assertModeCompatibleSettings,
   selectNextHost,
@@ -59,6 +60,15 @@ describe("room-service", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }], { minPlayers: 2 }),
       ).toThrow(AppError);
+    });
+
+    it("uses one human as the minimum for Aha Moment rounds", () => {
+      expect(CHANGE_START_MIN_PLAYERS).toBe(1);
+      expect(() =>
+        assertCanStartRound([{ ready: true }], {
+          minPlayers: CHANGE_START_MIN_PLAYERS,
+        }),
+      ).not.toThrow();
     });
   });
 

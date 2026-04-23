@@ -107,7 +107,12 @@ export async function updateRoomSettings(params: {
       ...params.settings,
     });
     assertModeCompatibleSettings(nextSettings);
+    const shouldInvalidatePreparedRound =
+      room.settings.gameMode !== nextSettings.gameMode;
     room.settings = nextSettings;
+    if (shouldInvalidatePreparedRound) {
+      state!.preparedRound = null;
+    }
     syncCpuPlayers(state!);
 
     await saveRoomState(bumpRoomVersion(state!));

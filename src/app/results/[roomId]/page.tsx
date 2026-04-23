@@ -305,6 +305,7 @@ export default function ResultsPage() {
     const answerBox = round.reveal?.answerBox;
     const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
     const aspectClass = resolveAspectRatioClass(room.settings?.aspectRatio);
+    const changeSummaryText = round.reveal?.changeSummary?.trim() || copy.common.none;
 
     return (
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
@@ -429,7 +430,7 @@ export default function ResultsPage() {
                       {copy.results.changeSummary}
                     </p>
                     <p className="mt-2 text-sm font-semibold">
-                      {round.reveal?.changeSummary ?? copy.common.none}
+                      {changeSummaryText}
                     </p>
                   </div>
 

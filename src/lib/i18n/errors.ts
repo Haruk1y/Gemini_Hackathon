@@ -193,7 +193,7 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     voteCpu: "CPU は API から投票できません。",
     alreadyGuessed: "このラウンドではすでにクリック済みです。",
     changeModeRequiresGemini:
-      "変化探しモードは Gemini の画像編集に対応したルームでのみ使えます。",
+      "アハ体験は Gemini の画像編集に対応したルームでのみ使えます。",
     voteClosed: "投票フェーズは現在終了しています。",
     votesLocked: "投票はすでに確定しています。",
     roomMissing: "ルームが存在しません。",
@@ -234,7 +234,7 @@ const API_MESSAGE_MESSAGES: Record<Language, Record<ApiMessageKey, string>> = {
     voteCpu: "CPU players cannot vote through the API.",
     alreadyGuessed: "You already clicked once in this round.",
     changeModeRequiresGemini:
-      "Spot the Change is only available in rooms using Gemini image editing.",
+      "Aha Moment is only available in rooms using Gemini image editing.",
     voteClosed: "Voting is no longer active.",
     votesLocked: "Votes are already locked.",
     roomMissing: "The room does not exist.",

@@ -432,7 +432,7 @@ export default function LobbyPage() {
   const settingsPending = settingsDirty || settingsStatus === "saving";
   const canStartRound =
     (displayGameMode === "change"
-      ? humanPlayerCount >= 2
+      ? humanPlayerCount >= 1
       : displayPlayers.length >= (displayGameMode === "impostor" ? 2 : 1)) &&
     Boolean(me?.isHost) &&
     everyoneReady &&

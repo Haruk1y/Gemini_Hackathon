@@ -162,6 +162,174 @@ describe("change image diff", () => {
       },
     });
   });
+
+  it("can keep the largest region when multiple regions are allowed", () => {
+    const beforeBuffer = createPngBuffer(10, 10);
+    const afterBuffer = createPngBuffer(10, 10, [
+      {
+        x: 1,
+        y: 1,
+        width: 2,
+        height: 2,
+        rgba: [0, 0, 0, 255],
+      },
+      {
+        x: 6,
+        y: 1,
+        width: 3,
+        height: 2,
+        rgba: [0, 0, 0, 255],
+      },
+    ]);
+
+    expect(
+      computeLocalizedChangeImageDiff(beforeBuffer, afterBuffer, {
+        paddingPixels: 0,
+        allowMultipleRegions: true,
+      }),
+    ).toMatchObject({
+      boundingBox: {
+        left: 6,
+        top: 1,
+        right: 8,
+        bottom: 2,
+        width: 3,
+        height: 2,
+        area: 6,
+      },
+      diffPixelCount: 6,
+      regionCount: 2,
+    });
+  });
+
+  it("merges nearby fragmented regions into one localized change", () => {
+    const beforeBuffer = createPngBuffer(10, 10);
+    const afterBuffer = createPngBuffer(10, 10, [
+      {
+        x: 2,
+        y: 4,
+        width: 1,
+        height: 1,
+        rgba: [0, 0, 0, 255],
+      },
+      {
+        x: 4,
+        y: 4,
+        width: 1,
+        height: 1,
+        rgba: [0, 0, 0, 255],
+      },
+      {
+        x: 3,
+        y: 6,
+        width: 1,
+        height: 1,
+        rgba: [0, 0, 0, 255],
+      },
+    ]);
+
+    expect(
+      computeLocalizedChangeImageDiff(beforeBuffer, afterBuffer, {
+        paddingPixels: 0,
+        minRegionPixelCount: 1,
+      }),
+    ).toMatchObject({
+      boundingBox: {
+        left: 2,
+        top: 4,
+        right: 4,
+        bottom: 6,
+        width: 3,
+        height: 3,
+        area: 9,
+      },
+      diffPixelCount: 3,
+      regionCount: 1,
+    });
+  });
+
+  it("ignores low-level whole-image noise and keeps the localized change", () => {
+    const beforeBuffer = createPngBuffer(10, 10);
+    const afterBuffer = createPngBuffer(10, 10, [
+      {
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        rgba: [248, 248, 248, 255],
+      },
+      {
+        x: 3,
+        y: 4,
+        width: 2,
+        height: 2,
+        rgba: [0, 0, 0, 255],
+      },
+    ]);
+
+    expect(
+      computeLocalizedChangeImageDiff(beforeBuffer, afterBuffer, {
+        paddingPixels: 0,
+      }),
+    ).toMatchObject({
+      boundingBox: {
+        left: 3,
+        top: 4,
+        right: 4,
+        bottom: 5,
+        width: 2,
+        height: 2,
+        area: 4,
+      },
+      diffPixelCount: 4,
+      regionCount: 1,
+    });
+  });
+
+  it("ignores tiny speck regions around the main change", () => {
+    const beforeBuffer = createPngBuffer(10, 10);
+    const afterBuffer = createPngBuffer(10, 10, [
+      {
+        x: 3,
+        y: 4,
+        width: 2,
+        height: 2,
+        rgba: [0, 0, 0, 255],
+      },
+      {
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        rgba: [0, 0, 0, 255],
+      },
+      {
+        x: 9,
+        y: 9,
+        width: 1,
+        height: 1,
+        rgba: [0, 0, 0, 255],
+      },
+    ]);
+
+    expect(
+      computeLocalizedChangeImageDiff(beforeBuffer, afterBuffer, {
+        paddingPixels: 0,
+      }),
+    ).toMatchObject({
+      boundingBox: {
+        left: 3,
+        top: 4,
+        right: 4,
+        bottom: 5,
+        width: 2,
+        height: 2,
+        area: 4,
+      },
+      diffPixelCount: 4,
+      regionCount: 1,
+    });
+  });
 });
 
 function createPngBuffer(

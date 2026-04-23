@@ -668,6 +668,7 @@ async function buildChangeRoundMaterial(params: {
         {
           paddingPixels: 12,
           maxDiffAreaRatio: 0.18,
+          allowMultipleRegions: true,
         },
       );
       const validation = await validateSingleChangeEdit({
@@ -718,7 +719,7 @@ async function buildChangeRoundMaterial(params: {
           kind: "change",
           changedImageUrl,
           answerBox: diff.normalizedBoundingBox,
-          changeSummary: editPlan.summary,
+          changeSummary: editPlan.editPrompt,
         },
       };
     } catch (error) {
@@ -1586,27 +1587,31 @@ export async function ensurePreparedRound(params: {
     });
   } catch (error) {
     console.error("Prepared round generation failed", error);
+    const normalized = describeRoundGenerationError(error);
 
-    await withRoomLock(params.roomId, async () => {
-      const state = await loadRoomState(params.roomId);
-      if (!state?.preparedRound) {
-        return;
-      }
+    try {
+      await withRoomLock(params.roomId, async () => {
+        const state = await loadRoomState(params.roomId);
+        if (!state?.preparedRound) {
+          return;
+        }
 
-      if (state.preparedRound.roundId !== reservation.roundId) {
-        return;
-      }
+        if (state.preparedRound.roundId !== reservation.roundId) {
+          return;
+        }
 
-      const normalized = describeRoundGenerationError(error);
-      state.preparedRound = {
-        ...state.preparedRound,
-        status: "FAILED",
-        updatedAt: new Date(),
-        errorMessage: normalized.message,
-      };
+        state.preparedRound = {
+          ...state.preparedRound,
+          status: "FAILED",
+          updatedAt: new Date(),
+          errorMessage: normalized.message,
+        };
 
-      await saveRoomState(bumpRoomVersion(state));
-    });
+        await saveRoomState(bumpRoomVersion(state));
+      });
+    } catch (cleanupError) {
+      console.error("Prepared round cleanup failed", cleanupError);
+    }
   }
 }
 
@@ -1902,25 +1907,30 @@ async function startRoundWithReservedGeneration(params: {
     return { roundId: reservation.roundId, roundIndex: reservation.roundIndex };
   } catch (error) {
     console.error("Round generation failed", error);
+    const normalized = describeRoundGenerationError(error);
 
-    await withRoomLock(params.roomId, async () => {
-      const state = await loadRoomState(params.roomId);
-      if (!state) return;
+    try {
+      await withRoomLock(params.roomId, async () => {
+        const state = await loadRoomState(params.roomId);
+        if (!state) return;
 
-      if (state.room.currentRoundId === reservation.roundId) {
-        state.room.status = reservation.previousStatus;
-        state.room.currentRoundId = reservation.previousRoundId;
-        state.room.roundIndex = reservation.previousRoundIndex;
-      }
+        if (state.room.currentRoundId === reservation.roundId) {
+          state.room.status = reservation.previousStatus;
+          state.room.currentRoundId = reservation.previousRoundId;
+          state.room.roundIndex = reservation.previousRoundIndex;
+        }
 
-      delete state.rounds[reservation.roundId];
-      delete state.roundPrivates[reservation.roundId];
-      delete state.attempts[reservation.roundId];
-      delete state.scores[reservation.roundId];
-      await saveRoomState(bumpRoomVersion(state));
-    });
+        delete state.rounds[reservation.roundId];
+        delete state.roundPrivates[reservation.roundId];
+        delete state.attempts[reservation.roundId];
+        delete state.scores[reservation.roundId];
+        await saveRoomState(bumpRoomVersion(state));
+      });
+    } catch (cleanupError) {
+      console.error("Round generation cleanup failed", cleanupError);
+    }
 
-    throw describeRoundGenerationError(error);
+    throw normalized;
   }
 }
 
@@ -2042,6 +2052,7 @@ async function finalizeChangeResultsIfNeeded(params: {
     if (
       everyoneSubmitted &&
       submissionDeadline &&
+      !isGraceWindow &&
       !isShortenedResultsCountdown &&
       now < endsAt.getTime()
     ) {

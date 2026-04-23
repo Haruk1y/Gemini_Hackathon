@@ -66,9 +66,9 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
     },
     change: {
       mode: "change",
-      englishName: "Spot the Change",
-      label: { ja: "変化探し", en: "Spot the Change" },
-      shortLabel: { ja: "変化", en: "Change" },
+      englishName: "Aha Moment",
+      label: { ja: "アハ体験", en: "Aha Moment" },
+      shortLabel: { ja: "アハ体験", en: "Aha" },
       description: {
         ja: "少しずつ変わる1か所を見つけて、誰よりも早くクリックするモード。",
         en: "Find the one changing spot as the image gradually shifts and click it before anyone else.",

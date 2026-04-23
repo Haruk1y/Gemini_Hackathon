@@ -28,6 +28,12 @@ export interface NormalizedBoundingBox {
 export interface ChangeImageDiffOptions {
   paddingPixels?: number;
   maxDiffAreaRatio?: number;
+  colorChannelThreshold?: number;
+  totalColorThreshold?: number;
+  alphaThreshold?: number;
+  minRegionPixelCount?: number;
+  mergeGapPixels?: number;
+  allowMultipleRegions?: boolean;
 }
 
 export interface LocalizedImageDiff {
@@ -65,6 +71,10 @@ export class ChangeImageDiffError extends Error {
 export const DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS = {
   paddingPixels: 1,
   maxDiffAreaRatio: 0.35,
+  colorChannelThreshold: 24,
+  totalColorThreshold: 48,
+  alphaThreshold: 32,
+  mergeGapPixels: 12,
 } as const;
 
 interface DiffMaskResult {
@@ -75,6 +85,17 @@ interface DiffMaskResult {
 
 interface DiffRegion extends DiffBoundingBox {
   pixelCount: number;
+}
+
+interface DiffRegionCluster extends DiffBoundingBox {
+  pixelCount: number;
+  regionCount: number;
+}
+
+interface PixelDiffThresholds {
+  colorChannelThreshold: number;
+  totalColorThreshold: number;
+  alphaThreshold: number;
 }
 
 export function decodePngImage(source: PngSource): DecodedPngImage {
@@ -136,6 +157,7 @@ export function computeLocalizedChangeImageDiff(
   const before = decodePngImage(beforeSource);
   const after = decodePngImage(afterSource);
   assertSameImageSize(before, after);
+  const totalPixelCount = before.width * before.height;
 
   const paddingPixels = normalizePaddingPixels(
     options.paddingPixels ?? DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.paddingPixels,
@@ -144,10 +166,22 @@ export function computeLocalizedChangeImageDiff(
     options.maxDiffAreaRatio ??
       DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.maxDiffAreaRatio,
   );
+  const pixelThresholds = resolvePixelDiffThresholds(options);
+  const minRegionPixelCount = resolveMinRegionPixelCount(
+    totalPixelCount,
+    options.minRegionPixelCount,
+  );
+  const mergeGapPixels = resolveMergeGapPixels(
+    before.width,
+    before.height,
+    options.mergeGapPixels,
+  );
+  const allowMultipleRegions = options.allowMultipleRegions === true;
 
   const { boundingBox, diffMask, diffPixelCount } = buildDiffMask(
     before,
     after,
+    pixelThresholds,
   );
 
   if (!boundingBox) {
@@ -158,24 +192,39 @@ export function computeLocalizedChangeImageDiff(
   }
 
   const regions = findDiffRegions(diffMask, before.width, before.height);
+  const significantRegions = regions.filter(
+    (region) => region.pixelCount >= minRegionPixelCount,
+  );
+  const mergedRegions = mergeDiffRegions(significantRegions, mergeGapPixels);
 
-  if (regions.length !== 1) {
+  if (mergedRegions.length === 0) {
     throw new ChangeImageDiffError(
-      "MULTI_REGION_DIFF",
-      `Expected a single localized diff region, found ${regions.length}.`,
+      "EMPTY_DIFF",
+      "No localized change remained after filtering low-level image noise.",
       {
+        minRegionPixelCount,
         regionCount: regions.length,
       },
     );
   }
 
+  if (!allowMultipleRegions && mergedRegions.length !== 1) {
+    throw new ChangeImageDiffError(
+      "MULTI_REGION_DIFF",
+      `Expected a single localized diff region, found ${mergedRegions.length}.`,
+      {
+        regionCount: mergedRegions.length,
+      },
+    );
+  }
+
+  const primaryRegion = selectPrimaryDiffRegion(mergedRegions);
   const paddedBoundingBox = padBoundingBox(
-    boundingBox,
+    primaryRegion,
     before.width,
     before.height,
     paddingPixels,
   );
-  const totalPixelCount = before.width * before.height;
   const paddedAreaRatio = paddedBoundingBox.area / totalPixelCount;
 
   if (paddedAreaRatio > maxDiffAreaRatio) {
@@ -190,7 +239,7 @@ export function computeLocalizedChangeImageDiff(
   }
 
   return {
-    boundingBox,
+    boundingBox: primaryRegion,
     paddedBoundingBox,
     normalizedBoundingBox: {
       x: paddedBoundingBox.left / before.width,
@@ -198,10 +247,66 @@ export function computeLocalizedChangeImageDiff(
       width: paddedBoundingBox.width / before.width,
       height: paddedBoundingBox.height / before.height,
     },
-    diffPixelCount,
-    diffPixelRatio: diffPixelCount / totalPixelCount,
-    regionCount: regions.length,
+    diffPixelCount: primaryRegion.pixelCount,
+    diffPixelRatio: primaryRegion.pixelCount / totalPixelCount,
+    regionCount: mergedRegions.length,
   };
+}
+
+function selectPrimaryDiffRegion(regions: DiffRegionCluster[]) {
+  return [...regions].sort((left, right) => {
+    if (left.pixelCount !== right.pixelCount) {
+      return right.pixelCount - left.pixelCount;
+    }
+
+    if (left.area !== right.area) {
+      return right.area - left.area;
+    }
+
+    return left.top - right.top;
+  })[0]!;
+}
+
+function resolvePixelDiffThresholds(
+  options: ChangeImageDiffOptions,
+): PixelDiffThresholds {
+  return {
+    colorChannelThreshold: normalizeThresholdValue(
+      options.colorChannelThreshold ??
+        DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.colorChannelThreshold,
+    ),
+    totalColorThreshold: normalizeThresholdValue(
+      options.totalColorThreshold ??
+        DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.totalColorThreshold,
+    ),
+    alphaThreshold: normalizeThresholdValue(
+      options.alphaThreshold ?? DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.alphaThreshold,
+    ),
+  };
+}
+
+function resolveMinRegionPixelCount(
+  totalPixelCount: number,
+  requestedValue: number | undefined,
+) {
+  if (typeof requestedValue === "number" && Number.isFinite(requestedValue)) {
+    return Math.max(1, Math.floor(requestedValue));
+  }
+
+  return clamp(Math.round(totalPixelCount * 0.00004), 2, 64);
+}
+
+function resolveMergeGapPixels(
+  width: number,
+  height: number,
+  requestedValue: number | undefined,
+) {
+  if (typeof requestedValue === "number" && Number.isFinite(requestedValue)) {
+    return Math.max(0, Math.floor(requestedValue));
+  }
+
+  const base = Math.round(Math.min(width, height) * 0.012);
+  return clamp(base, 1, DEFAULT_CHANGE_IMAGE_DIFF_OPTIONS.mergeGapPixels);
 }
 
 function toPngBuffer(source: PngSource) {
@@ -255,6 +360,11 @@ function toPngBuffer(source: PngSource) {
 function buildDiffMask(
   before: DecodedPngImage,
   after: DecodedPngImage,
+  thresholds: PixelDiffThresholds = {
+    colorChannelThreshold: 1,
+    totalColorThreshold: 1,
+    alphaThreshold: 1,
+  },
 ): DiffMaskResult {
   assertSameImageSize(before, after);
 
@@ -271,7 +381,7 @@ function buildDiffMask(
     pixelIndex < totalPixelCount;
     pixelIndex += 1, offset += 4
   ) {
-    if (!pixelDiffers(before.data, after.data, offset)) {
+    if (!pixelDiffers(before.data, after.data, offset, thresholds)) {
       continue;
     }
 
@@ -381,16 +491,114 @@ function findDiffRegions(
   return regions;
 }
 
+function mergeDiffRegions(
+  regions: DiffRegion[],
+  mergeGapPixels: number,
+): DiffRegionCluster[] {
+  if (regions.length === 0) {
+    return [];
+  }
+
+  const visited = new Uint8Array(regions.length);
+  const clusters: DiffRegionCluster[] = [];
+
+  for (let index = 0; index < regions.length; index += 1) {
+    if (visited[index] === 1) {
+      continue;
+    }
+
+    const seed = regions[index]!;
+    visited[index] = 1;
+    const queue = [index];
+    let left = seed.left;
+    let top = seed.top;
+    let right = seed.right;
+    let bottom = seed.bottom;
+    let pixelCount = seed.pixelCount;
+    let regionCount = 1;
+
+    while (queue.length > 0) {
+      const currentIndex = queue.shift();
+      if (currentIndex === undefined) {
+        continue;
+      }
+
+      const currentRegion = regions[currentIndex]!;
+      for (let candidateIndex = 0; candidateIndex < regions.length; candidateIndex += 1) {
+        if (visited[candidateIndex] === 1) {
+          continue;
+        }
+
+        const candidate = regions[candidateIndex]!;
+        if (!regionsShouldMerge(currentRegion, candidate, mergeGapPixels)) {
+          continue;
+        }
+
+        visited[candidateIndex] = 1;
+        queue.push(candidateIndex);
+        left = Math.min(left, candidate.left);
+        top = Math.min(top, candidate.top);
+        right = Math.max(right, candidate.right);
+        bottom = Math.max(bottom, candidate.bottom);
+        pixelCount += candidate.pixelCount;
+        regionCount += 1;
+      }
+    }
+
+    clusters.push({
+      ...createBoundingBox(left, top, right, bottom),
+      pixelCount,
+      regionCount,
+    });
+  }
+
+  return clusters;
+}
+
+function regionsShouldMerge(
+  first: DiffBoundingBox,
+  second: DiffBoundingBox,
+  mergeGapPixels: number,
+) {
+  const horizontalGap = boxAxisGap(first.left, first.right, second.left, second.right);
+  const verticalGap = boxAxisGap(first.top, first.bottom, second.top, second.bottom);
+  return horizontalGap <= mergeGapPixels && verticalGap <= mergeGapPixels;
+}
+
+function boxAxisGap(
+  firstStart: number,
+  firstEnd: number,
+  secondStart: number,
+  secondEnd: number,
+) {
+  if (firstEnd < secondStart) {
+    return secondStart - firstEnd - 1;
+  }
+
+  if (secondEnd < firstStart) {
+    return firstStart - secondEnd - 1;
+  }
+
+  return 0;
+}
+
 function pixelDiffers(
   beforeData: Uint8Array,
   afterData: Uint8Array,
   offset: number,
+  thresholds: PixelDiffThresholds,
 ) {
+  const redDelta = Math.abs(beforeData[offset] - afterData[offset]);
+  const greenDelta = Math.abs(beforeData[offset + 1] - afterData[offset + 1]);
+  const blueDelta = Math.abs(beforeData[offset + 2] - afterData[offset + 2]);
+  const alphaDelta = Math.abs(beforeData[offset + 3] - afterData[offset + 3]);
+  const strongestColorDelta = Math.max(redDelta, greenDelta, blueDelta);
+  const totalColorDelta = redDelta + greenDelta + blueDelta;
+
   return (
-    beforeData[offset] !== afterData[offset] ||
-    beforeData[offset + 1] !== afterData[offset + 1] ||
-    beforeData[offset + 2] !== afterData[offset + 2] ||
-    beforeData[offset + 3] !== afterData[offset + 3]
+    strongestColorDelta >= thresholds.colorChannelThreshold ||
+    totalColorDelta >= thresholds.totalColorThreshold ||
+    alphaDelta >= thresholds.alphaThreshold
   );
 }
 
@@ -476,6 +684,16 @@ function normalizeMaxDiffAreaRatio(maxDiffAreaRatio: number) {
   }
 
   return maxDiffAreaRatio;
+}
+
+function normalizeThresholdValue(value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(
+      "Diff threshold values must be finite numbers greater than or equal to 0.",
+    );
+  }
+
+  return Math.floor(value);
 }
 
 function clamp(value: number, min: number, max: number) {
