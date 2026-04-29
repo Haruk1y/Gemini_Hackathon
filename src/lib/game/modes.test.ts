@@ -20,7 +20,9 @@ describe("game modes", () => {
     });
 
     expect(schedule.promptStartsAt.toISOString()).toBe(startedAt.toISOString());
-    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(60_000);
+    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(
+      60_000,
+    );
   });
 
   it("adds a 10-second preview before memory mode prompt entry", () => {
@@ -31,8 +33,12 @@ describe("game modes", () => {
       startedAt,
     });
 
-    expect(schedule.promptStartsAt.getTime() - startedAt.getTime()).toBe(10_000);
-    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(60_000);
+    expect(schedule.promptStartsAt.getTime() - startedAt.getTime()).toBe(
+      10_000,
+    );
+    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(
+      60_000,
+    );
   });
 
   it("derives the original submission deadline from prompt start time", () => {
@@ -55,7 +61,9 @@ describe("game modes", () => {
     });
 
     expect(schedule.promptStartsAt.toISOString()).toBe(startedAt.toISOString());
-    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(30_000);
+    expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(
+      30_000,
+    );
   });
 
   it("detects the post-deadline grace window after countdown expiry", () => {
@@ -89,7 +97,8 @@ describe("game modes", () => {
   });
 
   it("validates change-mode round durations separately", () => {
-    expect(isRoundSecondsAllowedForMode("change", 15)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 15)).toBe(false);
+    expect(isRoundSecondsAllowedForMode("change", 20)).toBe(true);
     expect(isRoundSecondsAllowedForMode("change", 30)).toBe(true);
     expect(isRoundSecondsAllowedForMode("change", 45)).toBe(false);
     expect(normalizeRoundSecondsForMode("change", 45)).toBe(

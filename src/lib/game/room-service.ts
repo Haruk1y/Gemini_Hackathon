@@ -38,14 +38,7 @@ export function selectNextHost(candidates: HostCandidate[]): string | null {
 export function assertModeCompatibleSettings(
   settings: Pick<RoomSettings, "gameMode" | "imageModel">,
 ): void {
-  if (settings.gameMode === "change" && settings.imageModel !== "gemini") {
-    throw new AppError(
-      "MODE_REQUIRES_GEMINI",
-      "Change mode requires Gemini image editing.",
-      false,
-      409,
-    );
-  }
+  void settings;
 }
 
 export function assertCanStartRound(

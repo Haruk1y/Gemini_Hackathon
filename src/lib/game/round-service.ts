@@ -15,7 +15,6 @@ import {
   createChangeSubmission,
   createMockChangeRoundAssets,
   isPointInsideNormalizedBox,
-  listHumanPlayers,
 } from "@/lib/game/change-mode";
 import {
   ChangeImageDiffError,
@@ -66,11 +65,15 @@ import {
   buildRoundTargetImagePath,
 } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
+import {
+  listApprovedAhaChanges,
+  markAhaChangeUsed,
+} from "@/lib/theme-catalog/aha";
+import { getOptionalThemeCatalogSql } from "@/lib/theme-catalog/db";
 import type {
   ChangePreparedRoundState,
   ChangeRoundModeState,
   ChangeRoundPrivateState,
-  ChangeSubmission,
   ImpostorFinalJudge,
   ImpostorRoundModeState,
   ImpostorRoundPrivateState,
@@ -86,7 +89,10 @@ import type {
 import { AppError } from "@/lib/utils/errors";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
-type CpuTurnScheduler = (params: { roomId: string; roundId: string }) => void | Promise<void>;
+type CpuTurnScheduler = (params: {
+  roomId: string;
+  roundId: string;
+}) => void | Promise<void>;
 
 const PREPARED_ROUND_POLL_INTERVAL_MS = 120;
 const PREPARED_ROUND_WAIT_TIMEOUT_MS = 45_000;
@@ -114,7 +120,9 @@ interface RoundMaterial {
 }
 
 function hasScoringAttempts(
-  attemptsByUid: Record<string, { attempts: Array<{ status?: string }> }> | undefined,
+  attemptsByUid:
+    | Record<string, { attempts: Array<{ status?: string }> }>
+    | undefined,
 ): boolean {
   return Object.values(attemptsByUid ?? {}).some((attemptDoc) =>
     attemptDoc.attempts.some(
@@ -148,7 +156,11 @@ function summarizeTimeoutAutoSubmitError(error: unknown) {
 
 function describeRoundGenerationError(error: unknown): AppError {
   if (error instanceof AppError) {
-    if (/BLOB_READ_WRITE_TOKEN is missing|Vercel Blob: No token found/i.test(error.message)) {
+    if (
+      /BLOB_READ_WRITE_TOKEN is missing|Vercel Blob: No token found/i.test(
+        error.message,
+      )
+    ) {
       return new AppError(
         "INTERNAL_ERROR",
         "画像保存の設定が不足しています。BLOB_READ_WRITE_TOKEN を設定して再デプロイしてください。",
@@ -157,7 +169,10 @@ function describeRoundGenerationError(error: unknown): AppError {
       );
     }
 
-    if (error.code === "ROUND_CLOSED" && /Round generation state was replaced/i.test(error.message)) {
+    if (
+      error.code === "ROUND_CLOSED" &&
+      /Round generation state was replaced/i.test(error.message)
+    ) {
       return new AppError(
         "ROUND_CLOSED",
         "お題生成中に状態が競合しました。もう一度お試しください。",
@@ -303,7 +318,8 @@ async function waitForPreparedRound(params: {
   roundIndex: number;
   timeoutMs?: number;
 }): Promise<PreparedRoundDoc | null> {
-  const deadline = Date.now() + (params.timeoutMs ?? PREPARED_ROUND_WAIT_TIMEOUT_MS);
+  const deadline =
+    Date.now() + (params.timeoutMs ?? PREPARED_ROUND_WAIT_TIMEOUT_MS);
 
   while (Date.now() < deadline) {
     const state = await loadRoomState(params.roomId);
@@ -341,9 +357,9 @@ async function isPreparedRoundReservationActive(params: {
 
   return Boolean(
     preparedRound &&
-      preparedRound.roundId === params.roundId &&
-      preparedRound.index === params.roundIndex &&
-      preparedRound.status === "GENERATING",
+    preparedRound.roundId === params.roundId &&
+    preparedRound.index === params.roundIndex &&
+    preparedRound.status === "GENERATING",
   );
 }
 
@@ -365,7 +381,12 @@ function reserveSynchronousRoundStartInState(params: {
 } {
   const nextIndex = params.room.roundIndex + 1;
   if (nextIndex !== params.expectedRoundIndex) {
-    throw new AppError("ROUND_CLOSED", "Round generation state was replaced", false, 409);
+    throw new AppError(
+      "ROUND_CLOSED",
+      "Round generation state was replaced",
+      false,
+      409,
+    );
   }
 
   if (params.state.preparedRound?.index === nextIndex) {
@@ -455,7 +476,8 @@ async function fetchImageBytes(url: string): Promise<GeneratedImage | null> {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return null;
 
-    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? "image/png";
+    const mimeType =
+      response.headers.get("content-type")?.split(";")[0] ?? "image/png";
     const arrayBuffer = await response.arrayBuffer();
     return {
       mimeType,
@@ -493,28 +515,44 @@ async function resolveImageUrl(params: {
 
   if (!buffer || !params.image.base64Data) {
     if (!directUrl) {
-      throw new AppError("GEMINI_ERROR", "No image output available", true, 502);
+      throw new AppError(
+        "GEMINI_ERROR",
+        "No image output available",
+        true,
+        502,
+      );
     }
     return directUrl;
   }
 
   try {
     return await uploadImageToStorage({
-      path: params.subPath === "target.png"
-        ? buildRoundTargetImagePath(params.roomId, params.roundId)
-        : params.subPath === "changed.png"
-          ? buildRoundChangedImagePath(params.roomId, params.roundId)
-          : `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
+      path:
+        params.subPath === "target.png"
+          ? buildRoundTargetImagePath(params.roomId, params.roundId)
+          : params.subPath === "changed.png"
+            ? buildRoundChangedImagePath(params.roomId, params.roundId)
+            : `rooms/${params.roomId}/rounds/${params.roundId}/${params.subPath}`,
       buffer,
       mimeType: params.image.mimeType,
     });
   } catch (error) {
-    console.warn("Image storage upload fallback", params.roomId, params.roundId, error);
+    console.warn(
+      "Image storage upload fallback",
+      params.roomId,
+      params.roundId,
+      error,
+    );
     if (!directUrl) {
       if (error instanceof AppError) {
         throw error;
       }
-      throw new AppError("GEMINI_ERROR", "No fallback image URL available", true, 502);
+      throw new AppError(
+        "GEMINI_ERROR",
+        "No fallback image URL available",
+        true,
+        502,
+      );
     }
     return directUrl;
   }
@@ -541,6 +579,10 @@ function isMockChangeGenerationMode() {
   return process.env.MOCK_GEMINI === "true" || !process.env.GEMINI_API_KEY;
 }
 
+function shouldRequireCatalogAhaAssets() {
+  return process.env.NODE_ENV === "production";
+}
+
 function changeImageToDiffSource(image: GeneratedImage): Uint8Array | string {
   if (image.mimeType !== "image/png") {
     throw new AppError(
@@ -555,7 +597,10 @@ function changeImageToDiffSource(image: GeneratedImage): Uint8Array | string {
     return Buffer.from(image.base64Data, "base64");
   }
 
-  if (typeof image.directUrl === "string" && image.directUrl.startsWith("data:image/png;base64,")) {
+  if (
+    typeof image.directUrl === "string" &&
+    image.directUrl.startsWith("data:image/png;base64,")
+  ) {
     return image.directUrl;
   }
 
@@ -575,12 +620,17 @@ async function buildChangeRoundMaterial(params: {
   expiresAt: Date;
   settings: RoomSettings;
 }): Promise<RoundMaterial> {
+  const catalogMaterial = await buildChangeRoundMaterialFromCatalog(params);
+  if (catalogMaterial) {
+    return catalogMaterial;
+  }
+
   if (params.settings.imageModel !== "gemini") {
     throw new AppError(
-      "MODE_REQUIRES_GEMINI",
-      "Change mode requires Gemini image editing.",
+      "ROUND_NOT_FOUND",
+      "Approved Aha themes are required when the room image model is Flux.",
       false,
-      409,
+      503,
     );
   }
 
@@ -631,9 +681,13 @@ async function buildChangeRoundMaterial(params: {
     );
   }
 
-  const caption = await captionFromImage(baseImageForModeling, gmPrompt.prompt, {
-    promptModel: params.settings.promptModel,
-  });
+  const caption = await captionFromImage(
+    baseImageForModeling,
+    gmPrompt.prompt,
+    {
+      promptModel: params.settings.promptModel,
+    },
+  );
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -746,6 +800,98 @@ async function buildChangeRoundMaterial(params: {
   );
 }
 
+async function buildChangeRoundMaterialFromCatalog(params: {
+  roundId: string;
+  roundIndex: number;
+  createdAt: Date;
+  expiresAt: Date;
+  settings: RoomSettings;
+}): Promise<RoundMaterial | null> {
+  const sql = getOptionalThemeCatalogSql();
+  if (!sql) {
+    if (shouldRequireCatalogAhaAssets()) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Aha theme catalog database is not configured.",
+        false,
+        503,
+      );
+    }
+
+    return null;
+  }
+
+  try {
+    const candidates = await listApprovedAhaChanges(
+      {
+        aspectRatio: params.settings.aspectRatio,
+        limit: 25,
+      },
+      sql,
+    );
+
+    if (candidates.length === 0) {
+      if (shouldRequireCatalogAhaAssets()) {
+        throw new AppError(
+          "ROUND_NOT_FOUND",
+          "Approved Aha themes are not available.",
+          false,
+          503,
+        );
+      }
+
+      return null;
+    }
+
+    const selected = candidates[Math.floor(Math.random() * candidates.length)]!;
+    try {
+      await markAhaChangeUsed(selected.change.id, sql);
+    } catch (error) {
+      console.warn("Failed to update Aha theme usage", error);
+    }
+
+    return {
+      roundId: params.roundId,
+      roundIndex: params.roundIndex,
+      createdAt: params.createdAt,
+      expiresAt: params.expiresAt,
+      gmPrompt: selected.theme.prompt,
+      gmTitle: selected.theme.title,
+      gmTags: selected.theme.tags,
+      difficulty: selected.theme.difficulty,
+      targetImageUrl: selected.theme.blobUrl,
+      targetThumbUrl: selected.theme.thumbBlobUrl ?? selected.theme.blobUrl,
+      stylePresetId: selected.theme.stylePresetId ?? undefined,
+      modeState: {
+        kind: "change",
+        changedImageUrl: selected.change.changedBlobUrl,
+        answerBox: selected.change.answerBox,
+        changeSummary:
+          selected.change.changeSummary || selected.change.editPrompt,
+      },
+    };
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    if (shouldRequireCatalogAhaAssets()) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Failed to load approved Aha themes.",
+        true,
+        503,
+      );
+    }
+
+    console.warn(
+      "Aha theme catalog unavailable; falling back to live generation",
+      error,
+    );
+    return null;
+  }
+}
+
 function requireChangeRoundState(
   round: RoundPublicDoc | undefined,
   roundPrivate: RoundPrivateDoc | undefined,
@@ -753,13 +899,25 @@ function requireChangeRoundState(
   round: RoundPublicDoc & { modeState: ChangeRoundModeState };
   roundPrivate: RoundPrivateDoc & { modeState: ChangeRoundPrivateState };
 } {
-  if (!round || !roundPrivate || round.modeState?.kind !== "change" || !roundPrivate.modeState) {
-    throw new AppError("ROUND_NOT_FOUND", "Change round state is missing", false, 404);
+  if (
+    !round ||
+    !roundPrivate ||
+    round.modeState?.kind !== "change" ||
+    !roundPrivate.modeState
+  ) {
+    throw new AppError(
+      "ROUND_NOT_FOUND",
+      "Change round state is missing",
+      false,
+      404,
+    );
   }
 
   return {
     round: round as RoundPublicDoc & { modeState: ChangeRoundModeState },
-    roundPrivate: roundPrivate as RoundPrivateDoc & { modeState: ChangeRoundPrivateState },
+    roundPrivate: roundPrivate as RoundPrivateDoc & {
+      modeState: ChangeRoundPrivateState;
+    },
   };
 }
 
@@ -767,12 +925,13 @@ function syncChangeRoundStats(params: {
   round: RoundPublicDoc & { modeState: ChangeRoundModeState };
   roundPrivate: RoundPrivateDoc & { modeState: ChangeRoundPrivateState };
 }) {
-  const submittedCount = countSubmittedChangeGuesses(params.roundPrivate.modeState);
-  const correctCount = countCorrectChangeGuesses(params.roundPrivate.modeState);
-  const topScore = Object.values(params.roundPrivate.modeState.submissionsByUid).reduce(
-    (highest, entry) => Math.max(highest, entry.score),
-    0,
+  const submittedCount = countSubmittedChangeGuesses(
+    params.roundPrivate.modeState,
   );
+  const correctCount = countCorrectChangeGuesses(params.roundPrivate.modeState);
+  const topScore = Object.values(
+    params.roundPrivate.modeState.submissionsByUid,
+  ).reduce((highest, entry) => Math.max(highest, entry.score), 0);
 
   params.round.modeState.submittedCount = submittedCount;
   params.round.modeState.correctCount = correctCount;
@@ -787,13 +946,25 @@ function requireImpostorRoundState(
   round: RoundPublicDoc & { modeState: ImpostorRoundModeState };
   roundPrivate: RoundPrivateDoc & { modeState: ImpostorRoundPrivateState };
 } {
-  if (!round || !roundPrivate || round.modeState?.kind !== "impostor" || !roundPrivate.modeState) {
-    throw new AppError("ROUND_NOT_FOUND", "Art Impostor round state is missing", false, 404);
+  if (
+    !round ||
+    !roundPrivate ||
+    round.modeState?.kind !== "impostor" ||
+    !roundPrivate.modeState
+  ) {
+    throw new AppError(
+      "ROUND_NOT_FOUND",
+      "Art Impostor round state is missing",
+      false,
+      404,
+    );
   }
 
   return {
     round: round as RoundPublicDoc & { modeState: ImpostorRoundModeState },
-    roundPrivate: roundPrivate as RoundPrivateDoc & { modeState: ImpostorRoundPrivateState },
+    roundPrivate: roundPrivate as RoundPrivateDoc & {
+      modeState: ImpostorRoundPrivateState;
+    },
   };
 }
 
@@ -802,10 +973,14 @@ function currentTurnPlayer(
   round: RoundPublicDoc & { modeState: ImpostorRoundModeState },
 ) {
   const currentUid = round.modeState.currentTurnUid;
-  return currentUid ? players[currentUid] ?? null : null;
+  return currentUid ? (players[currentUid] ?? null) : null;
 }
 
-function setImpostorTurnDeadline(round: RoundPublicDoc, turnSeconds: number, startsAt = new Date()) {
+function setImpostorTurnDeadline(
+  round: RoundPublicDoc,
+  turnSeconds: number,
+  startsAt = new Date(),
+) {
   round.promptStartsAt = startsAt;
   round.endsAt = new Date(startsAt.getTime() + turnSeconds * 1000);
 }
@@ -835,7 +1010,9 @@ function maybeRevealImpostorRound(params: {
   round: RoundPublicDoc & { modeState: ImpostorRoundModeState };
   roundPrivate: RoundPrivateDoc & { modeState: ImpostorRoundPrivateState };
 }): boolean {
-  const voteCount = Object.keys(params.roundPrivate.modeState.votesByUid).length;
+  const voteCount = Object.keys(
+    params.roundPrivate.modeState.votesByUid,
+  ).length;
   const totalPlayers = Object.keys(params.players).length;
 
   params.round.modeState.voteCount = voteCount;
@@ -848,7 +1025,8 @@ function maybeRevealImpostorRound(params: {
   params.round.modeState.phase = "REVEAL";
   params.round.modeState.voteCount = resolved.voteCount;
   params.round.modeState.voteTarget = resolved.targetUid;
-  params.round.modeState.revealedTurns = params.roundPrivate.modeState.turnRecords.length;
+  params.round.modeState.revealedTurns =
+    params.roundPrivate.modeState.turnRecords.length;
   params.round.reveal = {
     gmPromptPublic: params.roundPrivate.gmPrompt,
   };
@@ -863,7 +1041,10 @@ function applyCpuVotes(params: {
   const createdAt = new Date();
 
   for (const player of Object.values(params.players)) {
-    if (player.kind !== "cpu" || params.roundPrivate.modeState.votesByUid[player.uid]) {
+    if (
+      player.kind !== "cpu" ||
+      params.roundPrivate.modeState.votesByUid[player.uid]
+    ) {
       continue;
     }
 
@@ -930,11 +1111,21 @@ async function executeImpostorTurn(params: {
     const player = requirePlayer(initialState?.players[params.uid]);
 
     if (room.currentRoundId !== params.roundId || room.status !== "IN_ROUND") {
-      throw new AppError("ROUND_CLOSED", "This round is not active", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "This round is not active",
+        false,
+        409,
+      );
     }
 
     if (round.status !== "IN_ROUND" || round.modeState.phase !== "CHAIN") {
-      throw new AppError("ROUND_CLOSED", "Art Impostor chain is already closed", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "Art Impostor chain is already closed",
+        false,
+        409,
+      );
     }
 
     if (round.modeState.currentTurnUid !== params.uid) {
@@ -951,18 +1142,28 @@ async function executeImpostorTurn(params: {
       throw new AppError("INTERNAL_ERROR", "Player role is missing", true, 500);
     }
 
-    const referenceImageUrl = round.modeState.chainImageUrl || round.targetImageUrl;
+    const referenceImageUrl =
+      round.modeState.chainImageUrl || round.targetImageUrl;
     const referenceImage = await fetchImageBytes(referenceImageUrl);
     if (!referenceImage?.base64Data) {
-      throw new AppError("GEMINI_ERROR", "Failed to load reference image", true, 502);
+      throw new AppError(
+        "GEMINI_ERROR",
+        "Failed to load reference image",
+        true,
+        502,
+      );
     }
 
     let prompt = params.submittedPrompt?.trim() ?? "";
 
     if (player.kind === "cpu") {
-      const caption = await captionFromImage(referenceImage, "reconstruct the image", {
-        promptModel: room.settings.promptModel,
-      });
+      const caption = await captionFromImage(
+        referenceImage,
+        "reconstruct the image",
+        {
+          promptModel: room.settings.promptModel,
+        },
+      );
       const reconstructedPrompt = reconstructPromptFromCaption(caption);
       prompt =
         (await rewriteCpuPrompt({
@@ -985,10 +1186,18 @@ async function executeImpostorTurn(params: {
       imageModel: room.settings.imageModel,
     });
     const transientImageUrl = imageToPublicUrl(generatedImage) ?? undefined;
-    const attemptImage = await imageForVisualScoring(generatedImage, transientImageUrl);
+    const attemptImage = await imageForVisualScoring(
+      generatedImage,
+      transientImageUrl,
+    );
 
     if (!attemptImage?.base64Data) {
-      throw new AppError("GEMINI_ERROR", "Failed to prepare generated image for scoring", true, 502);
+      throw new AppError(
+        "GEMINI_ERROR",
+        "Failed to prepare generated image for scoring",
+        true,
+        502,
+      );
     }
 
     const judged = await scoreImageSimilarity({
@@ -997,13 +1206,19 @@ async function executeImpostorTurn(params: {
       judgeModel: room.settings.judgeModel,
     });
 
-    const isLastTurn = round.modeState.currentTurnIndex >= round.modeState.turnOrder.length - 1;
+    const isLastTurn =
+      round.modeState.currentTurnIndex >= round.modeState.turnOrder.length - 1;
     let finalJudge: ImpostorFinalJudge | null = null;
 
     if (isLastTurn) {
       const originalTarget = await fetchImageBytes(round.targetImageUrl);
       if (!originalTarget?.base64Data) {
-        throw new AppError("GEMINI_ERROR", "Failed to load original image for final judge", true, 502);
+        throw new AppError(
+          "GEMINI_ERROR",
+          "Failed to load original image for final judge",
+          true,
+          502,
+        );
       }
 
       const finalResult = await scoreImageSimilarity({
@@ -1044,7 +1259,12 @@ async function executeImpostorTurn(params: {
         validated.round.modeState.phase !== "CHAIN" ||
         validated.round.modeState.currentTurnUid !== params.uid
       ) {
-        throw new AppError("ROUND_CLOSED", "Impostor turn state was replaced", false, 409);
+        throw new AppError(
+          "ROUND_CLOSED",
+          "Impostor turn state was replaced",
+          false,
+          409,
+        );
       }
 
       const turnRecord: ImpostorTurnRecord = {
@@ -1065,13 +1285,19 @@ async function executeImpostorTurn(params: {
 
       validated.roundPrivate.modeState.turnRecords.push(turnRecord);
       validated.round.modeState.chainImageUrl = imageUrl;
-      validated.round.stats.submissions = validated.roundPrivate.modeState.turnRecords.length;
-      validated.round.stats.topScore = Math.max(validated.round.stats.topScore ?? 0, judged.score);
+      validated.round.stats.submissions =
+        validated.roundPrivate.modeState.turnRecords.length;
+      validated.round.stats.topScore = Math.max(
+        validated.round.stats.topScore ?? 0,
+        judged.score,
+      );
 
       if (!isLastTurn) {
         validated.round.modeState.currentTurnIndex += 1;
         validated.round.modeState.currentTurnUid =
-          validated.round.modeState.turnOrder[validated.round.modeState.currentTurnIndex] ?? null;
+          validated.round.modeState.turnOrder[
+            validated.round.modeState.currentTurnIndex
+          ] ?? null;
         syncImpostorTurnDeadline({
           players: latestState!.players,
           round: validated.round,
@@ -1084,9 +1310,11 @@ async function executeImpostorTurn(params: {
 
       validated.round.status = "RESULTS";
       validated.round.modeState.phase = "VOTING";
-      validated.round.modeState.currentTurnIndex = validated.round.modeState.turnOrder.length;
+      validated.round.modeState.currentTurnIndex =
+        validated.round.modeState.turnOrder.length;
       validated.round.modeState.currentTurnUid = null;
-      validated.round.modeState.finalSimilarityScore = finalJudge?.score ?? judged.score;
+      validated.round.modeState.finalSimilarityScore =
+        finalJudge?.score ?? judged.score;
       validated.round.modeState.revealedTurns = 0;
       validated.round.modeState.voteCount = 0;
       validated.round.modeState.voteTarget = null;
@@ -1128,7 +1356,10 @@ export async function runImpostorCpuTurns(params: {
     }
 
     const validated = requireImpostorRoundState(round, roundPrivate);
-    if (room.status !== "IN_ROUND" || validated.round.modeState.phase !== "CHAIN") {
+    if (
+      room.status !== "IN_ROUND" ||
+      validated.round.modeState.phase !== "CHAIN"
+    ) {
       return;
     }
 
@@ -1161,20 +1392,44 @@ export async function voteInRound(params: {
       state?.roundPrivates[params.roundId],
     );
 
-    if (room.currentRoundId !== params.roundId || room.status !== "RESULTS" || validated.round.status !== "RESULTS") {
-      throw new AppError("ROUND_CLOSED", "Result voting is not active", false, 409);
+    if (
+      room.currentRoundId !== params.roundId ||
+      room.status !== "RESULTS" ||
+      validated.round.status !== "RESULTS"
+    ) {
+      throw new AppError(
+        "ROUND_CLOSED",
+        "Result voting is not active",
+        false,
+        409,
+      );
     }
 
     if (validated.round.modeState.phase === "REVEAL") {
-      throw new AppError("ROUND_CLOSED", "Votes are already locked", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "Votes are already locked",
+        false,
+        409,
+      );
     }
 
     if (player.kind !== "human") {
-      throw new AppError("VALIDATION_ERROR", "CPU players cannot vote via API", false, 409);
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "CPU players cannot vote via API",
+        false,
+        409,
+      );
     }
 
     if (targetPlayer.uid === player.uid) {
-      throw new AppError("VALIDATION_ERROR", "自分自身には投票できません。", false, 409);
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "自分自身には投票できません。",
+        false,
+        409,
+      );
     }
 
     validated.roundPrivate.modeState.votesByUid[player.uid] = targetPlayer.uid;
@@ -1215,11 +1470,21 @@ export async function submitChangeRoundClick(params: {
     );
 
     if (room.settings.gameMode !== "change") {
-      throw new AppError("VALIDATION_ERROR", "Change mode is not active.", false, 409);
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Change mode is not active.",
+        false,
+        409,
+      );
     }
 
     if (player.kind !== "human") {
-      throw new AppError("VALIDATION_ERROR", "CPU players cannot click via API", false, 409);
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "CPU players cannot click via API",
+        false,
+        409,
+      );
     }
 
     if (validated.roundPrivate.modeState.submissionsByUid[player.uid]) {
@@ -1357,7 +1622,10 @@ function applyMaterializedRound(params: {
   };
 
   if (params.room.settings.gameMode === "change") {
-    if (!params.material.modeState || params.material.modeState.kind !== "change") {
+    if (
+      !params.material.modeState ||
+      params.material.modeState.kind !== "change"
+    ) {
       throw new AppError(
         "INTERNAL_ERROR",
         "Prepared change round assets are missing.",
@@ -1451,10 +1719,9 @@ export async function ensurePreparedRound(params: {
     const hasFreshPreparedRound =
       currentPrepared &&
       currentPrepared.index === nextIndex &&
-      (
-        currentPrepared.status === "READY" ||
-        (currentPrepared.status === "GENERATING" && !isPreparedRoundStale(currentPrepared))
-      );
+      (currentPrepared.status === "READY" ||
+        (currentPrepared.status === "GENERATING" &&
+          !isPreparedRoundStale(currentPrepared)));
 
     if (hasFreshPreparedRound) {
       return null;
@@ -1648,10 +1915,13 @@ export async function startRound(params: {
 
     const nowMs = Date.now();
     const activePlayers = players.filter(
-      (candidate) => !candidate.lastSeenAt || nowMs - candidate.lastSeenAt.getTime() <= 90_000,
+      (candidate) =>
+        !candidate.lastSeenAt ||
+        nowMs - candidate.lastSeenAt.getTime() <= 90_000,
     );
     const readyPlayers = activePlayers.length > 0 ? activePlayers : players;
-    const minPlayers = room.settings.gameMode === "change" ? CHANGE_MIN_PLAYERS : 1;
+    const minPlayers =
+      room.settings.gameMode === "change" ? CHANGE_MIN_PLAYERS : 1;
     const eligiblePlayers =
       room.settings.gameMode === "change"
         ? readyPlayers.filter((candidate) => candidate.kind === "human")
@@ -1662,7 +1932,12 @@ export async function startRound(params: {
     if (nextIndex > room.settings.totalRounds) {
       room.status = "FINISHED";
       await saveRoomState(bumpRoomVersion(state!));
-      throw new AppError("VALIDATION_ERROR", "All rounds are completed", false, 409);
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "All rounds are completed",
+        false,
+        409,
+      );
     }
 
     const preparedRound = state?.preparedRound;
@@ -1883,7 +2158,12 @@ async function startRoundWithReservedGeneration(params: {
         room.status !== "GENERATING_ROUND" ||
         room.currentRoundId !== reservation.roundId
       ) {
-        throw new AppError("ROUND_CLOSED", "Round generation state was replaced", false, 409);
+        throw new AppError(
+          "ROUND_CLOSED",
+          "Round generation state was replaced",
+          false,
+          409,
+        );
       }
       assertRoomTransition("GENERATING_ROUND", "IN_ROUND");
       applyMaterializedRound({
@@ -2004,6 +2284,7 @@ async function finalizeClassicResultsIfNeeded(params: {
 async function finalizeChangeResultsIfNeeded(params: {
   roomId: string;
   roundId: string;
+  forceResults?: boolean;
 }): Promise<{ status: "IN_ROUND" | "RESULTS" }> {
   return withRoomLock(params.roomId, async () => {
     const latestState = await loadRoomState(params.roomId);
@@ -2033,10 +2314,6 @@ async function finalizeChangeResultsIfNeeded(params: {
       roundPrivate: validated.roundPrivate,
     });
 
-    const humanCount = listHumanPlayers(latestState!.players).length;
-    const everyoneSubmitted =
-      humanCount > 0 &&
-      validated.round.modeState.submittedCount >= humanCount;
     const now = Date.now();
     const submissionDeadline = getRoundSubmissionDeadline({
       promptStartsAt: validated.round.promptStartsAt,
@@ -2048,20 +2325,14 @@ async function finalizeChangeResultsIfNeeded(params: {
     const isShortenedResultsCountdown = Boolean(
       submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
     );
-
-    if (
-      everyoneSubmitted &&
+    const canForceResults = Boolean(
+      params.forceResults &&
       submissionDeadline &&
-      !isGraceWindow &&
-      !isShortenedResultsCountdown &&
-      now < endsAt.getTime()
-    ) {
-      validated.round.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
-      await saveRoomState(bumpRoomVersion(latestState!));
-      return { status: "IN_ROUND" };
-    }
+      now >= submissionDeadline.getTime(),
+    );
 
     if (
+      !canForceResults &&
       submissionDeadline &&
       now >= submissionDeadline.getTime() &&
       !isGraceWindow &&
@@ -2072,7 +2343,7 @@ async function finalizeChangeResultsIfNeeded(params: {
       return { status: "IN_ROUND" };
     }
 
-    if (now < endsAt.getTime()) {
+    if (!canForceResults && now < endsAt.getTime()) {
       return { status: "IN_ROUND" };
     }
 
@@ -2094,7 +2365,10 @@ async function maybeConsumeClassicTimeoutDraft(params: {
   uid?: string;
   draftPrompt?: string;
   language?: Language;
-}): Promise<{ status: "IN_ROUND" | "RESULTS"; consumedDraft?: boolean } | null> {
+}): Promise<{
+  status: "IN_ROUND" | "RESULTS";
+  consumedDraft?: boolean;
+} | null> {
   const uid = params.uid?.trim();
   const prompt = params.draftPrompt?.trim() ?? "";
 
@@ -2221,6 +2495,7 @@ export async function endRoundIfNeeded(params: {
   roundId: string;
   uid?: string;
   draftPrompt?: string;
+  forceResults?: boolean;
   language?: Language;
   scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<{ status: "IN_ROUND" | "RESULTS"; consumedDraft?: boolean }> {
@@ -2232,14 +2507,21 @@ export async function endRoundIfNeeded(params: {
     throw new AppError("ROUND_NOT_FOUND", "Round does not exist", false, 404);
   }
 
-  if (room.settings.gameMode === "change" && roundDoc.modeState?.kind === "change") {
+  if (
+    room.settings.gameMode === "change" &&
+    roundDoc.modeState?.kind === "change"
+  ) {
     return finalizeChangeResultsIfNeeded({
       roomId: params.roomId,
       roundId: params.roundId,
+      forceResults: params.forceResults,
     });
   }
 
-  if (room.settings.gameMode !== "impostor" || roundDoc.modeState?.kind !== "impostor") {
+  if (
+    room.settings.gameMode !== "impostor" ||
+    roundDoc.modeState?.kind !== "impostor"
+  ) {
     const timeoutDraftResult = await maybeConsumeClassicTimeoutDraft({
       roomId: params.roomId,
       roundId: params.roundId,
@@ -2325,7 +2607,9 @@ export async function resetRoomForReplay(roomId: string): Promise<void> {
     if (!state) return;
 
     syncCpuPlayers(state);
-    const humanPlayers = Object.values(state.players).filter((player) => player.kind === "human");
+    const humanPlayers = Object.values(state.players).filter(
+      (player) => player.kind === "human",
+    );
     if (!humanPlayers.length) {
       state.room.status = "FINISHED";
       await saveRoomState(bumpRoomVersion(state));

@@ -82,13 +82,13 @@ describe("room-service", () => {
       ).not.toThrow();
     });
 
-    it("rejects change mode with Flux", () => {
+    it("allows change mode with Flux catalog assets", () => {
       expect(() =>
         assertModeCompatibleSettings({
           gameMode: "change",
           imageModel: "flux",
         }),
-      ).toThrow(AppError);
+      ).not.toThrow();
     });
   });
 

@@ -361,7 +361,7 @@ describe("ResultsPage lobby return flow", () => {
     });
   });
 
-  it("shows the edit prompt in Aha Moment results", async () => {
+  it("shows the change summary in Aha Moment results", async () => {
     snapshotState = createChangeResultsSnapshot();
 
     render(
@@ -371,11 +371,12 @@ describe("ResultsPage lobby return flow", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Edit Prompt")).not.toBeNull();
+      expect(screen.queryByText("Change")).not.toBeNull();
     });
 
     expect(
       screen.queryByText(/replace the yellow mug with a blue glass bottle/i),
     ).not.toBeNull();
+    expect(screen.queryByText("Answer Area")).toBeNull();
   });
 });

@@ -2,7 +2,10 @@ import { after } from "next/server";
 
 import { endRoundIfNeededSchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
-import { endRoundIfNeeded, runImpostorCpuTurns } from "@/lib/game/round-service";
+import {
+  endRoundIfNeeded,
+  runImpostorCpuTurns,
+} from "@/lib/game/round-service";
 import { LANGUAGE_COOKIE_NAME, normalizeLanguage } from "@/lib/i18n/language";
 
 export const runtime = "nodejs";
@@ -21,6 +24,7 @@ export const POST = withPostHandler(
       roundId: body.roundId,
       uid: auth.uid,
       draftPrompt: body.draftPrompt,
+      forceResults: body.forceResults,
       language,
       scheduleCpuTurns: ({ roomId, roundId }) => {
         after(async () => {

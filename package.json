@@ -12,10 +12,13 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "format": "prettier --check .",
+    "db:theme:check": "node scripts/db/check-theme-catalog-connection.mjs",
+    "db:theme:migrate": "node scripts/db/apply-theme-catalog-schema.mjs",
     "eval:models": "node scripts/evals/model-benchmark.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.42.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@upstash/redis": "^1.35.6",
     "@vercel/blob": "^1.1.1",
     "@vercel/oidc": "^3.2.0",

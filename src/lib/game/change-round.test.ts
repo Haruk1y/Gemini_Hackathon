@@ -181,7 +181,7 @@ describe("change round service", () => {
     });
   });
 
-  it("shortens to a grace window and then reveals the answer after all humans click", async () => {
+  it("keeps the original round timer even after all humans click, then reveals after deadline", async () => {
     await saveRoomState(createChangeRoundState());
 
     await submitChangeRoundClick({
@@ -207,10 +207,24 @@ describe("change round service", () => {
     let state = await loadRoomState("ROOM1");
     expect(state?.room.status).toBe("IN_ROUND");
     expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:20.000Z",
+      "2026-04-07T10:00:30.000Z",
     );
 
-    vi.setSystemTime(new Date("2026-04-07T10:00:21.000Z"));
+    vi.setSystemTime(new Date("2026-04-07T10:00:31.000Z"));
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+      }),
+    ).resolves.toEqual({ status: "IN_ROUND" });
+
+    state = await loadRoomState("ROOM1");
+    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
+      "2026-04-07T10:00:41.000Z",
+    );
+
+    vi.setSystemTime(new Date("2026-04-07T10:00:42.000Z"));
 
     await expect(
       endRoundIfNeeded({
@@ -233,6 +247,50 @@ describe("change round service", () => {
     });
   });
 
+  it("moves straight to results when manually forced after the Aha deadline", async () => {
+    await saveRoomState(createChangeRoundState());
+
+    vi.setSystemTime(new Date("2026-04-07T10:00:31.000Z"));
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        forceResults: true,
+      }),
+    ).resolves.toEqual({ status: "RESULTS" });
+
+    const state = await loadRoomState("ROOM1");
+    expect(state?.room.status).toBe("RESULTS");
+    expect(state?.rounds["round-1"]?.status).toBe("RESULTS");
+    expect(state?.rounds["round-1"]?.reveal).toMatchObject({
+      answerBox: {
+        x: 0.4,
+        y: 0.35,
+        width: 0.2,
+        height: 0.2,
+      },
+      changeSummary: "yellow mug becomes blue bottle",
+    });
+  });
+
+  it("ignores manual force before the Aha deadline", async () => {
+    await saveRoomState(createChangeRoundState());
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        forceResults: true,
+      }),
+    ).resolves.toEqual({ status: "IN_ROUND" });
+
+    const state = await loadRoomState("ROOM1");
+    expect(state?.room.status).toBe("IN_ROUND");
+    expect(state?.rounds["round-1"]?.status).toBe("IN_ROUND");
+    expect(state?.rounds["round-1"]?.reveal).toEqual({});
+  });
+
   it("does not keep extending the results countdown after entering the grace window", async () => {
     await saveRoomState(createChangeRoundState());
 
@@ -249,7 +307,7 @@ describe("change round service", () => {
       point: { x: 0.1, y: 0.1 },
     });
 
-    vi.setSystemTime(new Date("2026-04-07T10:00:29.000Z"));
+    vi.setSystemTime(new Date("2026-04-07T10:00:31.000Z"));
 
     await expect(
       endRoundIfNeeded({
@@ -260,10 +318,10 @@ describe("change round service", () => {
 
     let state = await loadRoomState("ROOM1");
     expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:39.000Z",
+      "2026-04-07T10:00:41.000Z",
     );
 
-    vi.setSystemTime(new Date("2026-04-07T10:00:30.000Z"));
+    vi.setSystemTime(new Date("2026-04-07T10:00:32.000Z"));
 
     await expect(
       endRoundIfNeeded({
@@ -274,7 +332,7 @@ describe("change round service", () => {
 
     state = await loadRoomState("ROOM1");
     expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:39.000Z",
+      "2026-04-07T10:00:41.000Z",
     );
   });
 });

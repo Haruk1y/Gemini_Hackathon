@@ -1005,8 +1005,6 @@ export default function LobbyPage() {
             <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
               {gameModeOptions.map((mode) => {
                 const selected = draftGameMode === mode.mode;
-                const disabledByImageModel =
-                  mode.mode === "change" && currentImageModel !== "gemini";
                 const Icon =
                   mode.mode === "classic"
                     ? Eye
@@ -1019,7 +1017,7 @@ export default function LobbyPage() {
                     key={mode.mode}
                     type="button"
                     onClick={() => {
-                      if (!hostCanEdit || disabledByImageModel) return;
+                      if (!hostCanEdit) return;
                       setDraftGameMode(mode.mode);
                       setDraftRoundSeconds(
                         normalizeRoundSecondsForMode(
@@ -1028,7 +1026,7 @@ export default function LobbyPage() {
                         ),
                       );
                     }}
-                    disabled={!hostCanEdit || disabledByImageModel}
+                    disabled={!hostCanEdit}
                     className={[
                       "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
                       "disabled:cursor-not-allowed disabled:opacity-70",
@@ -1053,11 +1051,6 @@ export default function LobbyPage() {
                     <p className="mt-2 min-h-[2.45rem] text-[13px] leading-[1.3] font-semibold">
                       {mode.description}
                     </p>
-                    {disabledByImageModel ? (
-                      <p className="mt-auto pt-2 text-[11px] font-semibold text-[var(--pmb-red)]">
-                        {copy.lobby.changeRequiresGemini}
-                      </p>
-                    ) : null}
                   </button>
                 );
               })}

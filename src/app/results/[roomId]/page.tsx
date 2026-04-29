@@ -22,6 +22,8 @@ import {
 } from "@/lib/i18n/errors";
 import {
   type AttemptData,
+  type NormalizedBoxData,
+  type NormalizedPointData,
   type PlayerData,
   type RoomData,
   type RoomSyncSnapshot,
@@ -32,10 +34,164 @@ import {
 import { getGameModeDefinition } from "@/lib/game/modes";
 import { cn } from "@/lib/utils/cn";
 
-function resolveAspectRatioClass(aspectRatio?: "1:1" | "16:9" | "9:16") {
-  if (aspectRatio === "16:9") return "aspect-video";
-  if (aspectRatio === "9:16") return "aspect-[9/16]";
-  return "aspect-square";
+interface NaturalImageSize {
+  width: number;
+  height: number;
+}
+
+interface SquareCrop {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  objectPositionX: number;
+  objectPositionY: number;
+}
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function computeAnswerCenteredSquareCrop(
+  answerBox: NormalizedBoxData,
+  imageSize: NaturalImageSize,
+): SquareCrop {
+  const imageAspect = imageSize.width / imageSize.height;
+  const cropWidth = imageAspect >= 1 ? 1 / imageAspect : 1;
+  const cropHeight = imageAspect >= 1 ? 1 : imageAspect;
+  const centerX = clamp(
+    answerBox.x + answerBox.width / 2,
+    cropWidth / 2,
+    1 - cropWidth / 2,
+  );
+  const centerY = clamp(
+    answerBox.y + answerBox.height / 2,
+    cropHeight / 2,
+    1 - cropHeight / 2,
+  );
+  const left = centerX - cropWidth / 2;
+  const top = centerY - cropHeight / 2;
+
+  return {
+    left,
+    top,
+    width: cropWidth,
+    height: cropHeight,
+    objectPositionX: cropWidth >= 1 ? 50 : (left / (1 - cropWidth)) * 100,
+    objectPositionY: cropHeight >= 1 ? 50 : (top / (1 - cropHeight)) * 100,
+  };
+}
+
+function projectBoxToCrop(box: NormalizedBoxData, crop: SquareCrop) {
+  const left = Math.max(box.x, crop.left);
+  const top = Math.max(box.y, crop.top);
+  const right = Math.min(box.x + box.width, crop.left + crop.width);
+  const bottom = Math.min(box.y + box.height, crop.top + crop.height);
+
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+
+  return {
+    left: ((left - crop.left) / crop.width) * 100,
+    top: ((top - crop.top) / crop.height) * 100,
+    width: ((right - left) / crop.width) * 100,
+    height: ((bottom - top) / crop.height) * 100,
+  };
+}
+
+function projectPointToCrop(point: NormalizedPointData, crop: SquareCrop) {
+  if (
+    point.x < crop.left ||
+    point.x > crop.left + crop.width ||
+    point.y < crop.top ||
+    point.y > crop.top + crop.height
+  ) {
+    return null;
+  }
+
+  return {
+    left: ((point.x - crop.left) / crop.width) * 100,
+    top: ((point.y - crop.top) / crop.height) * 100,
+  };
+}
+
+function ChangeResultImage({
+  imageUrl,
+  alt,
+  answerBox,
+  point,
+  pointHit = true,
+  borderClassName = "border-4",
+}: {
+  imageUrl: string;
+  alt: string;
+  answerBox?: NormalizedBoxData;
+  point?: NormalizedPointData | null;
+  pointHit?: boolean;
+  borderClassName?: string;
+}) {
+  const [imageSize, setImageSize] = useState<NaturalImageSize | null>(null);
+  const crop =
+    answerBox && imageSize
+      ? computeAnswerCenteredSquareCrop(answerBox, imageSize)
+      : null;
+  const projectedBox = answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
+  const projectedPoint = point && crop ? projectPointToCrop(point, crop) : null;
+
+  return (
+    <div
+      className={cn(
+        "relative aspect-square w-full overflow-hidden rounded-lg bg-white",
+        borderClassName,
+        "border-[var(--pmb-ink)]",
+      )}
+    >
+      <img
+        src={imageUrl}
+        alt={alt}
+        className="absolute inset-0 h-full w-full object-cover"
+        style={
+          crop
+            ? {
+                objectPosition: `${crop.objectPositionX}% ${crop.objectPositionY}%`,
+              }
+            : undefined
+        }
+        onLoad={(event) => {
+          setImageSize({
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight,
+          });
+        }}
+      />
+      {projectedBox ? (
+        <span
+          className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
+          style={{
+            left: `${projectedBox.left}%`,
+            top: `${projectedBox.top}%`,
+            width: `${projectedBox.width}%`,
+            height: `${projectedBox.height}%`,
+          }}
+        />
+      ) : null}
+      {projectedPoint ? (
+        <span
+          className={cn(
+            "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
+            pointHit
+              ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
+              : "border-[var(--pmb-red)] bg-[var(--pmb-red)]",
+          )}
+          style={{
+            left: `${projectedPoint.left}%`,
+            top: `${projectedPoint.top}%`,
+          }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 export default function ResultsPage() {
@@ -72,7 +228,10 @@ export default function ResultsPage() {
   const round = activeSnapshot.round as RoundData | null;
   const scores = activeSnapshot.scores as ScoreEntry[];
   const myAttempts = activeSnapshot.attempts as AttemptData | null;
-  const changeResults = activeSnapshot.changeResults ?? [];
+  const changeResults = useMemo(
+    () => activeSnapshot.changeResults ?? [],
+    [activeSnapshot.changeResults],
+  );
   const voteProgress = activeSnapshot.voteProgress;
   const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
   const turnTimeline = activeSnapshot.turnTimeline;
@@ -304,7 +463,6 @@ export default function ResultsPage() {
     const canReturnToLobby = canEnterLobby || canHostReturnRoomToLobby;
     const answerBox = round.reveal?.answerBox;
     const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
-    const aspectClass = resolveAspectRatioClass(room.settings?.aspectRatio);
     const changeSummaryText = round.reveal?.changeSummary?.trim() || copy.common.none;
 
     return (
@@ -393,34 +551,14 @@ export default function ResultsPage() {
                         <p className="mb-2 text-base font-black">
                           {entry.label}
                         </p>
-                        <div
-                          className={cn(
-                            "relative w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white",
-                            aspectClass,
-                          )}
-                        >
-                          <img
-                            src={
-                              entry.imageUrl ||
-                              placeholderImageUrl(
-                                `${round.gmTitle}-${entry.label}`,
-                              )
-                            }
-                            alt={entry.label}
-                            className="absolute inset-0 h-full w-full object-cover"
-                          />
-                          {answerBox ? (
-                            <span
-                              className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
-                              style={{
-                                left: `${answerBox.x * 100}%`,
-                                top: `${answerBox.y * 100}%`,
-                                width: `${answerBox.width * 100}%`,
-                                height: `${answerBox.height * 100}%`,
-                              }}
-                            />
-                          ) : null}
-                        </div>
+                        <ChangeResultImage
+                          imageUrl={
+                            entry.imageUrl ||
+                            placeholderImageUrl(`${round.gmTitle}-${entry.label}`)
+                          }
+                          alt={entry.label}
+                          answerBox={answerBox}
+                        />
                       </div>
                     ))}
                   </div>
@@ -431,17 +569,6 @@ export default function ResultsPage() {
                     </p>
                     <p className="mt-2 text-sm font-semibold">
                       {changeSummaryText}
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                    <p className="text-xs font-black tracking-[0.16em] uppercase">
-                      {copy.results.answerArea}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold">
-                      {answerBox
-                        ? `${Math.round(answerBox.x * 100)}%, ${Math.round(answerBox.y * 100)}%`
-                        : copy.common.none}
                     </p>
                   </div>
                 </div>
@@ -490,45 +617,18 @@ export default function ResultsPage() {
                         </Badge>
                       </div>
 
-                      <div
-                        className={cn(
-                          "relative mt-3 w-full overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-white",
-                          aspectClass,
-                        )}
-                      >
-                        <img
-                          src={
+                      <div className="mt-3">
+                        <ChangeResultImage
+                          imageUrl={
                             changedImageUrl ||
                             placeholderImageUrl(entry.displayName)
                           }
                           alt={entry.displayName}
-                          className="absolute inset-0 h-full w-full object-cover"
+                          answerBox={answerBox}
+                          point={entry.point}
+                          pointHit={entry.hit}
+                          borderClassName="border-2"
                         />
-                        {answerBox ? (
-                          <span
-                            className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
-                            style={{
-                              left: `${answerBox.x * 100}%`,
-                              top: `${answerBox.y * 100}%`,
-                              width: `${answerBox.width * 100}%`,
-                              height: `${answerBox.height * 100}%`,
-                            }}
-                          />
-                        ) : null}
-                        {entry.point ? (
-                          <span
-                            className={cn(
-                              "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
-                              entry.hit
-                                ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
-                                : "border-[var(--pmb-red)] bg-[var(--pmb-red)]",
-                            )}
-                            style={{
-                              left: `${entry.point.x * 100}%`,
-                              top: `${entry.point.y * 100}%`,
-                            }}
-                          />
-                        ) : null}
                       </div>
 
                       <div className="mt-3 space-y-1 text-sm font-semibold">
@@ -574,7 +674,7 @@ export default function ResultsPage() {
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div className="min-w-0">
             <p className="text-sm font-black tracking-wide uppercase">
-              Round {round.index} Result
+              {copy.common.roundResult(round.index)}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="text-4xl leading-none md:text-5xl">

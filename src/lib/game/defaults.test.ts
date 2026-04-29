@@ -40,7 +40,7 @@ describe("game defaults", () => {
     expect(merged.totalRounds).toBe(3);
   });
 
-  it("normalizes change mode settings to 30 seconds and zero CPUs by default", () => {
+  it("normalizes change mode settings to 20 seconds and zero CPUs by default", () => {
     const merged = mergeRoomSettings({
       gameMode: "change",
       roundSeconds: 60,
@@ -48,7 +48,8 @@ describe("game defaults", () => {
     });
 
     expect(merged.gameMode).toBe("change");
-    expect(merged.roundSeconds).toBe(30);
+    expect(merged.roundSeconds).toBe(20);
+    expect(merged.aspectRatio).toBe("16:9");
     expect(merged.cpuCount).toBe(0);
   });
 
@@ -64,7 +65,8 @@ describe("game defaults", () => {
     process.env.GEMINI_TEXT_MODEL = "gemini-2.5-flash";
     vi.resetModules();
 
-    const { DEFAULT_ROOM_SETTINGS: defaults } = await import("@/lib/game/defaults");
+    const { DEFAULT_ROOM_SETTINGS: defaults } =
+      await import("@/lib/game/defaults");
 
     expect(defaults.promptModel).toBe("flash-lite");
     expect(defaults.judgeModel).toBe("flash-lite");
@@ -75,7 +77,8 @@ describe("game defaults", () => {
     process.env.GEMINI_JUDGE_MODEL_DEFAULT = "flash";
     vi.resetModules();
 
-    const { DEFAULT_ROOM_SETTINGS: defaults } = await import("@/lib/game/defaults");
+    const { DEFAULT_ROOM_SETTINGS: defaults } =
+      await import("@/lib/game/defaults");
 
     expect(defaults.promptModel).toBe("flash");
     expect(defaults.judgeModel).toBe("flash");

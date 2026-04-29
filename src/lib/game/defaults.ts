@@ -44,6 +44,10 @@ export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {
     ...input,
     maxAttempts: DEFAULT_ROOM_SETTINGS.maxAttempts,
     roundSeconds: normalizeRoundSecondsForMode(gameMode, input?.roundSeconds),
+    aspectRatio:
+      gameMode === "change"
+        ? "16:9"
+        : input?.aspectRatio ?? DEFAULT_ROOM_SETTINGS.aspectRatio,
     imageModel: normalizeImageModel(input?.imageModel, defaultImageModel),
     promptModel: normalizeTextModelVariant(input?.promptModel, defaultPromptModel),
     judgeModel: normalizeTextModelVariant(input?.judgeModel, defaultJudgeModel),

@@ -4,8 +4,8 @@ import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
 export const RESULTS_GRACE_SECONDS = 10;
-export const CHANGE_DEFAULT_ROUND_SECONDS = 30;
-export const CHANGE_ROUND_SECONDS_OPTIONS = [15, 30] as const;
+export const CHANGE_DEFAULT_ROUND_SECONDS = 20;
+export const CHANGE_ROUND_SECONDS_OPTIONS = [20, 30] as const;
 export const STANDARD_ROUND_SECONDS_OPTIONS = [30, 45, 60] as const;
 const SECOND_MS = 1000;
 

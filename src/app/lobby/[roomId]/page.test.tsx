@@ -48,7 +48,8 @@ vi.mock("@/lib/client/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/client/api")>();
   return {
     ...actual,
-    apiPost: (path: string, body: Record<string, unknown>) => apiPostMock(path, body),
+    apiPost: (path: string, body: Record<string, unknown>) =>
+      apiPostMock(path, body),
   };
 });
 
@@ -68,7 +69,12 @@ function createLobbySnapshot(params?: {
   imageModel?: "gemini" | "flux";
   includeGuest?: boolean;
   roundSeconds?: number;
-  roomStatus?: "LOBBY" | "IN_ROUND" | "RESULTS" | "GENERATING_ROUND" | "FINISHED";
+  roomStatus?:
+    | "LOBBY"
+    | "IN_ROUND"
+    | "RESULTS"
+    | "GENERATING_ROUND"
+    | "FINISHED";
 }) {
   const gameMode = params?.gameMode ?? "classic";
   const imageModel = params?.imageModel ?? "gemini";
@@ -401,6 +407,38 @@ describe("LobbyPage", () => {
     await waitFor(() => {
       const startButton = screen.getByRole("button", { name: "Start Round" });
       expect((startButton as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("allows selecting Aha Moment while the room uses Flux", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        imageModel: "flux",
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const ahaButton = screen.getByRole("button", { name: /Aha Moment/i });
+    expect((ahaButton as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(ahaButton);
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "change",
+          roundSeconds: 20,
+        }),
+      });
     });
   });
 });
