@@ -9,7 +9,7 @@ export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
 export type PreparedRoundStatus = "GENERATING" | "READY" | "FAILED";
 
 export type AspectRatio = "1:1" | "16:9" | "9:16";
-export type GameMode = "classic" | "memory" | "impostor";
+export type GameMode = "classic" | "memory" | "change" | "impostor";
 export type PlayerKind = "human" | "cpu";
 export type ImpostorRole = "agent" | "impostor";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
@@ -63,6 +63,8 @@ export type ErrorCode =
   | "ROUND_CLOSED"
   | "MAX_ATTEMPTS_REACHED"
   | "HINT_LIMIT_REACHED"
+  | "ALREADY_GUESSED"
+  | "MODE_REQUIRES_GEMINI"
   | "RATE_LIMIT"
   | "GEMINI_ERROR"
   | "GCP_ERROR"
@@ -112,6 +114,7 @@ export interface PreparedRoundDoc {
   targetThumbUrl: string;
   stylePresetId?: string;
   errorMessage?: string;
+  modeState?: ChangePreparedRoundState;
 }
 
 export interface PlayerDoc {
@@ -129,6 +132,10 @@ export interface PlayerDoc {
 
 export interface ImpostorRoundModeState {
   kind: "impostor";
+  baseImageUrl?: string;
+  changedImageUrl?: string;
+  submittedCount?: number;
+  correctCount?: number;
   phase: ImpostorRoundPhase;
   turnOrder: string[];
   currentTurnIndex: number;
@@ -140,6 +147,82 @@ export interface ImpostorRoundModeState {
   voteTarget: string | null;
   revealedTurns: number;
 }
+
+export interface NormalizedPoint {
+  x: number;
+  y: number;
+}
+
+export interface NormalizedBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ChangeRoundModeState {
+  kind: "change";
+  baseImageUrl: string;
+  changedImageUrl: string;
+  submittedCount: number;
+  correctCount: number;
+  phase?: ImpostorRoundPhase;
+  turnOrder?: string[];
+  currentTurnIndex?: number;
+  currentTurnUid?: string | null;
+  chainImageUrl?: string;
+  similarityThreshold?: number;
+  finalSimilarityScore?: number | null;
+  voteCount?: number;
+  voteTarget?: string | null;
+  revealedTurns?: number;
+}
+
+export interface ChangePreparedRoundState {
+  kind: "change";
+  changedImageUrl: string;
+  answerBox: NormalizedBox;
+  changeSummary: string;
+}
+
+export interface ChangeSubmission {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  point: NormalizedPoint;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  createdAt: Date;
+}
+
+export interface ChangeRoundResult {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  submitted: boolean;
+  point: NormalizedPoint | null;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  createdAt?: Date;
+}
+
+export interface ChangeRoundPrivateState {
+  answerBox: NormalizedBox;
+  changeSummary: string;
+  submissionsByUid: Record<string, ChangeSubmission>;
+  rolesByUid?: Record<string, ImpostorRole>;
+  turnRecords?: ImpostorTurnRecord[];
+  votesByUid?: Record<string, string>;
+  finalJudge?: ImpostorFinalJudge | null;
+  cpuVoteMeta?: CpuVoteMeta[];
+}
+
+export type RoundModeState = ImpostorRoundModeState | ChangeRoundModeState;
+export type RoundPrivateModeState =
+  | ImpostorRoundPrivateState
+  | ChangeRoundPrivateState;
 
 export interface RoundPublicDoc {
   roundId: string;
@@ -157,12 +240,14 @@ export interface RoundPublicDoc {
   difficulty: 1 | 2 | 3 | 4 | 5;
   reveal: {
     gmPromptPublic?: string;
+    answerBox?: NormalizedBox;
+    changeSummary?: string;
   };
   stats: {
     submissions: number;
     topScore: number;
   };
-  modeState?: ImpostorRoundModeState;
+  modeState?: RoundModeState;
 }
 
 export interface ImpostorTurnRecord {
@@ -201,6 +286,9 @@ export interface ImpostorRoundPrivateState {
   votesByUid: Record<string, string>;
   finalJudge: ImpostorFinalJudge | null;
   cpuVoteMeta: CpuVoteMeta[];
+  answerBox?: NormalizedBox;
+  changeSummary?: string;
+  submissionsByUid?: Record<string, ChangeSubmission>;
 }
 
 export interface RoundPrivateDoc {
@@ -214,7 +302,7 @@ export interface RoundPrivateDoc {
     blocked: boolean;
     reason?: string;
   };
-  modeState?: ImpostorRoundPrivateState;
+  modeState?: RoundPrivateModeState;
 }
 
 export interface AttemptItem {

@@ -23,6 +23,39 @@ export type RoomStatus =
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
 export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
 
+export interface NormalizedPointData {
+  x: number;
+  y: number;
+}
+
+export interface NormalizedBoxData extends NormalizedPointData {
+  width: number;
+  height: number;
+}
+
+export interface ChangeSubmissionData {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  point: NormalizedPointData;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  createdAt?: unknown;
+}
+
+export interface ChangeResultData {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  submitted: boolean;
+  point: NormalizedPointData | null;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  createdAt?: unknown;
+}
+
 export interface RoomData {
   roomId?: string;
   code?: string;
@@ -68,6 +101,8 @@ export interface RoundData {
   gmTags?: string[];
   reveal?: {
     gmPromptPublic?: string;
+    answerBox?: NormalizedBoxData;
+    changeSummary?: string;
   };
   endsAt: unknown;
   stats?: {
@@ -76,7 +111,11 @@ export interface RoundData {
   };
   difficulty?: 1 | 2 | 3 | 4 | 5;
   modeState?: {
-    kind?: "impostor";
+    kind?: "impostor" | "change";
+    baseImageUrl?: string;
+    changedImageUrl?: string;
+    submittedCount?: number;
+    correctCount?: number;
     phase?: ImpostorRoundPhase;
     turnOrder?: string[];
     currentTurnIndex?: number;
@@ -140,12 +179,14 @@ export interface RoomSyncSnapshot {
   myRole?: ImpostorRole | null;
   isMyTurn?: boolean;
   currentTurnUid?: string | null;
+  mySubmission?: ChangeSubmissionData | null;
   voteProgress?: {
     submitted: number;
     total: number;
     meTargetUid?: string | null;
   } | null;
   finalSimilarityScore?: number | null;
+  changeResults: ChangeResultData[];
   turnTimeline: TurnTimelineEntry[];
   revealLocked?: boolean;
 }
@@ -190,8 +231,10 @@ const EMPTY_SNAPSHOT: RoomSyncSnapshot = {
   myRole: null,
   isMyTurn: false,
   currentTurnUid: null,
+  mySubmission: null,
   voteProgress: null,
   finalSimilarityScore: null,
+  changeResults: [],
   turnTimeline: [],
   revealLocked: false,
 };
@@ -225,7 +268,10 @@ function normalizeRoundStatus(value: unknown): RoundStatus | null {
 }
 
 function normalizeGameMode(value: unknown): GameMode | null {
-  return value === "classic" || value === "memory" || value === "impostor"
+  return value === "classic" ||
+    value === "memory" ||
+    value === "change" ||
+    value === "impostor"
     ? value
     : null;
 }
@@ -255,6 +301,92 @@ function normalizeImpostorPhase(value: unknown): ImpostorRoundPhase | null {
   return value === "CHAIN" || value === "VOTING" || value === "REVEAL"
     ? value
     : null;
+}
+
+function normalizeNormalizedPoint(value: unknown): NormalizedPointData | null {
+  if (!isRecord(value)) return null;
+  const x = asNumber(value.x);
+  const y = asNumber(value.y);
+  if (x == null || y == null) return null;
+
+  return { x, y };
+}
+
+function normalizeNormalizedBox(value: unknown): NormalizedBoxData | null {
+  if (!isRecord(value)) return null;
+  const point = normalizeNormalizedPoint(value);
+  const width = asNumber(value.width);
+  const height = asNumber(value.height);
+  if (!point || width == null || height == null) return null;
+
+  return {
+    ...point,
+    width,
+    height,
+  };
+}
+
+function normalizeChangeSubmission(value: unknown): ChangeSubmissionData | null {
+  if (!isRecord(value)) return null;
+  const uid = asString(value.uid);
+  const displayName = asString(value.displayName);
+  const point = normalizeNormalizedPoint(value.point);
+  if (!uid || !displayName || !point) return null;
+
+  return {
+    uid,
+    displayName,
+    kind: normalizePlayerKind(value.kind) ?? "human",
+    point,
+    hit: Boolean(value.hit),
+    score: asNumber(value.score) ?? 0,
+    rank:
+      typeof value.rank === "number"
+        ? value.rank
+        : value.rank === null
+          ? null
+          : null,
+    createdAt: value.createdAt ?? undefined,
+  };
+}
+
+function normalizeChangeResults(value: unknown): ChangeResultData[] {
+  if (!Array.isArray(value)) return [];
+
+  const results: ChangeResultData[] = [];
+
+  for (const rawEntry of value) {
+    if (!isRecord(rawEntry)) continue;
+
+    const uid = asString(rawEntry.uid);
+    const displayName = asString(rawEntry.displayName);
+    if (!uid || !displayName) continue;
+
+    const point =
+      rawEntry.point === null
+        ? null
+        : normalizeNormalizedPoint(rawEntry.point);
+    if (rawEntry.point !== null && !point) continue;
+
+    results.push({
+      uid,
+      displayName,
+      kind: normalizePlayerKind(rawEntry.kind) ?? "human",
+      submitted: Boolean(rawEntry.submitted),
+      point,
+      hit: Boolean(rawEntry.hit),
+      score: asNumber(rawEntry.score) ?? 0,
+      rank:
+        typeof rawEntry.rank === "number"
+          ? rawEntry.rank
+          : rawEntry.rank === null
+            ? null
+            : null,
+      createdAt: rawEntry.createdAt ?? undefined,
+    });
+  }
+
+  return results;
 }
 
 function normalizeRoomData(value: unknown): RoomData | null {
@@ -350,6 +482,9 @@ function normalizeRoundData(value: unknown): RoundData | null {
     reveal: isRecord(value.reveal)
       ? {
           gmPromptPublic: asString(value.reveal.gmPromptPublic) ?? undefined,
+          answerBox:
+            normalizeNormalizedBox(value.reveal.answerBox) ?? undefined,
+          changeSummary: asString(value.reveal.changeSummary) ?? undefined,
         }
       : undefined,
     endsAt: value.endsAt ?? null,
@@ -369,7 +504,16 @@ function normalizeRoundData(value: unknown): RoundData | null {
         : undefined,
     modeState: isRecord(value.modeState)
       ? {
-          kind: value.modeState.kind === "impostor" ? "impostor" : undefined,
+          kind:
+            value.modeState.kind === "impostor" ||
+            value.modeState.kind === "change"
+              ? value.modeState.kind
+              : undefined,
+          baseImageUrl: asString(value.modeState.baseImageUrl) ?? undefined,
+          changedImageUrl:
+            asString(value.modeState.changedImageUrl) ?? undefined,
+          submittedCount: asNumber(value.modeState.submittedCount) ?? undefined,
+          correctCount: asNumber(value.modeState.correctCount) ?? undefined,
           phase: normalizeImpostorPhase(value.modeState.phase) ?? undefined,
           turnOrder: Array.isArray(value.modeState.turnOrder)
             ? value.modeState.turnOrder.filter(
@@ -517,6 +661,7 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
     myRole: normalizeImpostorRole(value.myRole),
     isMyTurn: Boolean(value.isMyTurn),
     currentTurnUid: asString(value.currentTurnUid),
+    mySubmission: normalizeChangeSubmission(value.mySubmission),
     voteProgress: normalizeVoteProgress(value.voteProgress),
     finalSimilarityScore:
       typeof value.finalSimilarityScore === "number"
@@ -524,6 +669,7 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
         : value.finalSimilarityScore === null
           ? null
           : undefined,
+    changeResults: normalizeChangeResults(value.changeResults),
     turnTimeline: normalizeTurnTimeline(value.turnTimeline),
     revealLocked:
       typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,
@@ -549,8 +695,7 @@ export function useRoomSync(params: {
     let disposed = false;
     let timerId: number | null = null;
     let version = -1;
-    const intervalMs =
-      params.view === "lobby" || params.view === "transition" ? 250 : 500;
+    const intervalMs = 1000;
 
     const poll = async () => {
       const controller = new AbortController();

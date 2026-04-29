@@ -184,7 +184,7 @@ describe("impostor round lifecycle", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
 
     expect(mockGenerateImage).toHaveBeenCalledTimes(2);
     expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
@@ -225,7 +225,7 @@ describe("impostor round lifecycle", () => {
     });
 
     const nextState = await loadRoomState("ROOM1");
-    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const round = nextState?.rounds["round-1"];
 
     expect(result.status).toBe("IN_ROUND");
@@ -270,7 +270,7 @@ describe("impostor round lifecycle", () => {
     });
 
     const nextState = await loadRoomState("ROOM1");
-    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const round = nextState?.rounds["round-1"];
 
     expect(result).toMatchObject({
@@ -304,7 +304,7 @@ describe("impostor round lifecycle", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords[0];
+    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const cpuGenerateCall = mockGenerateImage.mock.calls[1]?.[0];
 
     expect(cpuGenerateCall).toMatchObject({
@@ -446,8 +446,8 @@ describe("impostor round lifecycle", () => {
     expect(round?.modeState?.currentTurnIndex).toBe(1);
     expect(round?.modeState?.currentTurnUid).toBe("host");
     expect(roundPrivate?.modeState?.turnRecords).toHaveLength(1);
-    expect(roundPrivate?.modeState?.turnRecords[0]?.uid).toBe("cpu-1");
-    expect(roundPrivate?.modeState?.turnRecords[0]?.prompt).toBe("cpu rewritten prompt with moderate human drift");
+    expect(roundPrivate?.modeState?.turnRecords?.[0]?.uid).toBe("cpu-1");
+    expect(roundPrivate?.modeState?.turnRecords?.[0]?.prompt).toBe("cpu rewritten prompt with moderate human drift");
     expect(parseDate(round?.endsAt)?.getTime()).toBeGreaterThan(Date.now());
   });
 

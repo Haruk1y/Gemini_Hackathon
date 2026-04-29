@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { __test__ as roundServiceTest } from "@/lib/game/round-service";
 import { AppError } from "@/lib/utils/errors";
-import { assertCanStartRound, selectNextHost, shufflePlayers } from "@/lib/game/room-service";
+import {
+  CHANGE_START_MIN_PLAYERS,
+  assertCanStartRound,
+  assertModeCompatibleSettings,
+  selectNextHost,
+  shufflePlayers,
+} from "@/lib/game/room-service";
 
 describe("room-service", () => {
   describe("selectNextHost", () => {
@@ -48,6 +54,41 @@ describe("room-service", () => {
       expect(() =>
         assertCanStartRound([{ ready: true }, { ready: false }]),
       ).toThrow(AppError);
+    });
+
+    it("rejects start when the minimum player count is not met", () => {
+      expect(() =>
+        assertCanStartRound([{ ready: true }], { minPlayers: 2 }),
+      ).toThrow(AppError);
+    });
+
+    it("uses one human as the minimum for Aha Moment rounds", () => {
+      expect(CHANGE_START_MIN_PLAYERS).toBe(1);
+      expect(() =>
+        assertCanStartRound([{ ready: true }], {
+          minPlayers: CHANGE_START_MIN_PLAYERS,
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe("assertModeCompatibleSettings", () => {
+    it("allows change mode with Gemini", () => {
+      expect(() =>
+        assertModeCompatibleSettings({
+          gameMode: "change",
+          imageModel: "gemini",
+        }),
+      ).not.toThrow();
+    });
+
+    it("allows change mode with Flux catalog assets", () => {
+      expect(() =>
+        assertModeCompatibleSettings({
+          gameMode: "change",
+          imageModel: "flux",
+        }),
+      ).not.toThrow();
     });
   });
 

@@ -146,6 +146,61 @@ describe("updateRoomSettings", () => {
     expect(cpuPlayers).toHaveLength(0);
   });
 
+  it("clears a prepared round when the game mode changes", async () => {
+    const state = createBaseState();
+    state.preparedRound = {
+      roundId: "round-1",
+      index: 1,
+      status: "READY",
+      createdAt: new Date("2026-04-07T10:00:00.000Z"),
+      updatedAt: new Date("2026-04-07T10:00:05.000Z"),
+      imageModel: "gemini",
+      gmPrompt: "gm prompt",
+      gmTitle: "Prepared",
+      gmTags: ["prepared"],
+      difficulty: 3,
+      targetImageUrl: "https://example.com/target.png",
+      targetThumbUrl: "https://example.com/target.png",
+    };
+    await saveRoomState(state);
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "change",
+        totalRounds: 3,
+        roundSeconds: 30,
+        cpuCount: 0,
+      },
+    });
+
+    const updated = await loadRoomState("ROOM1");
+    expect(updated?.room.settings.gameMode).toBe("change");
+    expect(updated?.preparedRound).toBeNull();
+  });
+
+  it("allows change mode when the room is using Flux", async () => {
+    const state = createBaseState();
+    state.room.settings.imageModel = "flux";
+    await saveRoomState(state);
+
+    await expect(updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "change",
+        totalRounds: 3,
+        roundSeconds: 30,
+        cpuCount: 0,
+      },
+    })).resolves.toMatchObject({
+      gameMode: "change",
+      imageModel: "flux",
+      aspectRatio: "16:9",
+    });
+  });
+
   it("rejects non-host players", async () => {
     await saveRoomState(createBaseState());
 

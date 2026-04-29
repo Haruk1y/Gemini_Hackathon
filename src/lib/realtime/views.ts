@@ -1,8 +1,12 @@
+import { buildChangeRoundResults } from "@/lib/game/change-mode";
 import { isMemoryPreviewActive } from "@/lib/game/modes";
 import type { RoomState } from "@/lib/server/room-state";
 import type {
+  ChangeRoundModeState,
+  ChangeRoundPrivateState,
   GameMode,
   ImpostorRoundModeState,
+  ImpostorRoundPrivateState,
   ImpostorTurnRecord,
   RoundStatus,
 } from "@/lib/types/game";
@@ -144,7 +148,24 @@ function getImpostorModeState(state: RoomState, roundId: string | null) {
   return {
     round: round as typeof round & { modeState: ImpostorRoundModeState },
     roundPrivate: roundPrivate as typeof roundPrivate & {
-      modeState: NonNullable<typeof roundPrivate.modeState>;
+      modeState: ImpostorRoundPrivateState;
+    },
+  };
+}
+
+function getChangeModeState(state: RoomState, roundId: string | null) {
+  if (!roundId) return null;
+  const round = state.rounds[roundId];
+  const roundPrivate = state.roundPrivates[roundId];
+
+  if (round?.modeState?.kind !== "change" || !roundPrivate?.modeState) {
+    return null;
+  }
+
+  return {
+    round: round as typeof round & { modeState: ChangeRoundModeState },
+    roundPrivate: roundPrivate as typeof roundPrivate & {
+      modeState: ChangeRoundPrivateState;
     },
   };
 }
@@ -225,6 +246,7 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
   const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
   const attemptData = getAttempts(state, currentRoundId, uid);
   const impostor = getImpostorModeState(state, currentRoundId);
+  const change = getChangeModeState(state, currentRoundId);
 
   let roundData = round;
   let myRole: string | null = null;
@@ -283,6 +305,9 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
       : null,
     scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
     attempts: attemptData ? serializeForClient(attemptData) : null,
+    mySubmission: change
+      ? serializeForClient(change.roundPrivate.modeState.submissionsByUid[uid] ?? null)
+      : null,
     players: getSortedPlayers(state).map((player) => serializeForClient(player)),
     playerCount: getSortedPlayers(state).length,
     myRole,
@@ -314,6 +339,7 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
   const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
   const attempts = currentRoundId ? state.attempts[currentRoundId]?.[uid] ?? null : null;
   const impostor = getImpostorModeState(state, currentRoundId);
+  const change = getChangeModeState(state, currentRoundId);
   const revealLocked = impostor ? impostor.round.modeState.phase !== "REVEAL" : false;
   const votesByUid = impostor?.roundPrivate.modeState.votesByUid ?? {};
 
@@ -335,6 +361,15 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
     scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
     players: getSortedPlayers(state).map((player) => serializeForClient(player)),
     myAttempts: attempts ? serializeForClient(attempts) : null,
+    changeResults:
+      change && round?.status === "RESULTS"
+        ? serializeForClient(
+            buildChangeRoundResults({
+              players: state.players,
+              privateState: change.roundPrivate.modeState,
+            }),
+          )
+        : [],
     myRole: impostor?.roundPrivate.modeState.rolesByUid[uid] ?? null,
     voteProgress: impostor
       ? {

@@ -36,6 +36,12 @@ describe("api contracts", () => {
 
     expect(
       roomSettingsSchema.parse({
+        gameMode: "change",
+      }).gameMode,
+    ).toBe("change");
+
+    expect(
+      roomSettingsSchema.parse({
         gameMode: "impostor",
       }).gameMode,
     ).toBe("impostor");
@@ -64,6 +70,12 @@ describe("api contracts", () => {
   });
 
   it("accepts supported roundSeconds values", () => {
+    expect(
+      roomSettingsSchema.parse({
+        roundSeconds: 15,
+      }).roundSeconds,
+    ).toBe(15);
+
     expect(
       roomSettingsSchema.parse({
         roundSeconds: 30,
@@ -110,7 +122,7 @@ describe("api contracts", () => {
   it("rejects roundSeconds outside the supported range", () => {
     expect(() =>
       roomSettingsSchema.parse({
-        roundSeconds: 29,
+        roundSeconds: 14,
       }),
     ).toThrow();
 

@@ -22,7 +22,12 @@ async function loadRoomStateModule() {
   return import("@/lib/server/room-state");
 }
 
-async function createLobbyState() {
+async function createLobbyState(params?: {
+  gameMode?: "classic" | "memory" | "change" | "impostor";
+  imageModel?: "flux" | "gemini";
+  roundSeconds?: number;
+  includeGuest?: boolean;
+}) {
   const { createRoomState } = await loadRoomStateModule();
   const now = new Date("2026-04-07T10:00:00.000Z");
   const state = createRoomState({
@@ -36,15 +41,15 @@ async function createLobbyState() {
     roundIndex: 0,
     settings: {
       maxPlayers: 8,
-      roundSeconds: 60,
+      roundSeconds: params?.roundSeconds ?? 60,
       maxAttempts: 1,
       aspectRatio: "1:1",
-      imageModel: "flux",
+      imageModel: params?.imageModel ?? "flux",
       promptModel: "flash",
       judgeModel: "flash",
       hintLimit: 0,
       totalRounds: 3,
-      gameMode: "classic",
+      gameMode: params?.gameMode ?? "classic",
       cpuCount: 0,
     },
     ui: {
@@ -64,17 +69,19 @@ async function createLobbyState() {
     totalScore: 0,
   };
 
-  state.players.guest = {
-    uid: "guest",
-    displayName: "Guest",
-    kind: "human",
-    isHost: false,
-    joinedAt: now,
-    expiresAt: dateAfterHours(24),
-    lastSeenAt: now,
-    ready: true,
-    totalScore: 0,
-  };
+  if (params?.includeGuest !== false) {
+    state.players.guest = {
+      uid: "guest",
+      displayName: "Guest",
+      kind: "human",
+      isHost: false,
+      joinedAt: now,
+      expiresAt: dateAfterHours(24),
+      lastSeenAt: now,
+      ready: true,
+      totalScore: 0,
+    };
+  }
 
   return state;
 }
@@ -173,6 +180,77 @@ describe("prepared round lifecycle", () => {
     );
     expect(mockGenerateGmPrompt).not.toHaveBeenCalled();
     expect(mockGenerateImage).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a classic prepared round after switching to Aha Moment", async () => {
+    const { loadRoomState, saveRoomState } = await loadRoomStateModule();
+    await saveRoomState(await createLobbyState({ imageModel: "gemini" }));
+    const { ensurePreparedRound, startRound } = await import(
+      "@/lib/game/round-service"
+    );
+    const { updateRoomSettings } = await import("@/lib/game/room-service");
+
+    await ensurePreparedRound({ roomId: "ROOM1" });
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "change",
+        totalRounds: 3,
+        roundSeconds: 30,
+        cpuCount: 0,
+      },
+    });
+
+    const afterSettings = await loadRoomState("ROOM1");
+    expect(afterSettings?.preparedRound).toBeNull();
+
+    const result = await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const state = await loadRoomState("ROOM1");
+    expect(result).toEqual({
+      roundId: "round-2",
+      roundIndex: 1,
+    });
+    expect(state?.room.status).toBe("IN_ROUND");
+    expect(state?.rounds["round-2"]?.modeState).toMatchObject({
+      kind: "change",
+      changedImageUrl: expect.any(String),
+    });
+  });
+
+  it("starts Aha Moment with one ready human host", async () => {
+    const { loadRoomState, saveRoomState } = await loadRoomStateModule();
+    await saveRoomState(
+      await createLobbyState({
+        gameMode: "change",
+        imageModel: "gemini",
+        roundSeconds: 30,
+        includeGuest: false,
+      }),
+    );
+    const { startRound } = await import("@/lib/game/round-service");
+
+    const result = await startRound({
+      roomId: "ROOM1",
+      uid: "host",
+    });
+
+    const state = await loadRoomState("ROOM1");
+    expect(result).toEqual({
+      roundId: "round-1",
+      roundIndex: 1,
+    });
+    expect(state?.room.status).toBe("IN_ROUND");
+    expect(state?.room.currentRoundId).toBe("round-1");
+    expect(state?.rounds["round-1"]?.modeState).toMatchObject({
+      kind: "change",
+      changedImageUrl: expect.any(String),
+    });
   });
 
   it("waits for an in-flight prepared round and reuses it without regenerating", async () => {

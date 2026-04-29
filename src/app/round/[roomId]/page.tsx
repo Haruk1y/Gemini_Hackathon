@@ -45,6 +45,15 @@ type SubmitResponse = Record<string, unknown> & {
   imageUrl: string;
 };
 
+type ClickResponse = {
+  ok: true;
+  hit: boolean;
+  score: number;
+  rank: number | null;
+  submittedCount: number;
+  correctCount: number;
+};
+
 type EndRoundResponse = {
   ok: true;
   status: "IN_ROUND" | "RESULTS";
@@ -53,7 +62,98 @@ type EndRoundResponse = {
 
 type GeneratedImagePhase = "IDLE" | "GENERATING" | "SCORING" | "DONE";
 
-function resolveGeneratedImagePhase(attempt: AttemptData["attempts"][number] | null): GeneratedImagePhase {
+function resolveAspectRatioValue(aspectRatio?: "1:1" | "16:9" | "9:16") {
+  if (aspectRatio === "16:9") return 16 / 9;
+  if (aspectRatio === "9:16") return 9 / 16;
+  return 1;
+}
+
+function fitStageToContainer(
+  containerWidth: number,
+  containerHeight: number,
+  aspectRatio: number,
+) {
+  if (
+    !Number.isFinite(containerWidth) ||
+    !Number.isFinite(containerHeight) ||
+    containerWidth <= 0 ||
+    containerHeight <= 0
+  ) {
+    return null;
+  }
+
+  const widthFromHeight = containerHeight * aspectRatio;
+  if (widthFromHeight <= containerWidth) {
+    return {
+      width: widthFromHeight,
+      height: containerHeight,
+    };
+  }
+
+  return {
+    width: containerWidth,
+    height: containerWidth / aspectRatio,
+  };
+}
+
+function resolveImageAspectRatio(element: HTMLImageElement) {
+  if (element.naturalWidth <= 0 || element.naturalHeight <= 0) {
+    return null;
+  }
+
+  const aspectRatio = element.naturalWidth / element.naturalHeight;
+  return Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : null;
+}
+
+function mapContainedImagePoint({
+  frameWidth,
+  frameHeight,
+  imageAspectRatio,
+  localX,
+  localY,
+}: {
+  frameWidth: number;
+  frameHeight: number;
+  imageAspectRatio: number;
+  localX: number;
+  localY: number;
+}) {
+  if (
+    frameWidth <= 0 ||
+    frameHeight <= 0 ||
+    !Number.isFinite(imageAspectRatio) ||
+    imageAspectRatio <= 0
+  ) {
+    return null;
+  }
+
+  const frameAspectRatio = frameWidth / frameHeight;
+  const imageWidth =
+    frameAspectRatio > imageAspectRatio
+      ? frameHeight * imageAspectRatio
+      : frameWidth;
+  const imageHeight =
+    frameAspectRatio > imageAspectRatio
+      ? frameHeight
+      : frameWidth / imageAspectRatio;
+  const imageLeft = (frameWidth - imageWidth) / 2;
+  const imageTop = (frameHeight - imageHeight) / 2;
+  const imageX = localX - imageLeft;
+  const imageY = localY - imageTop;
+
+  if (imageX < 0 || imageY < 0 || imageX > imageWidth || imageY > imageHeight) {
+    return null;
+  }
+
+  return {
+    x: Math.min(1, Math.max(0, imageX / imageWidth)),
+    y: Math.min(1, Math.max(0, imageY / imageHeight)),
+  };
+}
+
+function resolveGeneratedImagePhase(
+  attempt: AttemptData["attempts"][number] | null,
+): GeneratedImagePhase {
   if (!attempt) {
     return "IDLE";
   }
@@ -106,11 +206,26 @@ export default function RoundPage() {
   const [resultCountdownSeconds, setResultCountdownSeconds] = useState<
     number | null
   >(null);
+  const [manualResultsPending, setManualResultsPending] = useState(false);
+  const [localSelectedPoint, setLocalSelectedPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const endCalled = useRef(false);
+  const changeStageContainerRef = useRef<HTMLDivElement | null>(null);
+  const changeStageRef = useRef<HTMLDivElement | null>(null);
+  const resultCountdownFallbackTargetRef = useRef<number | null>(null);
   const endRoundRetrier = useRef<ReturnType<
     typeof createEndRoundRetrier
   > | null>(null);
+  const [changeStageSize, setChangeStageSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [changeImageAspectRatio, setChangeImageAspectRatio] = useState<
+    number | null
+  >(null);
   const derivedRoom = snapshot.room as RoomData | null;
   const derivedRound = snapshot.round as RoundData | null;
   const derivedScores = snapshot.scores as ScoreEntry[];
@@ -122,6 +237,19 @@ export default function RoundPage() {
     if (element.dataset.fallbackApplied === "true") return;
     element.dataset.fallbackApplied = "true";
     element.src = placeholderImageUrl(label);
+  };
+
+  const updateChangeImageAspectRatio = (element: HTMLImageElement) => {
+    const nextAspectRatio = resolveImageAspectRatio(element);
+    if (!nextAspectRatio) return;
+
+    setChangeImageAspectRatio((previous) => {
+      if (previous && Math.abs(previous - nextAspectRatio) < 0.001) {
+        return previous;
+      }
+
+      return nextAspectRatio;
+    });
   };
 
   useEffect(() => {
@@ -144,8 +272,14 @@ export default function RoundPage() {
     currentGameMode === "impostor" && round?.modeState?.kind === "impostor"
       ? round.modeState
       : null;
+  const changeModeState =
+    currentGameMode === "change" && round?.modeState?.kind === "change"
+      ? round.modeState
+      : null;
+  const isChangeMode = Boolean(changeModeState);
   const isImpostorMode = Boolean(impostorModeState);
   const isMyTurn = Boolean(snapshot.isMyTurn);
+  const mySubmission = snapshot.mySubmission;
   const myRole = snapshot.myRole;
   const currentTurnUid =
     snapshot.currentTurnUid ?? impostorModeState?.currentTurnUid ?? null;
@@ -157,12 +291,20 @@ export default function RoundPage() {
   const currentTurnName =
     currentTurnPlayer?.displayName ??
     (isCpuTurn ? copy.common.cpu : copy.common.otherPlayer);
+  const humanPlayerCount = derivedPlayers.filter(
+    (player) => player.kind === "human",
+  ).length;
   const completedTurns =
     impostorModeState?.phase === "CHAIN"
       ? (impostorModeState.currentTurnIndex ?? 0)
       : (impostorModeState?.turnOrder?.length ?? 0);
   const turnTotal = impostorModeState?.turnOrder?.length ?? 0;
   const roundSeconds = room?.settings?.roundSeconds ?? 60;
+  const changeSubmittedCount = changeModeState?.submittedCount ?? 0;
+  const changeCorrectCount = changeModeState?.correctCount ?? 0;
+  const changeStageAspectRatio =
+    changeImageAspectRatio ??
+    resolveAspectRatioValue(room?.settings?.aspectRatio);
 
   useEffect(() => {
     if (!round || !room) {
@@ -222,7 +364,71 @@ export default function RoundPage() {
     endCalled.current = false;
     endRoundRetrier.current?.cancel();
     endRoundRetrier.current = null;
+    resultCountdownFallbackTargetRef.current = null;
+    setLocalSelectedPoint(null);
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
+
+  useEffect(() => {
+    setChangeImageAspectRatio(null);
+  }, [changeModeState?.changedImageUrl, round?.roundId, round?.targetImageUrl]);
+
+  useEffect(() => {
+    if (!isChangeMode) {
+      setChangeStageSize(null);
+      return;
+    }
+
+    const container = changeStageContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frameId = 0;
+    const update = () => {
+      const rect = container.getBoundingClientRect();
+      const fitted = fitStageToContainer(
+        rect.width,
+        rect.height,
+        changeStageAspectRatio,
+      );
+
+      setChangeStageSize((previous) => {
+        if (!fitted) {
+          return null;
+        }
+
+        if (
+          previous &&
+          Math.abs(previous.width - fitted.width) < 1 &&
+          Math.abs(previous.height - fitted.height) < 1
+        ) {
+          return previous;
+        }
+
+        return fitted;
+      });
+    };
+
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(update);
+    };
+
+    scheduleUpdate();
+    window.addEventListener("resize", scheduleUpdate);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleUpdate);
+    observer?.observe(container);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, [changeStageAspectRatio, isChangeMode, round?.roundId]);
 
   useEffect(() => {
     if (!room || !round) return;
@@ -254,14 +460,11 @@ export default function RoundPage() {
       !submitPending && prompt.trim().length > 0 ? prompt : undefined;
     const retrier = createEndRoundRetrier({
       runEndIfNeeded: () =>
-        apiPost<EndRoundResponse>(
-          "/api/rounds/endIfNeeded",
-          {
-            roomId,
-            roundId: round.roundId,
-            ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
-          },
-        ).then((result) => {
+        apiPost<EndRoundResponse>("/api/rounds/endIfNeeded", {
+          roomId,
+          roundId: round.roundId,
+          ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
+        }).then((result) => {
           if (result.consumedDraft) {
             setPrompt("");
             setFeedback(null);
@@ -319,7 +522,7 @@ export default function RoundPage() {
   );
   const isRoundLive =
     room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
-  const isBusy = submitPending;
+  const isBusy = submitPending || manualResultsPending;
   const otherBestImages = scores.filter(
     (entry) => entry.uid !== user?.uid && entry.bestImageUrl,
   );
@@ -335,7 +538,8 @@ export default function RoundPage() {
       roundSeconds,
     });
   const autoEndingSoon =
-    isRoundLive && (everyoneScored || postDeadlineGraceActive);
+    isRoundLive &&
+    ((!isChangeMode && everyoneScored) || postDeadlineGraceActive);
   const visibleSecondsLeft = autoEndingSoon ? 0 : secondsLeft;
   const isPreviewPhase =
     currentGameMode === "memory" &&
@@ -347,28 +551,46 @@ export default function RoundPage() {
     currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
+  const changeBaseOpacity = (() => {
+    if (!isChangeMode || !isRoundLive) return 1;
+
+    const promptStartsAt = parseDate(round?.promptStartsAt);
+    if (!promptStartsAt) return 1;
+
+    const elapsedMs = Date.now() - promptStartsAt.getTime();
+    const progress = Math.min(
+      1,
+      Math.max(0, elapsedMs / (roundSeconds * 1000)),
+    );
+    return 1 - progress;
+  })();
   const impostorReferenceImageUrl =
     impostorModeState?.chainImageUrl || round?.targetImageUrl || "";
 
   useEffect(() => {
     if (!autoEndingSoon) {
+      resultCountdownFallbackTargetRef.current = null;
       setResultCountdownSeconds(null);
       return;
     }
 
     const parsedEndsAt = parseDate(round?.endsAt);
-    const fallbackEndsAt = new Date(
-      Date.now() + RESULTS_GRACE_SECONDS * 1000,
-    );
-    const countdownTarget =
-      parsedEndsAt && parsedEndsAt.getTime() > Date.now()
-        ? parsedEndsAt
-        : fallbackEndsAt;
+    const now = Date.now();
+    const countdownTargetMs =
+      parsedEndsAt && parsedEndsAt.getTime() > now
+        ? parsedEndsAt.getTime()
+        : (() => {
+            if (resultCountdownFallbackTargetRef.current == null) {
+              resultCountdownFallbackTargetRef.current =
+                now + RESULTS_GRACE_SECONDS * 1000;
+            }
+            return resultCountdownFallbackTargetRef.current;
+          })();
 
     const update = () => {
       const leftSeconds = Math.max(
         0,
-        Math.ceil((countdownTarget.getTime() - Date.now()) / 1000),
+        Math.ceil((countdownTargetMs - Date.now()) / 1000),
       );
       setResultCountdownSeconds(leftSeconds);
     };
@@ -381,7 +603,7 @@ export default function RoundPage() {
   useEffect(() => {
     if (!room || !round) return;
     if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
-    if (!everyoneScored) return;
+    if (isChangeMode || !everyoneScored) return;
 
     const timeoutId = setTimeout(() => {
       void apiPost("/api/rounds/endIfNeeded", {
@@ -393,7 +615,7 @@ export default function RoundPage() {
     }, 10_500);
 
     return () => clearTimeout(timeoutId);
-  }, [everyoneScored, room, round, roomId]);
+  }, [everyoneScored, isChangeMode, room, round, roomId]);
 
   useRoomPresence({
     roomId,
@@ -422,7 +644,52 @@ export default function RoundPage() {
     }
   };
 
-  const onBackToLobby = () => {
+  const submitChangeClick = async (x: number, y: number) => {
+    if (!round || !isChangeMode || !isRoundLive || mySubmission) return;
+
+    setSubmitPending(true);
+    setFeedback(null);
+
+    try {
+      await apiPost<ClickResponse>("/api/rounds/click", {
+        roomId,
+        roundId: round.roundId,
+        x,
+        y,
+      });
+      setFeedback(null);
+    } catch (error) {
+      setFeedback(toUiError(error, "submitPromptFailed"));
+    } finally {
+      setSubmitPending(false);
+    }
+  };
+
+  const onBackToLobby = async () => {
+    if (round && isChangeMode && isRoundLive) {
+      setManualResultsPending(true);
+
+      try {
+        const result = await apiPost<EndRoundResponse>(
+          "/api/rounds/endIfNeeded",
+          {
+            roomId,
+            roundId: round.roundId,
+            forceResults: true,
+          },
+        );
+
+        if (result.status === "RESULTS") {
+          router.push(buildCurrentAppPath(`/results/${roomId}`));
+          return;
+        }
+      } catch (error) {
+        console.error("force change results failed", error);
+      } finally {
+        setManualResultsPending(false);
+      }
+    }
+
     router.push(buildCurrentAppPath(`/results/${roomId}?from=round`));
   };
 
@@ -430,6 +697,231 @@ export default function RoundPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
         <Card className="bg-white">{copy.round.loading}</Card>
+      </main>
+    );
+  }
+
+  if (isChangeMode && changeModeState) {
+    const changeMarkerPoint = mySubmission?.point ?? localSelectedPoint;
+    const changeMarkerClass = mySubmission
+      ? mySubmission.hit
+        ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
+        : "border-[var(--pmb-red)] bg-[var(--pmb-red)]"
+      : "border-[var(--pmb-yellow)] bg-[var(--pmb-yellow)]";
+
+    return (
+      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-7xl flex-col gap-3 overflow-hidden px-4 py-3 md:px-6">
+        <Card className="bg-white p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-2xl leading-none font-black uppercase md:text-3xl">
+                  Round {round.index}
+                </p>
+                <Badge className="bg-[var(--pmb-yellow)] text-[var(--pmb-ink)]">
+                  {currentMode.label}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm font-semibold">
+                {copy.round.changeInstructions}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CountdownTimer secondsLeft={visibleSecondsLeft} />
+              <Card className="bg-[var(--pmb-base)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                <p className="text-xs font-black tracking-[0.18em] uppercase">
+                  {copy.round.changeProgressLabel}
+                </p>
+                <p className="mt-1 font-mono text-lg font-black">
+                  {copy.round.changeSubmittedCount(
+                    changeSubmittedCount,
+                    humanPlayerCount,
+                  )}
+                </p>
+                <p className="text-xs font-semibold">
+                  {copy.round.changeCorrectCount(changeCorrectCount)}
+                </p>
+              </Card>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onBackToLobby}
+                disabled={isBusy || (isRoundLive && !autoEndingSoon)}
+                className={
+                  autoEndingSoon
+                    ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
+                    : ""
+                }
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {autoEndingSoon
+                  ? copy.round.resultsScreenCountdown(
+                      resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
+                    )
+                  : copy.round.resultsScreen}
+              </Button>
+            </div>
+          </div>
+          {feedback ? (
+            <p className="mt-3 text-sm font-semibold text-[var(--pmb-red)]">
+              {resolveUiErrorMessage(language, feedback)}
+            </p>
+          ) : mySubmission ? (
+            <p className="mt-3 text-sm font-semibold">
+              {mySubmission.hit ? copy.round.changeHit : copy.round.changeMiss}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm font-semibold">
+              {submitPending
+                ? copy.round.changeSubmitted
+                : copy.round.changeSelectionHint}
+            </p>
+          )}
+        </Card>
+
+        <section className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.35fr_0.65fr]">
+          <Card className="flex min-h-0 flex-col overflow-hidden bg-white p-3">
+            <h3 className="text-base">{copy.round.changeClickToGuess}</h3>
+
+            <div
+              ref={changeStageContainerRef}
+              className="mt-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)]"
+            >
+              <button
+                type="button"
+                disabled={
+                  !isRoundLive || submitPending || Boolean(mySubmission)
+                }
+                onClick={(event) => {
+                  if (!isRoundLive || submitPending || mySubmission) return;
+
+                  const rect =
+                    changeStageRef.current?.getBoundingClientRect() ??
+                    event.currentTarget.getBoundingClientRect();
+                  const localX = event.clientX - rect.left;
+                  const localY = event.clientY - rect.top;
+
+                  if (
+                    localX < 0 ||
+                    localY < 0 ||
+                    localX > rect.width ||
+                    localY > rect.height
+                  ) {
+                    return;
+                  }
+
+                  const point = mapContainedImagePoint({
+                    frameWidth: rect.width,
+                    frameHeight: rect.height,
+                    imageAspectRatio: changeStageAspectRatio,
+                    localX,
+                    localY,
+                  });
+
+                  if (!point) {
+                    return;
+                  }
+
+                  setLocalSelectedPoint(point);
+                  void submitChangeClick(point.x, point.y);
+                }}
+                className={[
+                  "flex h-full w-full items-center justify-center overflow-hidden bg-white text-left",
+                  mySubmission
+                    ? "cursor-default"
+                    : "cursor-crosshair transition-transform duration-150 hover:translate-x-0.5 hover:-translate-y-0.5",
+                  "disabled:cursor-not-allowed disabled:opacity-100",
+                ].join(" ")}
+              >
+                <div
+                  ref={changeStageRef}
+                  className="relative w-full max-w-full overflow-hidden rounded-md bg-white shadow-[0_0_0_2px_var(--pmb-ink)]"
+                  style={
+                    changeStageSize
+                      ? {
+                          width: `${changeStageSize.width}px`,
+                          height: `${changeStageSize.height}px`,
+                        }
+                      : {
+                          aspectRatio: `${changeStageAspectRatio}`,
+                        }
+                  }
+                >
+                  <img
+                    src={
+                      changeModeState.changedImageUrl ||
+                      placeholderImageUrl(`${round.gmTitle}-changed`)
+                    }
+                    alt={copy.round.changeAfterLabel}
+                    className="absolute inset-0 h-full w-full object-contain"
+                    onLoad={(event) =>
+                      updateChangeImageAspectRatio(event.currentTarget)
+                    }
+                    onError={(event) =>
+                      applyImageFallback(
+                        event.currentTarget,
+                        `${round.gmTitle}-changed`,
+                      )
+                    }
+                  />
+                  <img
+                    src={
+                      round.targetImageUrl ||
+                      placeholderImageUrl(round.gmTitle || "target")
+                    }
+                    alt={copy.round.changeBeforeLabel}
+                    className="absolute inset-0 h-full w-full object-contain"
+                    style={{ opacity: changeBaseOpacity }}
+                    onLoad={(event) =>
+                      updateChangeImageAspectRatio(event.currentTarget)
+                    }
+                    onError={(event) =>
+                      applyImageFallback(
+                        event.currentTarget,
+                        round.gmTitle || "target",
+                      )
+                    }
+                  />
+                  {changeMarkerPoint ? (
+                    <span
+                      className={[
+                        "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
+                        changeMarkerClass,
+                      ].join(" ")}
+                      style={{
+                        left: `${changeMarkerPoint.x * 100}%`,
+                        top: `${changeMarkerPoint.y * 100}%`,
+                      }}
+                    />
+                  ) : null}
+                </div>
+              </button>
+            </div>
+          </Card>
+
+          <div className="flex min-h-0 flex-col gap-3">
+            <Scoreboard entries={scores} myUid={user?.uid} />
+
+            <Card className="bg-white p-3">
+              <h3 className="text-base">{copy.results.yourClick}</h3>
+              <div className="mt-3 space-y-2 text-sm font-semibold">
+                <p>
+                  {mySubmission
+                    ? `${mySubmission.hit ? copy.common.hit : copy.common.miss} / ${copy.common.points(mySubmission.score)}`
+                    : copy.common.notSubmitted}
+                </p>
+                {mySubmission?.rank ? (
+                  <p>{copy.results.rankLabel(mySubmission.rank)}</p>
+                ) : null}
+                <p>
+                  {mySubmission
+                    ? copy.round.changeAlreadyLocked
+                    : copy.round.changeWaitingForOthers}
+                </p>
+              </div>
+            </Card>
+          </div>
+        </section>
       </main>
     );
   }
@@ -859,7 +1351,9 @@ export default function RoundPage() {
                   <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] p-4">
                     <LoaderCircle className="h-8 w-8 animate-spin" />
                   </div>
-                  <p className="text-lg font-black">{generatedImageStatusLabel}</p>
+                  <p className="text-lg font-black">
+                    {generatedImageStatusLabel}
+                  </p>
                 </div>
               )}
               <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">

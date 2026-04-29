@@ -161,8 +161,117 @@ function createResultsSnapshot(params?: {
   };
 }
 
+function createChangeResultsSnapshot() {
+  return {
+    room: {
+      status: "RESULTS" as const,
+      currentRoundId: "round-1",
+      roundIndex: 1,
+      settings: {
+        gameMode: "change" as const,
+        imageModel: "gemini" as const,
+        promptModel: "flash-lite" as const,
+        judgeModel: "flash-lite" as const,
+        totalRounds: 1,
+        aspectRatio: "1:1" as const,
+        cpuCount: 0,
+      },
+    },
+    round: {
+      roundId: "round-1",
+      index: 1,
+      status: "RESULTS" as const,
+      targetImageUrl: "https://example.com/target.png",
+      targetThumbUrl: "https://example.com/target.png",
+      gmTitle: "Kitchen Counter",
+      gmTags: ["change"],
+      reveal: {
+        answerBox: {
+          x: 0.4,
+          y: 0.35,
+          width: 0.2,
+          height: 0.2,
+        },
+        changeSummary:
+          "Edit the source image by changing exactly one small table object: replace the yellow mug with a blue glass bottle.",
+      },
+      endsAt: "2026-04-22T00:00:00.000Z",
+      createdAt: "2026-04-22T00:00:00.000Z",
+      expiresAt: "2026-04-23T00:00:00.000Z",
+      startedAt: "2026-04-22T00:00:00.000Z",
+      promptStartsAt: "2026-04-22T00:00:00.000Z",
+      difficulty: 2 as const,
+      stats: {
+        submissions: 2,
+        topScore: 100,
+      },
+      modeState: {
+        kind: "change" as const,
+        baseImageUrl: "https://example.com/target.png",
+        changedImageUrl: "https://example.com/changed.png",
+        submittedCount: 2,
+        correctCount: 1,
+      },
+    },
+    scores: [],
+    players: [
+      {
+        uid: "host",
+        displayName: "Host",
+        kind: "human" as const,
+        ready: false,
+        isHost: true,
+        totalScore: 100,
+      },
+      {
+        uid: "guest",
+        displayName: "Guest",
+        kind: "human" as const,
+        ready: false,
+        isHost: false,
+        totalScore: 0,
+      },
+    ],
+    attempts: null,
+    myAttempts: null,
+    voteProgress: null,
+    finalSimilarityScore: null,
+    turnTimeline: [],
+    revealLocked: false,
+    myRole: null,
+    isMyTurn: false,
+    currentTurnUid: null,
+    changeResults: [
+      {
+        uid: "host",
+        displayName: "Host",
+        kind: "human" as const,
+        submitted: true,
+        point: { x: 0.5, y: 0.4 },
+        hit: true,
+        score: 100,
+        rank: 1,
+        createdAt: "2026-04-22T00:00:01.000Z",
+      },
+      {
+        uid: "guest",
+        displayName: "Guest",
+        kind: "human" as const,
+        submitted: true,
+        point: { x: 0.1, y: 0.1 },
+        hit: false,
+        score: 0,
+        rank: null,
+        createdAt: "2026-04-22T00:00:02.000Z",
+      },
+    ],
+  };
+}
+
 describe("ResultsPage lobby return flow", () => {
-  let snapshotState: ReturnType<typeof createResultsSnapshot>;
+  let snapshotState:
+    | ReturnType<typeof createResultsSnapshot>
+    | ReturnType<typeof createChangeResultsSnapshot>;
 
   beforeEach(() => {
     window.history.replaceState({}, "", "/results/ROOM1");
@@ -250,5 +359,24 @@ describe("ResultsPage lobby return flow", () => {
       });
       expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM1");
     });
+  });
+
+  it("shows the change summary in Aha Moment results", async () => {
+    snapshotState = createChangeResultsSnapshot();
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Change")).not.toBeNull();
+    });
+
+    expect(
+      screen.queryByText(/replace the yellow mug with a blue glass bottle/i),
+    ).not.toBeNull();
+    expect(screen.queryByText("Answer Area")).toBeNull();
   });
 });

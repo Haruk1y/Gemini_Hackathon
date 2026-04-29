@@ -48,7 +48,8 @@ vi.mock("@/lib/client/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/client/api")>();
   return {
     ...actual,
-    apiPost: (path: string, body: Record<string, unknown>) => apiPostMock(path, body),
+    apiPost: (path: string, body: Record<string, unknown>) =>
+      apiPostMock(path, body),
   };
 });
 
@@ -64,8 +65,42 @@ vi.mock("@/lib/client/room-presence", () => ({
 function createLobbySnapshot(params?: {
   meReady?: boolean;
   otherReady?: boolean;
-  roomStatus?: "LOBBY" | "IN_ROUND" | "RESULTS" | "GENERATING_ROUND" | "FINISHED";
+  gameMode?: "classic" | "memory" | "change" | "impostor";
+  imageModel?: "gemini" | "flux";
+  includeGuest?: boolean;
+  roundSeconds?: number;
+  roomStatus?:
+    | "LOBBY"
+    | "IN_ROUND"
+    | "RESULTS"
+    | "GENERATING_ROUND"
+    | "FINISHED";
 }) {
+  const gameMode = params?.gameMode ?? "classic";
+  const imageModel = params?.imageModel ?? "gemini";
+  const players = [
+    {
+      uid: "anon_1",
+      displayName: "Alice",
+      kind: "human" as const,
+      ready: params?.meReady ?? false,
+      isHost: true,
+      totalScore: 0,
+    },
+    ...(params?.includeGuest === false
+      ? []
+      : [
+          {
+            uid: "anon_2",
+            displayName: "Bob",
+            kind: "human" as const,
+            ready: params?.otherReady ?? false,
+            isHost: false,
+            totalScore: 0,
+          },
+        ]),
+  ];
+
   return {
     room: {
       roomId: "ROOM1",
@@ -73,40 +108,23 @@ function createLobbySnapshot(params?: {
       status: params?.roomStatus ?? "LOBBY",
       currentRoundId: null,
       settings: {
-        gameMode: "classic" as const,
+        gameMode,
         maxPlayers: 8,
-        roundSeconds: 60,
+        roundSeconds: params?.roundSeconds ?? 60,
         maxAttempts: 3,
         hintLimit: 0,
-        imageModel: "gemini" as const,
+        imageModel,
         promptModel: "flash-lite" as const,
         judgeModel: "flash-lite" as const,
         totalRounds: 1,
         cpuCount: 0,
       },
     },
-    players: [
-      {
-        uid: "anon_1",
-        displayName: "Alice",
-        kind: "human" as const,
-        ready: params?.meReady ?? false,
-        isHost: true,
-        totalScore: 0,
-      },
-      {
-        uid: "anon_2",
-        displayName: "Bob",
-        kind: "human" as const,
-        ready: params?.otherReady ?? false,
-        isHost: false,
-        totalScore: 0,
-      },
-    ],
+    players,
     round: null,
     scores: [],
     attempts: null,
-    playerCount: 2,
+    playerCount: players.length,
     myRole: null,
     isMyTurn: false,
     currentTurnUid: null,
@@ -269,9 +287,9 @@ describe("LobbyPage", () => {
   });
 
   it("keeps showing the loading state instead of the roomSessionMismatch flash while leaving", async () => {
-    let resolveLeave: (() => void) | null = null;
+    let resolveLeave: (() => void) | undefined;
     const leavePromise = new Promise<void>((resolve) => {
-      resolveLeave = resolve;
+      resolveLeave = () => resolve();
     });
     leaveRoomMock.mockReturnValue(leavePromise);
 
@@ -367,5 +385,60 @@ describe("LobbyPage", () => {
         "The session did not match the room membership. Please reload the page.",
       ),
     ).toBeNull();
+  });
+
+  it("enables Start Round for a solo host in Aha Moment", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        gameMode: "change",
+        includeGuest: false,
+        roundSeconds: 30,
+      }),
+    };
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      const startButton = screen.getByRole("button", { name: "Start Round" });
+      expect((startButton as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("allows selecting Aha Moment while the room uses Flux", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        imageModel: "flux",
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const ahaButton = screen.getByRole("button", { name: /Aha Moment/i });
+    expect((ahaButton as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(ahaButton);
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "change",
+          roundSeconds: 20,
+        }),
+      });
+    });
   });
 });

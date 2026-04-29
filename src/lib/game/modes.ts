@@ -4,6 +4,9 @@ import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
 export const RESULTS_GRACE_SECONDS = 10;
+export const CHANGE_DEFAULT_ROUND_SECONDS = 20;
+export const CHANGE_ROUND_SECONDS_OPTIONS = [20, 30] as const;
+export const STANDARD_ROUND_SECONDS_OPTIONS = [30, 45, 60] as const;
 const SECOND_MS = 1000;
 
 interface LocalizedLabel {
@@ -59,6 +62,20 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
       lobbyHint: {
         ja: "最初の10秒だけ見て、その後は記憶で勝負",
         en: "See it for 10 seconds, then rely on memory",
+      },
+    },
+    change: {
+      mode: "change",
+      englishName: "Aha Moment",
+      label: { ja: "アハ体験", en: "Aha Moment" },
+      shortLabel: { ja: "アハ体験", en: "Aha" },
+      description: {
+        ja: "少しずつ変わる1か所を見つけて、誰よりも早くクリックするモード。",
+        en: "Find the one changing spot as the image gradually shifts and click it before anyone else.",
+      },
+      lobbyHint: {
+        ja: "徐々に変わる1か所を見抜いて早押し",
+        en: "Watch the scene shift and click the changing spot first",
       },
     },
     impostor: {
@@ -189,6 +206,34 @@ export function getRoundSchedule(params: {
     promptStartsAt,
     endsAt,
   };
+}
+
+export function isRoundSecondsAllowedForMode(
+  gameMode: GameMode,
+  roundSeconds: number,
+): boolean {
+  const allowed =
+    gameMode === "change"
+      ? CHANGE_ROUND_SECONDS_OPTIONS
+      : STANDARD_ROUND_SECONDS_OPTIONS;
+
+  return allowed.some((value) => value === roundSeconds);
+}
+
+export function normalizeRoundSecondsForMode(
+  gameMode: GameMode,
+  roundSeconds: number | undefined,
+): number {
+  if (
+    typeof roundSeconds === "number" &&
+    isRoundSecondsAllowedForMode(gameMode, roundSeconds)
+  ) {
+    return roundSeconds;
+  }
+
+  return gameMode === "change"
+    ? CHANGE_DEFAULT_ROUND_SECONDS
+    : STANDARD_ROUND_SECONDS_OPTIONS[STANDARD_ROUND_SECONDS_OPTIONS.length - 1];
 }
 
 export function isMemoryPreviewActive(params: {

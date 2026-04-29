@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { createRoomState } from "@/lib/server/room-state";
 import { buildRoomViewSnapshot, serializeForClient, shouldConcealRoundTarget } from "@/lib/realtime/views";
+import type {
+  ImpostorRoundModeState,
+  ImpostorRoundPrivateState,
+} from "@/lib/types/game";
 import { dateAfterHours } from "@/lib/utils/time";
 
 describe("serializeForClient", () => {
@@ -272,7 +276,7 @@ describe("buildRoomViewSnapshot impostor mode", () => {
     state.room.status = "RESULTS";
     state.rounds["round-1"]!.status = "RESULTS";
     state.rounds["round-1"]!.modeState = {
-      ...state.rounds["round-1"]!.modeState!,
+      ...(state.rounds["round-1"]!.modeState as ImpostorRoundModeState),
       phase: "VOTING",
       finalSimilarityScore: 66,
     };
@@ -294,7 +298,7 @@ describe("buildRoomViewSnapshot impostor mode", () => {
     expect(votingSnapshot.turnTimeline[0].role).toBeUndefined();
 
     state.rounds["round-1"]!.modeState = {
-      ...state.rounds["round-1"]!.modeState!,
+      ...(state.rounds["round-1"]!.modeState as ImpostorRoundModeState),
       phase: "REVEAL",
       voteTarget: "guest",
       voteCount: 1,
@@ -324,7 +328,7 @@ describe("buildRoomViewSnapshot impostor mode", () => {
     state.room.status = "RESULTS";
     state.rounds["round-1"]!.status = "RESULTS";
     state.rounds["round-1"]!.modeState = {
-      ...state.rounds["round-1"]!.modeState!,
+      ...(state.rounds["round-1"]!.modeState as ImpostorRoundModeState),
       phase: "REVEAL",
       turnOrder: ["guest", "host"],
       voteTarget: "guest",
@@ -332,7 +336,7 @@ describe("buildRoomViewSnapshot impostor mode", () => {
       revealedTurns: 2,
     };
     state.roundPrivates["round-1"]!.modeState = {
-      ...state.roundPrivates["round-1"]!.modeState!,
+      ...(state.roundPrivates["round-1"]!.modeState as ImpostorRoundPrivateState),
       turnRecords: [
         {
           uid: "host",

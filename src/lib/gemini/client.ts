@@ -23,10 +23,14 @@ import {
 } from "@/lib/images/types";
 import {
   captionPrompt,
+  changeEditPlanPrompt,
+  changeSceneSystemPrompt,
+  changeSceneUserPrompt,
   cpuRewriteSystemPrompt,
   cpuRewriteUserPrompt,
   gmSystemPrompt,
   gmUserPrompt,
+  validateSingleChangePrompt,
 } from "@/lib/gemini/prompts";
 import {
   pickGmStylePreset,
@@ -34,16 +38,21 @@ import {
 } from "@/lib/gemini/style-presets";
 import {
   captionSchema,
+  changeEditPlanSchema,
   gmPromptSchema,
+  singleChangeValidationSchema,
   visualScoreSchema,
   type CaptionSchema,
+  type ChangeEditPlanSchema,
   type GmPromptSchema,
+  type SingleChangeValidationSchema,
   type VisualScoreSchema,
 } from "@/lib/gemini/schemas";
 import {
   normalizeTextModelVariant,
   type AspectRatio,
   type ImpostorRole,
+  type NormalizedBox,
   type RoomSettings,
   type TextModelVariant,
 } from "@/lib/types/game";
@@ -576,6 +585,67 @@ function fallbackCaption(fallbackPrompt: string): CaptionSchema {
   };
 }
 
+function buildChangeScenePromptFromText(
+  promptText: string,
+  aspectRatio: AspectRatio,
+): GeneratedGmPrompt {
+  const prompt =
+    promptText.length >= 30
+      ? promptText
+      : normalizeText(
+          [
+            promptText,
+            "photorealistic real-world scene",
+            "many small props",
+            "stable camera",
+            "no text",
+            "no logo",
+            `aspect ratio ${aspectRatio}`,
+          ].join(", "),
+          500,
+        );
+
+  const tags = uniqueStrings([
+    ...promptKeywords(prompt),
+    "aha moment",
+    "photorealistic",
+    aspectRatio.replace(":", "x"),
+  ]).slice(0, 6);
+
+  return {
+    ...gmPromptSchema.parse({
+      title: deriveTitleFromPrompt(prompt),
+      difficulty: 3,
+      tags:
+        tags.length >= 2
+          ? tags
+          : ["aha moment", aspectRatio.replace(":", "x")],
+      prompt,
+      negativePrompt:
+        "text, logo, watermark, brand name, poster, sign, crowd, close-up face, illustration, cartoon, painting",
+      mustInclude: [],
+      mustAvoid: [],
+    }),
+    stylePresetId: "change-realistic",
+  };
+}
+
+function mockChangeEditPlan(): ChangeEditPlanSchema {
+  return {
+    summary: "yellow mug becomes blue bottle",
+    editPrompt:
+      "Edit the source image by changing exactly one small table object: replace the yellow mug with a blue glass bottle. Keep the same camera angle, framing, lighting, shadows, background, and every other object unchanged. Return only the edited image.",
+  };
+}
+
+function mockSingleChangeValidation(): SingleChangeValidationSchema {
+  return {
+    valid: true,
+    changedObject: "table object",
+    note: "mock validation",
+  };
+}
+
 function mockCpuPromptRewrite(params: {
   role: ImpostorRole;
   reconstructedPrompt: string;
@@ -776,6 +846,223 @@ export async function generateGmPrompt(params: {
   }
 
   throw lastError ?? new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
+}
+
+export async function generateChangeScenePrompt(params: {
+  settings: RoomSettings;
+  promptModel?: TextModelVariant;
+}): Promise<GeneratedGmPrompt> {
+  const textModel = resolvePromptModelName(
+    params.promptModel ?? params.settings.promptModel,
+  );
+
+  if (mockMode) {
+    return buildChangeScenePromptFromText(
+      [
+        "A realistic kitchen counter scene",
+        "many small household props",
+        "stable eye-level camera",
+        "soft natural daylight",
+        "no text",
+      ].join(", "),
+      params.settings.aspectRatio,
+    );
+  }
+
+  const client = getAiClient();
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < GM_PROMPT_ATTEMPTS; i += 1) {
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: textModel,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: changeSceneSystemPrompt(params.settings) },
+                {
+                  text: changeSceneUserPrompt({
+                    aspectRatio: params.settings.aspectRatio,
+                  }),
+                },
+              ],
+            },
+          ],
+        }),
+      classifyGeminiError,
+    );
+
+    const text = responseText(response);
+    const promptText = text ? extractPromptText(text) : null;
+    if (promptText) {
+      return buildChangeScenePromptFromText(
+        promptText,
+        params.settings.aspectRatio,
+      );
+    }
+
+    lastError = new AppError(
+      "GEMINI_ERROR",
+      "Gemini returned empty change scene prompt text",
+      true,
+      502,
+    );
+  }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Gemini prompt generation failed", true, 502);
+}
+
+export async function generateChangeEditPlan(params: {
+  caption: CaptionSchema;
+  promptModel?: TextModelVariant;
+}): Promise<ChangeEditPlanSchema> {
+  if (mockMode) {
+    return mockChangeEditPlan();
+  }
+
+  const client = getAiClient();
+  const textModel = resolvePromptModelName(params.promptModel);
+  const responseSchema = z.toJSONSchema(changeEditPlanSchema) as unknown as Record<
+    string,
+    unknown
+  >;
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: textModel,
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: changeEditPlanPrompt(params.caption) }],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema,
+          },
+        }),
+      classifyGeminiError,
+    );
+
+    const text = responseText(response);
+    if (!text) {
+      lastError = new AppError(
+        "GEMINI_ERROR",
+        "Gemini returned empty change edit plan",
+        true,
+        502,
+      );
+      continue;
+    }
+
+    const parsed = parseStructuredText(changeEditPlanSchema, text);
+    if (parsed) {
+      return parsed;
+    }
+
+    lastError = new AppError(
+      "GEMINI_ERROR",
+      "Change edit plan schema validation failed",
+      true,
+      502,
+    );
+  }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Change edit plan generation failed", true, 502);
+}
+
+export async function validateSingleChangeEdit(params: {
+  beforeImage: GeneratedImage;
+  afterImage: GeneratedImage;
+  answerBox: NormalizedBox;
+  promptModel?: TextModelVariant;
+}): Promise<SingleChangeValidationSchema> {
+  if (mockMode) {
+    return mockSingleChangeValidation();
+  }
+
+  if (!params.beforeImage.base64Data || !params.afterImage.base64Data) {
+    throw new AppError(
+      "GEMINI_ERROR",
+      "Change validation input images are incomplete",
+      true,
+      502,
+    );
+  }
+
+  const client = getAiClient();
+  const textModel = resolvePromptModelName(params.promptModel);
+  const responseSchema = z.toJSONSchema(singleChangeValidationSchema) as unknown as Record<
+    string,
+    unknown
+  >;
+  let lastError: AppError | null = null;
+
+  for (let i = 0; i < STRUCTURED_PARSE_ATTEMPTS; i += 1) {
+    const response = await withRetries(
+      () =>
+        client.models.generateContent({
+          model: textModel,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: "Image 1 is the original scene." },
+                {
+                  inlineData: {
+                    data: params.beforeImage.base64Data,
+                    mimeType: params.beforeImage.mimeType,
+                  },
+                },
+                { text: "Image 2 is the edited scene." },
+                {
+                  inlineData: {
+                    data: params.afterImage.base64Data,
+                    mimeType: params.afterImage.mimeType,
+                  },
+                },
+                { text: validateSingleChangePrompt({ answerBox: params.answerBox }) },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema,
+          },
+        }),
+      classifyGeminiError,
+    );
+
+    const text = responseText(response);
+    if (!text) {
+      lastError = new AppError(
+        "GEMINI_ERROR",
+        "Gemini returned empty change validation",
+        true,
+        502,
+      );
+      continue;
+    }
+
+    const parsed = parseStructuredText(singleChangeValidationSchema, text);
+    if (parsed) {
+      return parsed;
+    }
+
+    lastError = new AppError(
+      "GEMINI_ERROR",
+      "Change validation schema failed",
+      true,
+      502,
+    );
+  }
+
+  throw lastError ?? new AppError("GEMINI_ERROR", "Change validation failed", true, 502);
 }
 
 export async function rewriteCpuPrompt(params: {

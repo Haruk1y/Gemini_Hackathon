@@ -1,5 +1,6 @@
 import { requirePlayer, requireRoom, assertHost } from "@/lib/game/guards";
 import { mergeRoomSettings } from "@/lib/game/defaults";
+import { CHANGE_MIN_PLAYERS } from "@/lib/game/change-mode";
 import { sortPlayersBySeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
 import {
   bumpRoomVersion,
@@ -34,9 +35,25 @@ export function selectNextHost(candidates: HostCandidate[]): string | null {
   return sorted[0]?.uid ?? null;
 }
 
-export function assertCanStartRound(players: Array<Pick<PlayerDoc, "ready">>): void {
-  if (!players.length) {
-    throw new AppError("VALIDATION_ERROR", "At least 1 player is required", false, 409);
+export function assertModeCompatibleSettings(
+  settings: Pick<RoomSettings, "gameMode" | "imageModel">,
+): void {
+  void settings;
+}
+
+export function assertCanStartRound(
+  players: Array<Pick<PlayerDoc, "ready">>,
+  options?: { minPlayers?: number },
+): void {
+  const minPlayers = options?.minPlayers ?? 1;
+
+  if (players.length < minPlayers) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `At least ${minPlayers} player${minPlayers === 1 ? "" : "s"} are required`,
+      false,
+      409,
+    );
   }
 
   if (!players.every((player) => player.ready)) {
@@ -78,16 +95,25 @@ export async function updateRoomSettings(params: {
       );
     }
 
-    room.settings = mergeRoomSettings({
+    const nextSettings = mergeRoomSettings({
       ...room.settings,
       ...params.settings,
     });
+    assertModeCompatibleSettings(nextSettings);
+    const shouldInvalidatePreparedRound =
+      room.settings.gameMode !== nextSettings.gameMode;
+    room.settings = nextSettings;
+    if (shouldInvalidatePreparedRound) {
+      state!.preparedRound = null;
+    }
     syncCpuPlayers(state!);
 
     await saveRoomState(bumpRoomVersion(state!));
     return room.settings;
   });
 }
+
+export const CHANGE_START_MIN_PLAYERS = CHANGE_MIN_PLAYERS;
 
 export async function pingRoom(roomId: string, uid: string): Promise<void> {
   await withRoomLock(roomId, async () => {
