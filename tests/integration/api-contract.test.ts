@@ -87,6 +87,12 @@ describe("api contracts", () => {
         roundSeconds: 60,
       }).roundSeconds,
     ).toBe(60);
+
+    expect(
+      roomSettingsSchema.parse({
+        roundSeconds: 100,
+      }).roundSeconds,
+    ).toBe(100);
   });
 
   it("rejects invalid attempt settings", () => {
@@ -128,7 +134,7 @@ describe("api contracts", () => {
 
     expect(() =>
       roomSettingsSchema.parse({
-        roundSeconds: 61,
+        roundSeconds: 101,
       }),
     ).toThrow();
   });

@@ -179,7 +179,7 @@ export function syncCpuPlayers(state: RoomState): number {
 
 export function resetPlayerReadinessForLobby(players: Record<string, PlayerDoc>) {
   for (const player of Object.values(players)) {
-    player.ready = player.kind === "cpu";
+    player.ready = true;
     player.totalScore = 0;
     player.lastSeenAt = new Date();
   }

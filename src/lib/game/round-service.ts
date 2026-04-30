@@ -1523,17 +1523,18 @@ export async function submitChangeRoundClick(params: {
       roundPrivate: validated.roundPrivate,
     });
 
+    const roundScores = state!.scores[params.roundId] ?? {};
+    roundScores[player.uid] = {
+      uid: player.uid,
+      displayName: player.displayName,
+      bestScore: submission.score,
+      bestImageUrl: "",
+      updatedAt: submission.createdAt,
+      expiresAt: dateAfterHours(24),
+    };
+    state!.scores[params.roundId] = roundScores;
+
     if (submission.score > 0) {
-      const roundScores = state!.scores[params.roundId] ?? {};
-      roundScores[player.uid] = {
-        uid: player.uid,
-        displayName: player.displayName,
-        bestScore: submission.score,
-        bestImageUrl: "",
-        updatedAt: submission.createdAt,
-        expiresAt: dateAfterHours(24),
-      };
-      state!.scores[params.roundId] = roundScores;
       player.totalScore += submission.score;
     }
 
@@ -2391,19 +2392,12 @@ async function maybeConsumeClassicTimeoutDraft(params: {
         return;
       }
 
-      const endsAt = parseDate(latestRound.endsAt);
       const now = Date.now();
       if (
         latestRoom.status !== "IN_ROUND" ||
         latestRound.status !== "IN_ROUND" ||
-        latestRoom.currentRoundId !== params.roundId ||
-        !endsAt ||
-        now < endsAt.getTime()
+        latestRoom.currentRoundId !== params.roundId
       ) {
-        return;
-      }
-
-      if (hasScoringAttempts(latestState.attempts[params.roundId])) {
         return;
       }
 
@@ -2411,19 +2405,8 @@ async function maybeConsumeClassicTimeoutDraft(params: {
         promptStartsAt: latestRound.promptStartsAt,
         roundSeconds: latestRoom.settings.roundSeconds,
       });
-      const isGraceWindow = Boolean(
-        submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
-      );
-      const isShortenedResultsCountdown = Boolean(
-        submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
-      );
 
-      if (
-        !submissionDeadline ||
-        now < submissionDeadline.getTime() ||
-        isGraceWindow ||
-        isShortenedResultsCountdown
-      ) {
+      if (!submissionDeadline || now < submissionDeadline.getTime()) {
         return;
       }
 

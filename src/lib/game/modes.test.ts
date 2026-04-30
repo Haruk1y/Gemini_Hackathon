@@ -98,12 +98,24 @@ describe("game modes", () => {
 
   it("validates change-mode round durations separately", () => {
     expect(isRoundSecondsAllowedForMode("change", 15)).toBe(false);
-    expect(isRoundSecondsAllowedForMode("change", 20)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 20)).toBe(false);
     expect(isRoundSecondsAllowedForMode("change", 30)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 60)).toBe(false);
+    expect(isRoundSecondsAllowedForMode("change", 65)).toBe(true);
+    expect(isRoundSecondsAllowedForMode("change", 90)).toBe(false);
+    expect(isRoundSecondsAllowedForMode("change", 100)).toBe(true);
     expect(isRoundSecondsAllowedForMode("change", 45)).toBe(false);
+    expect(normalizeRoundSecondsForMode("change", 20)).toBe(
+      CHANGE_DEFAULT_ROUND_SECONDS,
+    );
     expect(normalizeRoundSecondsForMode("change", 45)).toBe(
       CHANGE_DEFAULT_ROUND_SECONDS,
     );
+    expect(normalizeRoundSecondsForMode("change", 90)).toBe(
+      CHANGE_DEFAULT_ROUND_SECONDS,
+    );
+    expect(normalizeRoundSecondsForMode("change", 100)).toBe(100);
     expect(normalizeRoundSecondsForMode("classic", 15)).toBe(60);
+    expect(normalizeRoundSecondsForMode("classic", 90)).toBe(60);
   });
 });

@@ -31,9 +31,7 @@ test.describe("live generation progress", () => {
     await page.getByRole("button", { name: "Create Room" }).click();
 
     await expect(page).toHaveURL(/\/lobby\//, { timeout: 20_000 });
-
-    await page.getByRole("button", { name: "WAIT" }).click();
-    await expect(page.getByRole("button", { name: "READY" })).toBeVisible();
+    await expect(page.getByText("READY").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Start Round" }).click();
     await expect(page).toHaveURL(/\/round\//, { timeout: 120_000 });

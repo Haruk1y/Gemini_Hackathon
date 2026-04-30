@@ -23,7 +23,7 @@ import {
 } from "@/lib/server/room-state";
 import { dateAfterHours } from "@/lib/utils/time";
 
-function createClassicRoundState() {
+function createClassicRoundState(params?: { endsAt?: Date }) {
   const now = new Date("2026-04-07T10:00:00.000Z");
   const state = createRoomState({
     roomId: "ROOM1",
@@ -83,7 +83,7 @@ function createClassicRoundState() {
     expiresAt: dateAfterHours(24),
     startedAt: new Date("2026-04-07T10:00:10.000Z"),
     promptStartsAt: new Date("2026-04-07T10:00:10.000Z"),
-    endsAt: new Date("2026-04-07T10:01:10.000Z"),
+    endsAt: params?.endsAt ?? new Date("2026-04-07T10:01:10.000Z"),
     targetImageUrl: "https://example.com/target.png",
     targetThumbUrl: "https://example.com/target.png",
     gmTitle: "Target",
@@ -110,6 +110,54 @@ function createClassicRoundState() {
   return state;
 }
 
+function mockSuccessfulTimeoutSubmit() {
+  mockReserveClassicRoundAttemptInState.mockImplementation(
+    ({ state, roundId, uid, prompt }) => {
+      const createdAt = new Date();
+      const roundAttempts = state.attempts[roundId] ?? {};
+      state.attempts[roundId] = {
+        ...roundAttempts,
+        [uid]: {
+          uid,
+          roundId,
+          expiresAt: dateAfterHours(24),
+          attemptsUsed: 1,
+          hintUsed: 0,
+          bestScore: 0,
+          bestAttemptNo: null,
+          attempts: [
+            {
+              attemptNo: 1,
+              prompt,
+              imageUrl: "",
+              score: null,
+              status: "GENERATING",
+              createdAt,
+            },
+          ],
+          updatedAt: createdAt,
+        },
+      };
+
+      return {
+        attemptNo: 1,
+        createdAt,
+        aspectRatio: "1:1" as const,
+        targetImageUrl: "https://example.com/target.png",
+      };
+    },
+  );
+  mockSubmitClassicRoundAttemptWithReservation.mockResolvedValue({
+    attemptNo: 1,
+    score: 88,
+    imageUrl: "https://example.com/generated.png",
+    bestScore: 88,
+    matchedElements: ["subject"],
+    missingElements: [],
+    judgeNote: "close match",
+  });
+}
+
 describe("endRoundIfNeeded timeout draft auto-submit", () => {
   beforeEach(() => {
     roomStateTest.resetMemoryStore();
@@ -124,49 +172,7 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
   });
 
   it("consumes a timed-out classic draft before moving toward results", async () => {
-    mockReserveClassicRoundAttemptInState.mockImplementation(
-      ({ state, roundId, uid, prompt }) => {
-        const createdAt = new Date("2026-04-07T10:01:10.000Z");
-        state.attempts[roundId] = {
-          [uid]: {
-            uid,
-            roundId,
-            expiresAt: dateAfterHours(24),
-            attemptsUsed: 1,
-            hintUsed: 0,
-            bestScore: 0,
-            bestAttemptNo: null,
-            attempts: [
-              {
-                attemptNo: 1,
-                prompt,
-                imageUrl: "",
-                score: null,
-                status: "GENERATING",
-                createdAt,
-              },
-            ],
-            updatedAt: createdAt,
-          },
-        };
-
-        return {
-          attemptNo: 1,
-          createdAt,
-          aspectRatio: "1:1" as const,
-          targetImageUrl: "https://example.com/target.png",
-        };
-      },
-    );
-    mockSubmitClassicRoundAttemptWithReservation.mockResolvedValue({
-      attemptNo: 1,
-      score: 88,
-      imageUrl: "https://example.com/generated.png",
-      bestScore: 88,
-      matchedElements: ["subject"],
-      missingElements: [],
-      judgeNote: "close match",
-    });
+    mockSuccessfulTimeoutSubmit();
 
     await saveRoomState(createClassicRoundState());
 
@@ -208,5 +214,102 @@ describe("endRoundIfNeeded timeout draft auto-submit", () => {
       prompt: "partial timeout draft",
       status: "GENERATING",
     });
+  });
+
+  it("reserves the timed-out draft immediately even while another player is still generating", async () => {
+    mockSuccessfulTimeoutSubmit();
+
+    const state = createClassicRoundState();
+    const createdAt = new Date("2026-04-07T10:01:09.000Z");
+    state.attempts["round-1"] = {
+      guest: {
+        uid: "guest",
+        roundId: "round-1",
+        expiresAt: dateAfterHours(24),
+        attemptsUsed: 1,
+        hintUsed: 0,
+        bestScore: 0,
+        bestAttemptNo: null,
+        attempts: [
+          {
+            attemptNo: 1,
+            prompt: "guest prompt already submitted",
+            imageUrl: "",
+            score: null,
+            status: "GENERATING",
+            createdAt,
+          },
+        ],
+        updatedAt: createdAt,
+      },
+    };
+    await saveRoomState(state);
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "host",
+        draftPrompt: "host draft at zero",
+      }),
+    ).resolves.toEqual({
+      status: "IN_ROUND",
+      consumedDraft: true,
+    });
+
+    expect(mockReserveClassicRoundAttemptInState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "host",
+        prompt: "host draft at zero",
+        mode: "timeout",
+      }),
+    );
+
+    const updatedState = await loadRoomState("ROOM1");
+    expect(
+      updatedState?.attempts["round-1"]?.host?.attempts[0],
+    ).toMatchObject({
+      prompt: "host draft at zero",
+      status: "GENERATING",
+    });
+    expect(
+      updatedState?.attempts["round-1"]?.guest?.attempts[0],
+    ).toMatchObject({
+      prompt: "guest prompt already submitted",
+      status: "GENERATING",
+    });
+  });
+
+  it("still consumes a draft after snapshot polling has opened the results grace window", async () => {
+    vi.setSystemTime(new Date("2026-04-07T10:01:15.000Z"));
+    mockSuccessfulTimeoutSubmit();
+
+    await saveRoomState(
+      createClassicRoundState({
+        endsAt: new Date("2026-04-07T10:01:20.000Z"),
+      }),
+    );
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "host",
+        draftPrompt: "grace window draft",
+      }),
+    ).resolves.toEqual({
+      status: "IN_ROUND",
+      consumedDraft: true,
+    });
+
+    expect(mockReserveClassicRoundAttemptInState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: "host",
+        prompt: "grace window draft",
+        mode: "timeout",
+      }),
+    );
   });
 });

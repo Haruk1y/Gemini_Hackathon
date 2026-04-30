@@ -186,62 +186,26 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("does not auto-ready again after the player manually switches back to WAIT", async () => {
-    roomSyncState = {
-      ...roomSyncState,
-      snapshot: createLobbySnapshot({ meReady: false }),
-    };
-
-    const user = userEvent.setup();
-    const view = render(
+  it("shows READY as a static chip and exposes the language toggle", () => {
+    render(
       <LanguageProvider initialLanguage="en">
         <LobbyPage />
       </LanguageProvider>,
     );
 
-    await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
-        roomId: "ROOM1",
-        ready: true,
-      });
-    });
-
-    roomSyncState = {
-      ...roomSyncState,
-      snapshot: createLobbySnapshot({ meReady: true }),
-    };
-    view.rerender(
-      <LanguageProvider initialLanguage="en">
-        <LobbyPage />
-      </LanguageProvider>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "READY" }));
-
-    await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/ready", {
-        roomId: "ROOM1",
-        ready: false,
-      });
-    });
-
-    roomSyncState = {
-      ...roomSyncState,
-      snapshot: createLobbySnapshot({ meReady: false }),
-    };
-    view.rerender(
-      <LanguageProvider initialLanguage="en">
-        <LobbyPage />
-      </LanguageProvider>,
-    );
-
-    await waitFor(() => {
-      const autoReadyCalls = apiPostMock.mock.calls.filter(
-        ([path, body]) =>
-          path === "/api/rooms/ready" &&
-          (body as { ready?: boolean }).ready === true,
-      );
-      expect(autoReadyCalls).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "READY" })).toBeNull();
+    expect(
+      screen.getByRole("group", { name: "Display language" }),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Copy room code" })
+        .parentElement?.querySelector('[role="group"][aria-label="Display language"]'),
+    ).not.toBeNull();
+    expect(screen.getAllByText("READY").length).toBeGreaterThan(0);
+    expect(apiPostMock).not.toHaveBeenCalledWith("/api/rooms/ready", {
+      roomId: "ROOM1",
+      ready: false,
     });
   });
 
@@ -436,7 +400,44 @@ describe("LobbyPage", () => {
         roomId: "ROOM1",
         settings: expect.objectContaining({
           gameMode: "change",
-          roundSeconds: 20,
+          roundSeconds: 30,
+        }),
+      });
+    });
+  });
+
+  it("uses the Aha time picker as a repeat count and saves two views with a reset gap", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        gameMode: "change",
+        includeGuest: false,
+        roundSeconds: 30,
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const repeatPicker = screen.getByRole("spinbutton", {
+      name: "Change Repeat",
+    });
+    expect(repeatPicker.getAttribute("aria-valuetext")).toBe("1 VIEW");
+
+    repeatPicker.focus();
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "change",
+          roundSeconds: 65,
         }),
       });
     });

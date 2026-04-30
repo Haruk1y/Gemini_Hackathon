@@ -40,7 +40,7 @@ export const POST = withPostHandler(joinRoomSchema, async ({ body, auth }) => {
       joinedAt: state!.players[auth.uid]?.joinedAt ?? now,
       expiresAt,
       lastSeenAt: now,
-      ready: false,
+      ready: true,
       totalScore: 0,
     };
 

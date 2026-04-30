@@ -84,6 +84,7 @@ const TRANSLATIONS = {
       nextRoundWarming: "次のお題を準備中...",
       nextRoundFallback: "次のお題はラウンド開始時に準備されます。",
       advancedSettings: "詳細な設定",
+      repeatViews: "繰り返し",
       changePickerAria: (label: string) => `${label} を変更`,
       changeRequiresGemini:
         "アハ体験は Gemini の画像編集が使えるルームでのみ選べます。",
@@ -104,6 +105,13 @@ const TRANSLATIONS = {
         `${submitted}/${total} CLICKED`,
       changeCorrectCount: (count: number) => `${count} HIT`,
       changeProgressLabel: "アハ体験",
+      changePhaseWaiting: "変化前",
+      changePhaseChanging: "変化中",
+      changePhaseAnswer: "変化後",
+      changeViewProgress: (current: number, total: number) =>
+        `${current}/${total}回目`,
+      changeStartMarker: "変化開始",
+      changeEndMarker: "変化完了",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
       yourTurnMessage: "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。",
@@ -303,6 +311,7 @@ const TRANSLATIONS = {
       nextRoundWarming: "Preparing the next target...",
       nextRoundFallback: "The next target will be prepared when the round starts.",
       advancedSettings: "Advanced Settings",
+      repeatViews: "Repeat",
       changePickerAria: (label: string) => `Change ${label}`,
       changeRequiresGemini:
         "Aha Moment is only available in rooms using Gemini image editing.",
@@ -324,6 +333,13 @@ const TRANSLATIONS = {
         `${submitted}/${total} CLICKED`,
       changeCorrectCount: (count: number) => `${count} HIT`,
       changeProgressLabel: "Aha Moment",
+      changePhaseWaiting: "Before Change",
+      changePhaseChanging: "Image Changing",
+      changePhaseAnswer: "After Change",
+      changeViewProgress: (current: number, total: number) =>
+        `View ${current}/${total}`,
+      changeStartMarker: "Change starts",
+      changeEndMarker: "Change ends",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
       yourTurnMessage: "It is your turn. Write a prompt as if you are passing the image to the next player.",

@@ -30,6 +30,7 @@ import { useLanguage } from "@/components/providers/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { LanguageToggle } from "@/components/ui/language-toggle";
 import { apiPost } from "@/lib/client/api";
 import { buildCurrentAppPath } from "@/lib/client/paths";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
@@ -40,9 +41,11 @@ import {
 } from "@/lib/i18n/errors";
 import { useRoomSync } from "@/lib/client/room-sync";
 import {
+  CHANGE_DEFAULT_ROUND_SECONDS,
   CHANGE_ROUND_SECONDS_OPTIONS,
   getGameModeDefinition,
   getGameModeOptions,
+  getChangeViewCountForRoundSeconds,
   normalizeRoundSecondsForMode,
   STANDARD_ROUND_SECONDS_OPTIONS,
 } from "@/lib/game/modes";
@@ -67,10 +70,7 @@ interface SwipeValuePickerProps {
 
 interface PlayerReadyChipProps {
   ready: boolean;
-  isSelf: boolean;
   pending: boolean;
-  disabled?: boolean;
-  onClick: () => void;
 }
 
 const SWIPE_THRESHOLD = 28;
@@ -101,11 +101,14 @@ const STANDARD_ROUND_TIME_OPTIONS: readonly PickerOption[] =
   }));
 
 const CHANGE_ROUND_TIME_OPTIONS: readonly PickerOption[] =
-  CHANGE_ROUND_SECONDS_OPTIONS.map((value) => ({
-    value,
-    label: String(value),
-    unitLabel: "SEC",
-  }));
+  CHANGE_ROUND_SECONDS_OPTIONS.map((value) => {
+    const repeatCount = getChangeViewCountForRoundSeconds(value);
+    return {
+      value,
+      label: String(repeatCount),
+      unitLabel: repeatCount === 1 ? "VIEW" : "VIEWS",
+    };
+  });
 
 function formatSettingsKey(
   gameMode: GameMode,
@@ -288,13 +291,7 @@ function SwipeValuePicker({
   );
 }
 
-function PlayerReadyChip({
-  ready,
-  isSelf,
-  pending,
-  disabled = false,
-  onClick,
-}: PlayerReadyChipProps) {
+function PlayerReadyChip({ ready, pending }: PlayerReadyChipProps) {
   const { copy } = useLanguage();
   const toneClass = ready
     ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
@@ -302,34 +299,15 @@ function PlayerReadyChip({
   const baseClass =
     "inline-flex min-w-[92px] items-center justify-center rounded-full border-2 border-[var(--pmb-ink)] px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em]";
 
-  if (isSelf) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={pending || disabled}
-        className={[
-          baseClass,
-          toneClass,
-          "shadow-[4px_4px_0_var(--pmb-ink)] transition-transform duration-150",
-          "hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
-          "disabled:cursor-not-allowed disabled:opacity-80 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
-        ].join(" ")}
-      >
-        {pending ? (
-          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-        ) : ready ? (
-          copy.common.ready
-        ) : (
-          copy.common.wait
-        )}
-      </button>
-    );
-  }
-
   return (
     <span className={[baseClass, toneClass].join(" ")}>
-      {ready ? copy.common.ready : copy.common.wait}
+      {pending ? (
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+      ) : ready ? (
+        copy.common.ready
+      ) : (
+        copy.common.wait
+      )}
     </span>
   );
 }
@@ -388,6 +366,8 @@ export default function LobbyPage() {
     me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
   const displayCpuCount =
     me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
+  const displayChangeRepeatCount =
+    getChangeViewCountForRoundSeconds(displayRoundSeconds);
   const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
@@ -617,13 +597,6 @@ export default function LobbyPage() {
     void updateReady(true, { silent: true });
   }, [actionBusy, isLeaving, me, optimisticReady, roomStatus]);
 
-  const onToggleReady = async () => {
-    if (!me || isGenerating) return;
-
-    const nextReady = !me.ready;
-    await updateReady(nextReady);
-  };
-
   const onStart = async () => {
     if (!me?.isHost || !canStartRound) return;
 
@@ -772,7 +745,7 @@ export default function LobbyPage() {
             <p className="text-[11px] font-black tracking-[0.24em] uppercase">
               {copy.lobby.roomCode}
             </p>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="font-mono text-[1.75rem] font-black tracking-[0.28em] md:text-[2.15rem]">
                 {room.code}
               </h1>
@@ -804,10 +777,11 @@ export default function LobbyPage() {
                   <Copy className="h-5 w-5" />
                 )}
               </Button>
+              <LanguageToggle className="shrink-0" />
             </div>
           </div>
 
-          <div className="flex items-stretch gap-2 self-stretch">
+          <div className="flex flex-wrap items-stretch justify-end gap-2 self-stretch">
             <div className="flex">
               <Button
                 type="button"
@@ -874,10 +848,7 @@ export default function LobbyPage() {
 
                 <PlayerReadyChip
                   ready={player.ready}
-                  isSelf={player.uid === user?.uid}
                   pending={player.uid === user?.uid && actionBusy === "ready"}
-                  disabled={isGenerating}
-                  onClick={onToggleReady}
                 />
               </div>
             ))}
@@ -971,7 +942,11 @@ export default function LobbyPage() {
                 {displayTotalRounds} {copy.common.rounds}
               </Badge>
               <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
-                {displayRoundSeconds} {copy.common.seconds}
+                {displayGameMode === "change"
+                  ? `${displayChangeRepeatCount} ${
+                      displayChangeRepeatCount === 1 ? "VIEW" : "VIEWS"
+                    }`
+                  : `${displayRoundSeconds} ${copy.common.seconds}`}
               </Badge>
               {displayGameMode === "impostor" ? (
                 <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
@@ -1020,10 +995,12 @@ export default function LobbyPage() {
                       if (!hostCanEdit) return;
                       setDraftGameMode(mode.mode);
                       setDraftRoundSeconds(
-                        normalizeRoundSecondsForMode(
-                          mode.mode,
-                          draftRoundSeconds,
-                        ),
+                        mode.mode === "change" && draftGameMode !== "change"
+                          ? CHANGE_DEFAULT_ROUND_SECONDS
+                          : normalizeRoundSecondsForMode(
+                              mode.mode,
+                              draftRoundSeconds,
+                            ),
                       );
                     }}
                     disabled={!hostCanEdit}
@@ -1073,7 +1050,9 @@ export default function LobbyPage() {
             />
 
             <SwipeValuePicker
-              label="Time"
+              label={
+                draftGameMode === "change" ? copy.lobby.repeatViews : "Time"
+              }
               options={roundTimeOptions}
               value={draftRoundSeconds}
               onChange={setDraftRoundSeconds}

@@ -71,7 +71,7 @@ describe("POST /api/rooms/ready", () => {
     roomStateTest.resetMemoryStore();
   });
 
-  it("toggles a ready player back to wait while in lobby", async () => {
+  it("rejects switching a ready player back to wait while in lobby", async () => {
     await saveRoomState(createLobbyState());
 
     const response = await postReady({
@@ -79,11 +79,30 @@ describe("POST /api/rooms/ready", () => {
       ready: false,
     });
 
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "VALIDATION_ERROR",
+      },
+    });
+  });
+
+  it("allows legacy clients to switch a waiting player to ready", async () => {
+    const state = createLobbyState();
+    state.players.anon_1!.ready = false;
+    await saveRoomState(state);
+
+    const response = await postReady({
+      roomId: "ROOM1",
+      ready: true,
+    });
+
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       updated: true,
-      ready: false,
+      ready: true,
     });
   });
 

@@ -33,7 +33,7 @@ export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
   }
 
   return (
-    <div className="h-full min-h-0 w-full overflow-x-auto overflow-y-hidden px-1 pt-1 pb-4">
+    <div className="h-full min-h-0 w-full overflow-auto px-1 pt-1 pb-4">
       <div className="flex min-w-max items-start gap-3">
         {sorted.map((entry, index) => (
           <div

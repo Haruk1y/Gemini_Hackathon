@@ -297,8 +297,7 @@ describe("ResultsPage lobby return flow", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps showing the frozen results when the room returns to the lobby", async () => {
-    const user = userEvent.setup();
+  it("sends everyone to the lobby when the room returns to the lobby", async () => {
     const view = render(
       <LanguageProvider initialLanguage="en">
         <ResultsPage />
@@ -308,6 +307,7 @@ describe("ResultsPage lobby return flow", () => {
     await waitFor(() => {
       expect(screen.queryByText("Ranking Results")).not.toBeNull();
     });
+    expect(screen.queryByRole("button", { name: "Back to Lobby" })).toBeNull();
 
     snapshotState = createResultsSnapshot({
       roomStatus: "LOBBY",
@@ -320,16 +320,7 @@ describe("ResultsPage lobby return flow", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Ranking Results")).not.toBeNull();
-    });
-
-    expect(screen.queryByText("Loading results...")).toBeNull();
-    expect(replaceMock).not.toHaveBeenCalledWith("/lobby/ROOM1");
-
-    await user.click(screen.getByRole("button", { name: "Back to Lobby" }));
-
-    await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM1");
+      expect(replaceMock).toHaveBeenCalledWith("/lobby/ROOM1");
     });
   });
 
@@ -354,10 +345,10 @@ describe("ResultsPage lobby return flow", () => {
     await user.click(screen.getByRole("button", { name: "Back to Lobby" }));
 
     await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledWith("/api/rounds/next", {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/back-to-lobby", {
         roomId: "ROOM1",
       });
-      expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM1");
+      expect(replaceMock).toHaveBeenCalledWith("/lobby/ROOM1");
     });
   });
 
@@ -378,5 +369,41 @@ describe("ResultsPage lobby return flow", () => {
       screen.queryByText(/replace the yellow mug with a blue glass bottle/i),
     ).not.toBeNull();
     expect(screen.queryByText("Answer Area")).toBeNull();
+  });
+
+  it("scrolls the full Aha click-results column instead of clipping lower cards", async () => {
+    snapshotState = createChangeResultsSnapshot();
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Guest")).not.toBeNull();
+    });
+
+    const clickResultsColumn = screen
+      .getAllByText("Results")
+      .map((element) => element.parentElement)
+      .find((element) => element?.className.includes("overflow-y-auto"));
+
+    expect(clickResultsColumn?.className).toContain("overflow-y-auto");
+    expect(clickResultsColumn?.querySelector(".overflow-y-auto")).toBeNull();
+  });
+
+  it("shows player click result images uncropped so missed clicks stay visible", async () => {
+    snapshotState = createChangeResultsSnapshot();
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    const guestImage = await screen.findByAltText("Guest");
+    expect(guestImage.className).toContain("object-contain");
+    expect(guestImage.className).not.toContain("object-cover");
   });
 });

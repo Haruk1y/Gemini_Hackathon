@@ -181,6 +181,34 @@ describe("change round service", () => {
     });
   });
 
+  it("stores missed clicks as zero-point score entries for the live ranking", async () => {
+    await saveRoomState(createChangeRoundState());
+
+    await expect(
+      submitChangeRoundClick({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        uid: "guest",
+        point: { x: 0.1, y: 0.1 },
+      }),
+    ).resolves.toEqual({
+      hit: false,
+      score: 0,
+      rank: null,
+      submittedCount: 1,
+      correctCount: 0,
+    });
+
+    const state = await loadRoomState("ROOM1");
+    expect(state?.scores["round-1"]?.guest).toMatchObject({
+      uid: "guest",
+      displayName: "Guest",
+      bestScore: 0,
+      bestImageUrl: "",
+    });
+    expect(state?.players.guest.totalScore).toBe(0);
+  });
+
   it("keeps the original round timer even after all humans click, then reveals after deadline", async () => {
     await saveRoomState(createChangeRoundState());
 

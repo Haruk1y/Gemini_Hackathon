@@ -228,6 +228,7 @@ function buildLobbySnapshot(state: RoomState, uid: string) {
         maxPlayers: state.room.settings.maxPlayers,
         roundSeconds: state.room.settings.roundSeconds,
         maxAttempts: state.room.settings.maxAttempts,
+        aspectRatio: state.room.settings.aspectRatio,
         hintLimit: state.room.settings.hintLimit,
         imageModel: state.room.settings.imageModel,
         promptModel: state.room.settings.promptModel,

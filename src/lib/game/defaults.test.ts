@@ -40,17 +40,24 @@ describe("game defaults", () => {
     expect(merged.totalRounds).toBe(3);
   });
 
-  it("normalizes change mode settings to 20 seconds and zero CPUs by default", () => {
+  it("normalizes change mode settings to allowed repeat lengths and zero CPUs", () => {
     const merged = mergeRoomSettings({
       gameMode: "change",
-      roundSeconds: 60,
+      roundSeconds: 65,
       cpuCount: 3,
     });
 
     expect(merged.gameMode).toBe("change");
-    expect(merged.roundSeconds).toBe(20);
+    expect(merged.roundSeconds).toBe(65);
     expect(merged.aspectRatio).toBe("16:9");
     expect(merged.cpuCount).toBe(0);
+
+    expect(
+      mergeRoomSettings({
+        gameMode: "change",
+        roundSeconds: 60,
+      }).roundSeconds,
+    ).toBe(30);
   });
 
   it("normalizes the legacy flash image model to gemini", () => {

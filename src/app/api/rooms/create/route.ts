@@ -62,7 +62,7 @@ export const POST = withPostHandler(createRoomSchema, async ({ body, auth }) => 
     joinedAt: now,
     expiresAt,
     lastSeenAt: now,
-    ready: false,
+    ready: true,
     totalScore: 0,
   };
   syncCpuPlayers(state);
