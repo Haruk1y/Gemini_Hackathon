@@ -15,6 +15,11 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiPost } from "@/lib/client/api";
 import { createEndRoundRetrier } from "@/lib/client/end-round-retry";
+import {
+  mapContainedFramePointToImagePoint,
+  projectImagePointToContainedFrame,
+  type FrameSize,
+} from "@/lib/client/image-coordinate";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { buildCurrentAppPath } from "@/lib/client/paths";
 import { useRoomPresence } from "@/lib/client/room-presence";
@@ -32,8 +37,15 @@ import {
   useRoomSync,
 } from "@/lib/client/room-sync";
 import {
+  CHANGE_ANSWER_SECONDS,
+  CHANGE_DEFAULT_ROUND_SECONDS,
+  CHANGE_RESET_SECONDS,
+  CHANGE_ROUND_SECONDS_OPTIONS,
+  CHANGE_TRANSITION_SECONDS,
+  CHANGE_WAIT_SECONDS,
   MEMORY_PREVIEW_SECONDS,
   getGameModeDefinition,
+  getChangeViewCountForRoundSeconds,
   isPostDeadlineGraceActive,
   RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
@@ -61,11 +73,93 @@ type EndRoundResponse = {
 };
 
 type GeneratedImagePhase = "IDLE" | "GENERATING" | "SCORING" | "DONE";
+type ChangeTimelinePhase = "waiting" | "changing" | "answer";
 
 function resolveAspectRatioValue(aspectRatio?: "1:1" | "16:9" | "9:16") {
   if (aspectRatio === "16:9") return 16 / 9;
   if (aspectRatio === "9:16") return 9 / 16;
   return 1;
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function resolveChangeTimeline(
+  promptStartsAt: unknown,
+  totalRoundSeconds = CHANGE_DEFAULT_ROUND_SECONDS,
+  nowMs = Date.now(),
+) {
+  const promptStart = parseDate(promptStartsAt);
+  const requestedSeconds = Number.isFinite(totalRoundSeconds)
+    ? totalRoundSeconds
+    : CHANGE_DEFAULT_ROUND_SECONDS;
+  const isSupportedChangeDuration = CHANGE_ROUND_SECONDS_OPTIONS.some(
+    (value) => value === requestedSeconds,
+  );
+  const legacyViewCount = requestedSeconds / CHANGE_DEFAULT_ROUND_SECONDS;
+  const isLegacyChangeDuration =
+    Number.isInteger(legacyViewCount) &&
+    legacyViewCount >= 1 &&
+    legacyViewCount <= 3;
+  const totalSeconds =
+    isSupportedChangeDuration || isLegacyChangeDuration
+      ? requestedSeconds
+      : CHANGE_DEFAULT_ROUND_SECONDS;
+  const viewCount = getChangeViewCountForRoundSeconds(totalSeconds);
+  const expectedTotalSeconds =
+    viewCount * CHANGE_DEFAULT_ROUND_SECONDS +
+    Math.max(0, viewCount - 1) * CHANGE_RESET_SECONDS;
+  const resetSeconds =
+    viewCount > 1 && totalSeconds === expectedTotalSeconds
+      ? CHANGE_RESET_SECONDS
+      : 0;
+  const elapsedSeconds = promptStart
+    ? Math.max(0, (nowMs - promptStart.getTime()) / 1000)
+    : 0;
+  const clampedElapsedSeconds = Math.min(elapsedSeconds, totalSeconds);
+  const viewSegmentSeconds = CHANGE_DEFAULT_ROUND_SECONDS + resetSeconds;
+  const segmentIndex = Math.min(
+    viewCount - 1,
+    Math.floor(clampedElapsedSeconds / viewSegmentSeconds),
+  );
+  const segmentElapsedSeconds =
+    clampedElapsedSeconds - segmentIndex * viewSegmentSeconds;
+  const isResetting =
+    resetSeconds > 0 &&
+    segmentIndex < viewCount - 1 &&
+    segmentElapsedSeconds >= CHANGE_DEFAULT_ROUND_SECONDS;
+  const viewIndex = isResetting ? segmentIndex + 1 : segmentIndex;
+  const viewElapsedSeconds = isResetting
+    ? 0
+    : Math.min(segmentElapsedSeconds, CHANGE_DEFAULT_ROUND_SECONDS);
+  const changeStartSeconds = CHANGE_WAIT_SECONDS;
+  const changeEndSeconds = CHANGE_WAIT_SECONDS + CHANGE_TRANSITION_SECONDS;
+  const phase: ChangeTimelinePhase =
+    viewElapsedSeconds < changeStartSeconds
+      ? "waiting"
+      : viewElapsedSeconds < changeEndSeconds
+        ? "changing"
+        : "answer";
+  const markerPercents = [
+    {
+      view: viewIndex + 1,
+      changeStart: (changeStartSeconds / CHANGE_DEFAULT_ROUND_SECONDS) * 100,
+      changeEnd: (changeEndSeconds / CHANGE_DEFAULT_ROUND_SECONDS) * 100,
+    },
+  ];
+
+  return {
+    phase,
+    currentView: viewIndex + 1,
+    viewCount,
+    isResetting,
+    viewProgress: clamp01(viewElapsedSeconds / CHANGE_DEFAULT_ROUND_SECONDS),
+    changeProgress: clamp01(
+      (viewElapsedSeconds - changeStartSeconds) / CHANGE_TRANSITION_SECONDS,
+    ),
+    markerPercents,
+  };
 }
 
 function fitStageToContainer(
@@ -103,52 +197,6 @@ function resolveImageAspectRatio(element: HTMLImageElement) {
 
   const aspectRatio = element.naturalWidth / element.naturalHeight;
   return Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : null;
-}
-
-function mapContainedImagePoint({
-  frameWidth,
-  frameHeight,
-  imageAspectRatio,
-  localX,
-  localY,
-}: {
-  frameWidth: number;
-  frameHeight: number;
-  imageAspectRatio: number;
-  localX: number;
-  localY: number;
-}) {
-  if (
-    frameWidth <= 0 ||
-    frameHeight <= 0 ||
-    !Number.isFinite(imageAspectRatio) ||
-    imageAspectRatio <= 0
-  ) {
-    return null;
-  }
-
-  const frameAspectRatio = frameWidth / frameHeight;
-  const imageWidth =
-    frameAspectRatio > imageAspectRatio
-      ? frameHeight * imageAspectRatio
-      : frameWidth;
-  const imageHeight =
-    frameAspectRatio > imageAspectRatio
-      ? frameHeight
-      : frameWidth / imageAspectRatio;
-  const imageLeft = (frameWidth - imageWidth) / 2;
-  const imageTop = (frameHeight - imageHeight) / 2;
-  const imageX = localX - imageLeft;
-  const imageY = localY - imageTop;
-
-  if (imageX < 0 || imageY < 0 || imageX > imageWidth || imageY > imageHeight) {
-    return null;
-  }
-
-  return {
-    x: Math.min(1, Math.max(0, imageX / imageWidth)),
-    y: Math.min(1, Math.max(0, imageY / imageHeight)),
-  };
 }
 
 function resolveGeneratedImagePhase(
@@ -200,6 +248,9 @@ export default function RoundPage() {
   const [feedback, setFeedback] = useState<UiError | null>(null);
   const [submitPending, setSubmitPending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [changeTimelineNowMs, setChangeTimelineNowMs] = useState(() =>
+    Date.now(),
+  );
   const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number | null>(
     null,
   );
@@ -211,6 +262,8 @@ export default function RoundPage() {
     x: number;
     y: number;
   } | null>(null);
+  const [changeClickFrameSize, setChangeClickFrameSize] =
+    useState<FrameSize | null>(null);
 
   const endCalled = useRef(false);
   const changeStageContainerRef = useRef<HTMLDivElement | null>(null);
@@ -366,6 +419,7 @@ export default function RoundPage() {
     endRoundRetrier.current = null;
     resultCountdownFallbackTargetRef.current = null;
     setLocalSelectedPoint(null);
+    setChangeClickFrameSize(null);
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
 
   useEffect(() => {
@@ -449,55 +503,6 @@ export default function RoundPage() {
     }
   }, [room?.status, round?.status, roomId, router]);
 
-  useEffect(() => {
-    if (!room || !round) return;
-    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
-    if (isCpuTurn || !round.endsAt) return;
-    if (secondsLeft > 0 || endCalled.current) return;
-
-    endCalled.current = true;
-    const timeoutDraftPrompt =
-      !submitPending && prompt.trim().length > 0 ? prompt : undefined;
-    const retrier = createEndRoundRetrier({
-      runEndIfNeeded: () =>
-        apiPost<EndRoundResponse>("/api/rounds/endIfNeeded", {
-          roomId,
-          roundId: round.roundId,
-          ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
-        }).then((result) => {
-          if (result.consumedDraft) {
-            setPrompt("");
-            setFeedback(null);
-          }
-          return result;
-        }),
-      onError: (err) => {
-        console.error("endIfNeeded failed", err);
-        endCalled.current = false;
-      },
-    });
-
-    endRoundRetrier.current = retrier;
-    void retrier.run();
-
-    return () => {
-      if (endRoundRetrier.current === retrier) {
-        retrier.cancel();
-        endRoundRetrier.current = null;
-      }
-    };
-  }, [
-    isCpuTurn,
-    secondsLeft,
-    room?.status,
-    round?.status,
-    round?.endsAt,
-    round?.roundId,
-    roomId,
-    prompt,
-    submitPending,
-  ]);
-
   const latestAttempt =
     attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
   const latestAttemptPhase = resolveGeneratedImagePhase(latestAttempt);
@@ -523,6 +528,19 @@ export default function RoundPage() {
   const isRoundLive =
     room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
   const isBusy = submitPending || manualResultsPending;
+
+  useEffect(() => {
+    if (!isChangeMode || !isRoundLive) {
+      setChangeTimelineNowMs(Date.now());
+      return;
+    }
+
+    const update = () => setChangeTimelineNowMs(Date.now());
+    update();
+    const intervalId = window.setInterval(update, 50);
+    return () => window.clearInterval(intervalId);
+  }, [isChangeMode, isRoundLive, round?.promptStartsAt, round?.roundId]);
+
   const otherBestImages = scores.filter(
     (entry) => entry.uid !== user?.uid && entry.bestImageUrl,
   );
@@ -537,6 +555,8 @@ export default function RoundPage() {
       endsAt: round?.endsAt,
       roundSeconds,
     });
+  const roundEndReached =
+    isRoundLive && round?.endsAt ? millisecondsLeft(round.endsAt) <= 0 : false;
   const autoEndingSoon =
     isRoundLive &&
     ((!isChangeMode && everyoneScored) || postDeadlineGraceActive);
@@ -551,21 +571,74 @@ export default function RoundPage() {
     currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
-  const changeBaseOpacity = (() => {
-    if (!isChangeMode || !isRoundLive) return 1;
-
-    const promptStartsAt = parseDate(round?.promptStartsAt);
-    if (!promptStartsAt) return 1;
-
-    const elapsedMs = Date.now() - promptStartsAt.getTime();
-    const progress = Math.min(
-      1,
-      Math.max(0, elapsedMs / (roundSeconds * 1000)),
-    );
-    return 1 - progress;
-  })();
+  const changeTimeline = resolveChangeTimeline(
+    round?.promptStartsAt,
+    roundSeconds,
+    changeTimelineNowMs,
+  );
+  const changeBaseOpacity =
+    isChangeMode && isRoundLive ? 1 - changeTimeline.changeProgress : 1;
+  const changeProgressFillClass =
+    changeTimeline.phase === "waiting"
+      ? "bg-[var(--pmb-blue)]"
+      : changeTimeline.phase === "changing"
+        ? "bg-[var(--pmb-red)]"
+        : "bg-[var(--pmb-green)]";
   const impostorReferenceImageUrl =
     impostorModeState?.chainImageUrl || round?.targetImageUrl || "";
+
+  useEffect(() => {
+    if (!room || !round) return;
+    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
+    if (isCpuTurn || !round.endsAt) return;
+    if ((!postDeadlineGraceActive && !roundEndReached) || endCalled.current) {
+      return;
+    }
+
+    endCalled.current = true;
+    let timeoutDraftPrompt =
+      !submitPending && prompt.trim().length > 0 ? prompt : undefined;
+    const retrier = createEndRoundRetrier({
+      runEndIfNeeded: () =>
+        apiPost<EndRoundResponse>("/api/rounds/endIfNeeded", {
+          roomId,
+          roundId: round.roundId,
+          ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
+        }).then((result) => {
+          if (result.consumedDraft) {
+            timeoutDraftPrompt = undefined;
+            setPrompt("");
+            setFeedback(null);
+          }
+          return result;
+        }),
+      onError: (err) => {
+        console.error("endIfNeeded failed", err);
+        endCalled.current = false;
+      },
+    });
+
+    endRoundRetrier.current = retrier;
+    void retrier.run();
+
+    return () => {
+      if (endRoundRetrier.current === retrier) {
+        retrier.cancel();
+        endRoundRetrier.current = null;
+      }
+    };
+  }, [
+    isCpuTurn,
+    postDeadlineGraceActive,
+    roundEndReached,
+    room?.status,
+    round?.status,
+    round?.endsAt,
+    round?.roundId,
+    roomId,
+    prompt,
+    submitPending,
+  ]);
 
   useEffect(() => {
     if (!autoEndingSoon) {
@@ -703,6 +776,16 @@ export default function RoundPage() {
 
   if (isChangeMode && changeModeState) {
     const changeMarkerPoint = mySubmission?.point ?? localSelectedPoint;
+    const changeMarkerFrameSize =
+      changeStageSize ?? changeClickFrameSize ?? null;
+    const changeMarkerProjectedPoint =
+      changeMarkerPoint && changeMarkerFrameSize
+        ? projectImagePointToContainedFrame({
+            frame: changeMarkerFrameSize,
+            imageAspectRatio: changeStageAspectRatio,
+            point: changeMarkerPoint,
+          })
+        : null;
     const changeMarkerClass = mySubmission
       ? mySubmission.hit
         ? "border-[var(--pmb-green)] bg-[var(--pmb-green)]"
@@ -810,9 +893,12 @@ export default function RoundPage() {
                     return;
                   }
 
-                  const point = mapContainedImagePoint({
-                    frameWidth: rect.width,
-                    frameHeight: rect.height,
+                  const frame = {
+                    width: rect.width,
+                    height: rect.height,
+                  };
+                  const point = mapContainedFramePointToImagePoint({
+                    frame,
                     imageAspectRatio: changeStageAspectRatio,
                     localX,
                     localY,
@@ -822,14 +908,13 @@ export default function RoundPage() {
                     return;
                   }
 
+                  setChangeClickFrameSize(frame);
                   setLocalSelectedPoint(point);
                   void submitChangeClick(point.x, point.y);
                 }}
                 className={[
                   "flex h-full w-full items-center justify-center overflow-hidden bg-white text-left",
-                  mySubmission
-                    ? "cursor-default"
-                    : "cursor-crosshair transition-transform duration-150 hover:translate-x-0.5 hover:-translate-y-0.5",
+                  mySubmission ? "cursor-default" : "cursor-crosshair",
                   "disabled:cursor-not-allowed disabled:opacity-100",
                 ].join(" ")}
               >
@@ -884,18 +969,105 @@ export default function RoundPage() {
                   />
                   {changeMarkerPoint ? (
                     <span
+                      data-testid="change-click-marker"
                       className={[
                         "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
                         changeMarkerClass,
                       ].join(" ")}
                       style={{
-                        left: `${changeMarkerPoint.x * 100}%`,
-                        top: `${changeMarkerPoint.y * 100}%`,
+                        left: `${
+                          changeMarkerProjectedPoint?.left ??
+                          changeMarkerPoint.x * 100
+                        }%`,
+                        top: `${
+                          changeMarkerProjectedPoint?.top ??
+                          changeMarkerPoint.y * 100
+                        }%`,
                       }}
+                    />
+                  ) : null}
+                  {changeTimeline.isResetting ? (
+                    <span
+                      aria-hidden="true"
+                      data-testid="change-reset-canvas"
+                      className="absolute inset-0 z-20 bg-white"
                     />
                   ) : null}
                 </div>
               </button>
+            </div>
+
+            <div
+              className="mt-3 shrink-0 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2"
+              data-testid="change-progress"
+            >
+              <div className="flex items-center justify-end">
+                <p className="font-mono text-[10px] font-black">
+                  {copy.round.changeViewProgress(
+                    changeTimeline.currentView,
+                    changeTimeline.viewCount,
+                  )}{" "}
+                  / {Math.round(changeTimeline.viewProgress * 100)}%
+                </p>
+              </div>
+              <div className="relative mt-2 h-3 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)]">
+                <span
+                  className={[
+                    "absolute inset-y-0 left-0 w-full origin-left rounded-full transition-colors duration-200",
+                    changeProgressFillClass,
+                  ].join(" ")}
+                  data-testid="change-progress-fill"
+                  style={{
+                    transform: `scaleX(${changeTimeline.viewProgress})`,
+                  }}
+                />
+                {changeTimeline.markerPercents.flatMap((marker) => [
+                  <span
+                    key={`${marker.view}-start`}
+                    aria-label={copy.round.changeStartMarker}
+                    className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[0_0_0_2px_white]"
+                    style={{ left: `${marker.changeStart}%` }}
+                  />,
+                  <span
+                    key={`${marker.view}-end`}
+                    aria-label={copy.round.changeEndMarker}
+                    className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--pmb-ink)] bg-white shadow-[0_0_0_2px_var(--pmb-green)]"
+                    style={{ left: `${marker.changeEnd}%` }}
+                  />,
+                ])}
+              </div>
+              <div className="mt-1 grid grid-cols-[minmax(0,5fr)_minmax(0,20fr)_minmax(0,5fr)] gap-1 text-[9px] leading-tight font-black uppercase sm:text-[10px]">
+                <span
+                  className={[
+                    "text-left",
+                    changeTimeline.phase === "waiting"
+                      ? "text-[var(--pmb-blue)]"
+                      : "",
+                  ].join(" ")}
+                >
+                  {copy.round.changePhaseWaiting} {CHANGE_WAIT_SECONDS}s
+                </span>
+                <span
+                  className={[
+                    "text-center",
+                    changeTimeline.phase === "changing"
+                      ? "text-[var(--pmb-red)]"
+                      : "",
+                  ].join(" ")}
+                >
+                  {copy.round.changePhaseChanging} {CHANGE_TRANSITION_SECONDS}s
+                </span>
+                <span
+                  className={[
+                    "text-right",
+                    changeTimeline.phase === "answer"
+                      ? "text-[var(--pmb-green)]"
+                      : "",
+                  ].join(" ")}
+                >
+                  {copy.round.changePhaseAnswer} {CHANGE_ANSWER_SECONDS}s
+                </span>
+              </div>
             </div>
           </Card>
 

@@ -2,7 +2,10 @@ import {
   fallbackJudgeNote,
   scoreImageSimilarity,
 } from "@/lib/gemini/client";
-import { RESULTS_GRACE_SECONDS } from "@/lib/game/modes";
+import {
+  getRoundSubmissionDeadline,
+  RESULTS_GRACE_SECONDS,
+} from "@/lib/game/modes";
 import {
   generateImage,
   imageToBuffer,
@@ -72,7 +75,7 @@ export interface ReservedClassicAttempt {
 }
 
 function assertTimeoutReservationWindow(params: {
-  room: Pick<RoomDoc, "status" | "currentRoundId">;
+  room: Pick<RoomDoc, "status" | "currentRoundId" | "settings">;
   round: Pick<RoundPublicDoc, "status" | "endsAt" | "promptStartsAt">;
   roundId: string;
   now: Date;
@@ -94,14 +97,22 @@ function assertTimeoutReservationWindow(params: {
     throw new AppError("ROUND_CLOSED", "まだプロンプト入力開始前です。", false, 409);
   }
 
-  const endsAt = parseDate(params.round.endsAt);
-  if (!endsAt || params.now.getTime() < endsAt.getTime()) {
+  const submissionDeadline =
+    getRoundSubmissionDeadline({
+      promptStartsAt: params.round.promptStartsAt,
+      roundSeconds: params.room.settings.roundSeconds,
+    }) ?? parseDate(params.round.endsAt);
+
+  if (
+    !submissionDeadline ||
+    params.now.getTime() < submissionDeadline.getTime()
+  ) {
     throw new AppError("ROUND_CLOSED", "Round timeout has not started", false, 409);
   }
 }
 
 function assertClassicReservationWindow(params: {
-  room: Pick<RoomDoc, "status" | "currentRoundId">;
+  room: Pick<RoomDoc, "status" | "currentRoundId" | "settings">;
   round: Pick<RoundPublicDoc, "status" | "endsAt" | "promptStartsAt">;
   roundId: string;
   now: Date;

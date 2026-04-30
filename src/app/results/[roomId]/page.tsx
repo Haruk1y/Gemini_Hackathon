@@ -12,6 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiPost } from "@/lib/client/api";
+import {
+  projectImageBoxToContainedFrame,
+  projectImagePointToContainedFrame,
+} from "@/lib/client/image-coordinate";
 import { placeholderImageUrl } from "@/lib/client/image";
 import { buildCurrentAppPath } from "@/lib/client/paths";
 import { useRoomPresence } from "@/lib/client/room-presence";
@@ -26,7 +30,6 @@ import {
   type NormalizedPointData,
   type PlayerData,
   type RoomData,
-  type RoomSyncSnapshot,
   type RoundData,
   type ScoreEntry,
   useRoomSync,
@@ -123,6 +126,7 @@ function ChangeResultImage({
   point,
   pointHit = true,
   borderClassName = "border-4",
+  fitMode = "answer-crop",
 }: {
   imageUrl: string;
   alt: string;
@@ -130,14 +134,34 @@ function ChangeResultImage({
   point?: NormalizedPointData | null;
   pointHit?: boolean;
   borderClassName?: string;
+  fitMode?: "answer-crop" | "contain";
 }) {
   const [imageSize, setImageSize] = useState<NaturalImageSize | null>(null);
+  const imageAspectRatio = imageSize ? imageSize.width / imageSize.height : null;
   const crop =
-    answerBox && imageSize
+    fitMode === "answer-crop" && answerBox && imageSize
       ? computeAnswerCenteredSquareCrop(answerBox, imageSize)
       : null;
   const projectedBox = answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
   const projectedPoint = point && crop ? projectPointToCrop(point, crop) : null;
+  const containedBox =
+    fitMode === "contain" && answerBox && imageAspectRatio
+      ? projectImageBoxToContainedFrame({
+          frame: { width: 1, height: 1 },
+          imageAspectRatio,
+          box: answerBox,
+        })
+      : null;
+  const containedPoint =
+    fitMode === "contain" && point && imageAspectRatio
+      ? projectImagePointToContainedFrame({
+          frame: { width: 1, height: 1 },
+          imageAspectRatio,
+          point,
+        })
+      : null;
+  const displayBox = fitMode === "contain" ? containedBox : projectedBox;
+  const displayPoint = fitMode === "contain" ? containedPoint : projectedPoint;
 
   return (
     <div
@@ -150,7 +174,10 @@ function ChangeResultImage({
       <img
         src={imageUrl}
         alt={alt}
-        className="absolute inset-0 h-full w-full object-cover"
+        className={cn(
+          "absolute inset-0 h-full w-full",
+          fitMode === "contain" ? "object-contain" : "object-cover",
+        )}
         style={
           crop
             ? {
@@ -165,18 +192,18 @@ function ChangeResultImage({
           });
         }}
       />
-      {projectedBox ? (
+      {displayBox ? (
         <span
           className="absolute border-4 border-[var(--pmb-yellow)] bg-[color:color-mix(in_srgb,var(--pmb-yellow)_18%,transparent)]"
           style={{
-            left: `${projectedBox.left}%`,
-            top: `${projectedBox.top}%`,
-            width: `${projectedBox.width}%`,
-            height: `${projectedBox.height}%`,
+            left: `${displayBox.left}%`,
+            top: `${displayBox.top}%`,
+            width: `${displayBox.width}%`,
+            height: `${displayBox.height}%`,
           }}
         />
       ) : null}
-      {projectedPoint ? (
+      {displayPoint ? (
         <span
           className={cn(
             "absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 shadow-[0_0_0_2px_white]",
@@ -185,8 +212,8 @@ function ChangeResultImage({
               : "border-[var(--pmb-red)] bg-[var(--pmb-red)]",
           )}
           style={{
-            left: `${projectedPoint.left}%`,
-            top: `${projectedPoint.top}%`,
+            left: `${displayPoint.left}%`,
+            top: `${displayPoint.top}%`,
           }}
         />
       ) : null}
@@ -208,22 +235,11 @@ export default function ResultsPage() {
     view: "results",
     enabled: Boolean(user),
   });
-  const [frozenResultsSnapshot, setFrozenResultsSnapshot] =
-    useState<RoomSyncSnapshot | null>(null);
   const liveRoom = snapshot.room as RoomData | null;
   const liveRound = snapshot.round as RoundData | null;
   const liveRoomStatus = liveRoom?.status ?? null;
 
-  useEffect(() => {
-    if (liveRoomStatus === "RESULTS" && liveRound) {
-      setFrozenResultsSnapshot(snapshot);
-    }
-  }, [liveRoom, liveRoomStatus, liveRound, snapshot]);
-
-  const activeSnapshot =
-    liveRoomStatus === "LOBBY" && frozenResultsSnapshot
-      ? frozenResultsSnapshot
-      : snapshot;
+  const activeSnapshot = snapshot;
   const room = activeSnapshot.room as RoomData | null;
   const round = activeSnapshot.round as RoundData | null;
   const scores = activeSnapshot.scores as ScoreEntry[];
@@ -253,10 +269,10 @@ export default function ResultsPage() {
     if (liveRoom.status === "IN_ROUND" && !allowStayDuringRound) {
       router.replace(buildCurrentAppPath(`/round/${roomId}`));
     }
-    if (liveRoom.status === "LOBBY" && !frozenResultsSnapshot) {
+    if (liveRoom.status === "LOBBY") {
       router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
     }
-  }, [allowStayDuringRound, frozenResultsSnapshot, liveRoom, roomId, router]);
+  }, [allowStayDuringRound, liveRoom, roomId, router]);
 
   useEffect(() => {
     if (!liveRoom || !liveRound) return;
@@ -307,11 +323,8 @@ export default function ResultsPage() {
     room?.settings?.gameMode === "change" &&
     round?.modeState?.kind === "change";
   const isFinalRound = totalRounds > 0 && roundIndex >= totalRounds;
-  const canEnterLobby = liveRoomStatus === "LOBBY";
   const canHostReturnRoomToLobby =
-    Boolean(me?.isHost) &&
-    liveRoomStatus === "RESULTS" &&
-    (isImpostorMode || isFinalRound);
+    Boolean(me?.isHost) && liveRoomStatus === "RESULTS";
   const myLatestAttempt =
     myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
@@ -374,11 +387,7 @@ export default function ResultsPage() {
       return copy.results.returningToLobby;
     }
 
-    if (canEnterLobby) {
-      return copy.results.returnToLobbyHint;
-    }
-
-    if (isImpostorMode || isFinalRound) {
+    if (liveRoomStatus === "RESULTS") {
       return me?.isHost
         ? copy.results.returnToLobbyHint
         : copy.results.waitingHostReturn;
@@ -394,38 +403,17 @@ export default function ResultsPage() {
 
   const onLeave = () => {
     const leave = async () => {
-      if (canEnterLobby) {
-        router.push(buildCurrentAppPath(`/lobby/${roomId}`));
-        return;
+      if (!me?.isHost || !isResultsPhase) return;
+
+      setLobbyBusy(true);
+      try {
+        await apiPost("/api/rooms/back-to-lobby", { roomId });
+        router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
+      } catch (error) {
+        console.error("return to lobby failed", error);
+      } finally {
+        setLobbyBusy(false);
       }
-
-      if (isImpostorMode) {
-        if (!me?.isHost || !isResultsPhase) return;
-
-        setLobbyBusy(true);
-        try {
-          await apiPost("/api/rooms/back-to-lobby", { roomId });
-          router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
-        } catch (error) {
-          console.error("impostor return to lobby failed", error);
-        } finally {
-          setLobbyBusy(false);
-        }
-        return;
-      }
-
-      if (isFinalRound && me?.isHost && isResultsPhase) {
-        setLobbyBusy(true);
-        try {
-          await apiPost("/api/rounds/next", { roomId });
-        } catch (error) {
-          console.error("final return to lobby failed", error);
-        } finally {
-          setLobbyBusy(false);
-        }
-      }
-
-      router.push(buildCurrentAppPath(`/lobby/${roomId}`));
     };
 
     void leave();
@@ -460,7 +448,6 @@ export default function ResultsPage() {
   }
 
   if (isChangeMode) {
-    const canReturnToLobby = canEnterLobby || canHostReturnRoomToLobby;
     const answerBox = round.reveal?.answerBox;
     const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
     const changeSummaryText = round.reveal?.changeSummary?.trim() || copy.common.none;
@@ -497,19 +484,21 @@ export default function ResultsPage() {
                   {copy.results.nextRound}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={onLeave}
-                disabled={lobbyBusy || !canReturnToLobby}
-              >
-                {lobbyBusy ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogOut className="mr-2 h-4 w-4" />
-                )}
-                {copy.results.backToLobby}
-              </Button>
+              {me?.isHost ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onLeave}
+                  disabled={lobbyBusy || !canHostReturnRoomToLobby}
+                >
+                  {lobbyBusy ? (
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <LogOut className="mr-2 h-4 w-4" />
+                  )}
+                  {copy.results.backToLobby}
+                </Button>
+              ) : null}
             </div>
             {lobbyHintMessage ? (
               <p className="text-xs font-semibold">{lobbyHintMessage}</p>
@@ -574,11 +563,11 @@ export default function ResultsPage() {
                 </div>
               </div>
 
-              <div className="min-h-0 overflow-hidden lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="text-base font-black md:text-lg">
+              <div className="flex min-h-0 flex-col overflow-y-auto pr-1 lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                <p className="shrink-0 text-base font-black md:text-lg">
                   {copy.results.clickResults}
                 </p>
-                <div className="mt-3 grid min-h-0 gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {sortedChangeResults.map((entry) => (
                     <div
                       key={entry.uid}
@@ -628,6 +617,7 @@ export default function ResultsPage() {
                           point={entry.point}
                           pointHit={entry.hit}
                           borderClassName="border-2"
+                          fitMode="contain"
                         />
                       </div>
 
@@ -660,7 +650,6 @@ export default function ResultsPage() {
       finalSimilarityScore !== null &&
       (finalSimilarityScore >= 70 ||
         (accusedUid !== null && accusedUid === impostorUid));
-    const canReturnToLobby = canEnterLobby || canHostReturnRoomToLobby;
     const myVoteTargetUid = voteProgress?.meTargetUid ?? null;
     const useFixedDesktopVoteGrid = orderedTurnTimeline.length <= 6;
 
@@ -716,19 +705,21 @@ export default function ResultsPage() {
                   {copy.results.nextRound}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={onLeave}
-                disabled={lobbyBusy || !canReturnToLobby}
-              >
-                {lobbyBusy ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogOut className="mr-2 h-4 w-4" />
-                )}
-                {copy.results.backToLobby}
-              </Button>
+              {me?.isHost ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onLeave}
+                  disabled={lobbyBusy || !canHostReturnRoomToLobby}
+                >
+                  {lobbyBusy ? (
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <LogOut className="mr-2 h-4 w-4" />
+                  )}
+                  {copy.results.backToLobby}
+                </Button>
+              ) : null}
             </div>
             {lobbyBusy ? (
               <p className="text-xs font-semibold">
@@ -1087,19 +1078,21 @@ export default function ResultsPage() {
                   {copy.results.nextRound}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={onLeave}
-                disabled={lobbyBusy || (!canEnterLobby && !canHostReturnRoomToLobby)}
-              >
-                {lobbyBusy ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogOut className="mr-2 h-4 w-4" />
-                )}
-                {copy.results.backToLobby}
-              </Button>
+              {me?.isHost ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onLeave}
+                  disabled={lobbyBusy || !canHostReturnRoomToLobby}
+                >
+                  {lobbyBusy ? (
+                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <LogOut className="mr-2 h-4 w-4" />
+                  )}
+                  {copy.results.backToLobby}
+                </Button>
+              ) : null}
             </div>
             {lobbyHintMessage ? (
               <p className="text-xs font-semibold">{lobbyHintMessage}</p>
@@ -1164,7 +1157,7 @@ export default function ResultsPage() {
                 <p className="h-7 text-base font-black md:text-lg">
                   {copy.results.generatedImages}
                 </p>
-                <div className="mt-2 min-h-0 flex-1 overflow-hidden pb-2">
+                <div className="mt-2 min-h-0 flex-1 overflow-auto pb-2 pr-1">
                   <Podium
                     entries={sortedScores}
                     myUid={user?.uid}

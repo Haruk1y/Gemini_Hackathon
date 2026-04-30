@@ -4,8 +4,43 @@ import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
 export const RESULTS_GRACE_SECONDS = 10;
-export const CHANGE_DEFAULT_ROUND_SECONDS = 20;
-export const CHANGE_ROUND_SECONDS_OPTIONS = [20, 30] as const;
+export const CHANGE_WAIT_SECONDS = 5;
+export const CHANGE_TRANSITION_SECONDS = 20;
+export const CHANGE_ANSWER_SECONDS = 5;
+export const CHANGE_RESET_SECONDS = 5;
+export const CHANGE_DEFAULT_ROUND_SECONDS =
+  CHANGE_WAIT_SECONDS + CHANGE_TRANSITION_SECONDS + CHANGE_ANSWER_SECONDS;
+export function getChangeRoundSecondsForViewCount(viewCount: number) {
+  const normalizedViewCount = Math.min(3, Math.max(1, Math.round(viewCount)));
+  return (
+    normalizedViewCount * CHANGE_DEFAULT_ROUND_SECONDS +
+    Math.max(0, normalizedViewCount - 1) * CHANGE_RESET_SECONDS
+  );
+}
+
+export function getChangeViewCountForRoundSeconds(roundSeconds: number) {
+  const optionIndex = CHANGE_ROUND_SECONDS_OPTIONS.findIndex(
+    (value) => value === roundSeconds,
+  );
+  if (optionIndex >= 0) return optionIndex + 1;
+
+  const legacyViewCount = roundSeconds / CHANGE_DEFAULT_ROUND_SECONDS;
+  if (
+    Number.isInteger(legacyViewCount) &&
+    legacyViewCount >= 1 &&
+    legacyViewCount <= 3
+  ) {
+    return legacyViewCount;
+  }
+
+  return 1;
+}
+
+export const CHANGE_ROUND_SECONDS_OPTIONS = [
+  getChangeRoundSecondsForViewCount(1),
+  getChangeRoundSecondsForViewCount(2),
+  getChangeRoundSecondsForViewCount(3),
+] as const;
 export const STANDARD_ROUND_SECONDS_OPTIONS = [30, 45, 60] as const;
 const SECOND_MS = 1000;
 

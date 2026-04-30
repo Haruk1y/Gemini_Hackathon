@@ -127,6 +127,11 @@ describe("prewarm after() scheduling routes", () => {
 
     expect(response.status).toBe(200);
     expect(mockSaveRoomState).toHaveBeenCalledTimes(1);
+    expect(
+      (mockSaveRoomState.mock.calls[0]?.[0] as {
+        players: Record<string, { ready?: boolean }>;
+      }).players.anon_1?.ready,
+    ).toBe(true);
     expect(mockAfter).toHaveBeenCalledTimes(1);
 
     await Promise.all(scheduledTasks.map((task) => task?.()));

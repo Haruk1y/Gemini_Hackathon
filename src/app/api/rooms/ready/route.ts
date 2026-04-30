@@ -23,6 +23,10 @@ export const POST = withPostHandler(readySchema, async ({ body, auth }) => {
 
     const player = requirePlayer(state?.players[auth.uid]);
 
+    if (!body.ready) {
+      throw new AppError("VALIDATION_ERROR", "READY cannot be turned off.", false, 409);
+    }
+
     if (player.ready === body.ready) {
       return ok({ updated: false, ready: player.ready });
     }

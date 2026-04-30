@@ -196,8 +196,8 @@ describe("POST /api/rooms/back-to-lobby", () => {
     expect(state?.room.currentRoundId).toBeNull();
     expect(state?.room.roundIndex).toBe(0);
     expect(state?.rounds).toEqual({});
-    expect(state?.players.host?.ready).toBe(false);
-    expect(state?.players.guest?.ready).toBe(false);
+    expect(state?.players.host?.ready).toBe(true);
+    expect(state?.players.guest?.ready).toBe(true);
     expect(state?.players["cpu-1"]?.ready).toBe(true);
   });
 
