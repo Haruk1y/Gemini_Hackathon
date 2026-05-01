@@ -128,7 +128,12 @@ function getSortedPlayers(state: RoomState) {
 
 function getSortedScores(state: RoomState, roundId: string | null) {
   if (!roundId) return [];
-  return Object.values(state.scores[roundId] ?? {}).sort((a, b) => b.bestScore - a.bestScore);
+  return Object.values(state.scores[roundId] ?? {})
+    .map((entry) => ({
+      ...entry,
+      totalScore: state.players[entry.uid]?.totalScore ?? entry.bestScore,
+    }))
+    .sort((a, b) => b.bestScore - a.bestScore);
 }
 
 function getAttempts(state: RoomState, roundId: string | null, uid: string) {

@@ -65,6 +65,105 @@ describe("shouldConcealRoundTarget", () => {
   });
 });
 
+describe("buildRoomViewSnapshot score totals", () => {
+  it("adds player totalScore to round and results score entries", () => {
+    const now = new Date("2026-04-07T10:00:00.000Z");
+    const state = createRoomState({
+      roomId: "ROOM1",
+      code: "ROOM1",
+      createdAt: now,
+      expiresAt: dateAfterHours(24),
+      createdByUid: "host",
+      status: "RESULTS",
+      currentRoundId: "round-1",
+      roundIndex: 2,
+      settings: {
+        maxPlayers: 8,
+        roundSeconds: 60,
+        maxAttempts: 1,
+        aspectRatio: "1:1",
+        imageModel: "gemini",
+        promptModel: "flash",
+        judgeModel: "flash",
+        hintLimit: 0,
+        totalRounds: 3,
+        gameMode: "classic",
+        cpuCount: 0,
+      },
+      ui: {
+        theme: "neo-brutal",
+      },
+    });
+
+    state.players.host = {
+      uid: "host",
+      displayName: "Host",
+      kind: "human",
+      isHost: true,
+      joinedAt: now,
+      expiresAt: dateAfterHours(24),
+      lastSeenAt: now,
+      ready: true,
+      totalScore: 142,
+    };
+    state.rounds["round-1"] = {
+      roundId: "round-1",
+      index: 2,
+      status: "RESULTS",
+      createdAt: now,
+      expiresAt: dateAfterHours(24),
+      startedAt: now,
+      promptStartsAt: now,
+      endsAt: now,
+      targetImageUrl: "https://example.com/target.png",
+      targetThumbUrl: "https://example.com/target.png",
+      gmTitle: "Target",
+      gmTags: [],
+      difficulty: 3,
+      reveal: {},
+      stats: {
+        submissions: 1,
+        topScore: 64,
+      },
+    };
+    state.scores["round-1"] = {
+      host: {
+        uid: "host",
+        displayName: "Host",
+        bestScore: 64,
+        bestImageUrl: "https://example.com/host.png",
+        bestPromptPublic: "prompt",
+        updatedAt: now,
+        expiresAt: dateAfterHours(24),
+      },
+    };
+
+    const roundSnapshot = buildRoomViewSnapshot({
+      state,
+      uid: "host",
+      view: "round",
+    }) as unknown as {
+      scores: Array<{ bestScore: number; totalScore: number }>;
+    };
+    const resultsSnapshot = buildRoomViewSnapshot({
+      state,
+      uid: "host",
+      view: "results",
+    }) as unknown as {
+      scores: Array<{ bestScore: number; totalScore: number }>;
+    };
+
+    expect(roundSnapshot.scores[0]).toMatchObject({
+      bestScore: 64,
+      totalScore: 142,
+    });
+    expect(resultsSnapshot.scores[0]).toMatchObject({
+      bestScore: 64,
+      totalScore: 142,
+    });
+  });
+});
+
 function createImpostorState() {
   const now = new Date("2026-04-07T10:00:00.000Z");
   const state = createRoomState({

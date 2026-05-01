@@ -9,14 +9,16 @@ interface ScoreEntry {
   uid: string;
   displayName: string;
   bestScore: number;
+  totalScore?: number;
 }
 
 interface ScoreboardProps {
   entries: ScoreEntry[];
   myUid?: string;
+  showTotals?: boolean;
 }
 
-export function Scoreboard({ entries, myUid }: ScoreboardProps) {
+export function Scoreboard({ entries, myUid, showTotals = false }: ScoreboardProps) {
   const { copy } = useLanguage();
   const sorted = [...entries].sort((a, b) => b.bestScore - a.bestScore);
 
@@ -37,7 +39,19 @@ export function Scoreboard({ entries, myUid }: ScoreboardProps) {
             <p className="truncate text-sm font-semibold">
               {index + 1}. {entry.displayName}
             </p>
-            <p className="font-mono text-lg font-bold">{entry.bestScore}</p>
+            <div className="text-right">
+              <p className="font-mono text-lg font-bold">
+                <span className="mr-1 text-[10px] tracking-[0.16em] uppercase">
+                  {showTotals ? copy.common.round : ""}
+                </span>
+                {entry.bestScore}
+              </p>
+              {showTotals ? (
+                <p className="font-mono text-[11px] font-black tracking-[0.08em] uppercase">
+                  {copy.common.total}: {entry.totalScore ?? entry.bestScore}
+                </p>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>

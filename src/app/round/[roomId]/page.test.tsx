@@ -332,6 +332,46 @@ describe("RoundPage Aha results shortcut", () => {
 
     expect(screen.getByText("1. Guest")).not.toBeNull();
     expect(screen.getByText("0")).not.toBeNull();
+    expect(screen.queryByText(/Total/i)).toBeNull();
+  });
+
+  it("separates round and total scores in classic round rankings", () => {
+    const now = Date.now();
+    roundSnapshot.room.settings.gameMode = "classic";
+    roundSnapshot.room.settings.roundSeconds = 30;
+    roundSnapshot.round.status = "IN_ROUND";
+    roundSnapshot.round.promptStartsAt = new Date(now - 5_000).toISOString();
+    roundSnapshot.round.endsAt = new Date(now + 25_000).toISOString();
+    delete (roundSnapshot.round as { modeState?: unknown }).modeState;
+    (roundSnapshot as { mySubmission: unknown }).mySubmission = null;
+    roundSnapshot.attempts = null;
+    (roundSnapshot as {
+      scores: Array<{
+        uid: string;
+        displayName: string;
+        bestScore: number;
+        totalScore: number;
+        bestImageUrl: string;
+      }>;
+    }).scores = [
+      {
+        uid: "host",
+        displayName: "Host",
+        bestScore: 80,
+        totalScore: 130,
+        bestImageUrl: "https://example.com/host.png",
+      },
+    ];
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <RoundPage />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("1. Host")).not.toBeNull();
+    expect(screen.getAllByText("Round").length).toBeGreaterThan(0);
+    expect(screen.getByText("Total: 130")).not.toBeNull();
   });
 
   it("keeps the Aha image click target visually still on hover", () => {
