@@ -138,6 +138,23 @@ function createRequest(body: Record<string, unknown>) {
   });
 }
 
+function mockSuccessfulSubmit(score: number, imageUrl: string) {
+  mockGenerateImage.mockResolvedValueOnce({
+    mimeType: "image/png",
+    base64Data: Buffer.from(`generated-image-${score}`).toString("base64"),
+    directUrl: imageUrl,
+  });
+  mockImageToPublicUrl.mockReturnValue(imageUrl);
+  mockScoreImageSimilarity.mockResolvedValueOnce({
+    score,
+    matchedElements: ["subject"],
+    missingElements: [],
+    note: "close match",
+  });
+  mockImageToBuffer.mockReturnValue(Buffer.from(`generated-image-${score}`));
+  mockUploadImageToStorage.mockResolvedValueOnce(imageUrl);
+}
+
 describe("POST /api/rounds/submit reservations", () => {
   beforeEach(() => {
     roomStateTest.resetMemoryStore();
@@ -391,6 +408,101 @@ describe("POST /api/rounds/submit reservations", () => {
         language: "ja",
       }),
     );
+  });
+
+  it("adds classic scores across rounds while keeping round scores separate", async () => {
+    const initialState = createRoundState();
+    initialState.room.settings.totalRounds = 2;
+    await saveRoomState(initialState);
+
+    const { POST } = await import("@/app/api/rounds/submit/route");
+    mockSuccessfulSubmit(40, "https://blob.example/round-1.png");
+
+    const firstResponse = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "first prompt",
+      }),
+    );
+
+    expect(firstResponse.status).toBe(200);
+    let state = await loadRoomState("ROOM1");
+    expect(state?.players.anon_1.totalScore).toBe(40);
+    expect(state?.scores["round-1"]?.anon_1?.bestScore).toBe(40);
+
+    if (!state) {
+      throw new Error("Room state was not saved.");
+    }
+
+    const now = new Date("2026-04-07T10:00:00.000Z");
+    state.room.currentRoundId = "round-2";
+    state.room.roundIndex = 2;
+    state.rounds["round-2"] = {
+      ...state.rounds["round-1"]!,
+      roundId: "round-2",
+      index: 2,
+      createdAt: now,
+      startedAt: now,
+      promptStartsAt: now,
+      endsAt: new Date(now.getTime() + 60_000),
+      stats: {
+        submissions: 0,
+        topScore: 0,
+      },
+    };
+    state.roundPrivates["round-2"] = {
+      ...state.roundPrivates["round-1"]!,
+      roundId: "round-2",
+      createdAt: now,
+    };
+    await saveRoomState(state);
+
+    mockSuccessfulSubmit(60, "https://blob.example/round-2.png");
+    const secondResponse = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-2",
+        prompt: "second prompt",
+      }),
+    );
+
+    expect(secondResponse.status).toBe(200);
+    state = await loadRoomState("ROOM1");
+    expect(state?.players.anon_1.totalScore).toBe(100);
+    expect(state?.scores["round-1"]?.anon_1?.bestScore).toBe(40);
+    expect(state?.scores["round-2"]?.anon_1?.bestScore).toBe(60);
+  });
+
+  it("updates same-round total score by best-score delta instead of double counting", async () => {
+    const state = createRoundState();
+    state.room.settings.maxAttempts = 2;
+    await saveRoomState(state);
+
+    const { POST } = await import("@/app/api/rounds/submit/route");
+    mockSuccessfulSubmit(70, "https://blob.example/attempt-1.png");
+    await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "first prompt",
+      }),
+    );
+
+    mockSuccessfulSubmit(90, "https://blob.example/attempt-2.png");
+    const response = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "second prompt",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const updated = await loadRoomState("ROOM1");
+    expect(updated?.players.anon_1.totalScore).toBe(90);
+    expect(updated?.attempts["round-1"]?.anon_1?.bestScore).toBe(90);
+    expect(updated?.scores["round-1"]?.anon_1?.bestScore).toBe(90);
   });
 
   it("uses a localized fallback judge note when Gemini returns an empty note", async () => {

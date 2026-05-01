@@ -133,6 +133,7 @@ export interface ScoreEntry {
   uid: string;
   displayName: string;
   bestScore: number;
+  totalScore: number;
   bestImageUrl: string;
   bestPromptPublic?: string;
 }
@@ -544,13 +545,17 @@ function normalizeScores(value: unknown): ScoreEntry[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isRecord)
-    .map((entry) => ({
-      uid: asString(entry.uid) ?? "",
-      displayName: asString(entry.displayName) ?? "",
-      bestScore: asNumber(entry.bestScore) ?? 0,
-      bestImageUrl: asString(entry.bestImageUrl) ?? "",
-      bestPromptPublic: asString(entry.bestPromptPublic) ?? undefined,
-    }))
+    .map((entry) => {
+      const bestScore = asNumber(entry.bestScore) ?? 0;
+      return {
+        uid: asString(entry.uid) ?? "",
+        displayName: asString(entry.displayName) ?? "",
+        bestScore,
+        totalScore: asNumber(entry.totalScore) ?? bestScore,
+        bestImageUrl: asString(entry.bestImageUrl) ?? "",
+        bestPromptPublic: asString(entry.bestPromptPublic) ?? undefined,
+      };
+    })
     .filter((entry) => entry.uid.length > 0);
 }
 

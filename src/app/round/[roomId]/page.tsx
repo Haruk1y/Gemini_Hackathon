@@ -331,6 +331,8 @@ export default function RoundPage() {
       : null;
   const isChangeMode = Boolean(changeModeState);
   const isImpostorMode = Boolean(impostorModeState);
+  const showClassicMemoryTotals =
+    currentGameMode === "classic" || currentGameMode === "memory";
   const isMyTurn = Boolean(snapshot.isMyTurn);
   const mySubmission = snapshot.mySubmission;
   const myRole = snapshot.myRole;
@@ -1511,8 +1513,11 @@ export default function RoundPage() {
                   ) : null}
                   {effectiveGeneratedImagePhase === "DONE" &&
                   typeof latestAttempt?.score === "number" ? (
-                    <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black">
-                      {latestAttempt.score} pts
+                    <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-right font-mono text-sm font-black">
+                      <span className="mr-1 text-[10px] tracking-[0.12em] uppercase">
+                        {copy.common.round}
+                      </span>
+                      {latestAttempt.score}
                     </p>
                   ) : null}
                 </div>
@@ -1570,7 +1575,11 @@ export default function RoundPage() {
         </Card>
 
         <div className="flex min-h-0 flex-col gap-3">
-          <Scoreboard entries={scores} myUid={user?.uid} />
+          <Scoreboard
+            entries={scores}
+            myUid={user?.uid}
+            showTotals={showClassicMemoryTotals}
+          />
 
           <Card className="min-h-0 bg-white p-3">
             <h3 className="mb-2 text-sm">{copy.round.everyoneBestImages}</h3>
@@ -1582,7 +1591,13 @@ export default function RoundPage() {
                     className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2"
                   >
                     <p className="mb-1 truncate text-xs font-bold">
-                      {entry.displayName} ({entry.bestScore} pts)
+                      {entry.displayName}
+                    </p>
+                    <p className="mb-1 font-mono text-[10px] font-black tracking-[0.08em] uppercase">
+                      {copy.common.round}: {entry.bestScore}
+                      {showClassicMemoryTotals
+                        ? ` / ${copy.common.total}: ${entry.totalScore}`
+                        : ""}
                     </p>
                     <img
                       src={

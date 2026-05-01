@@ -1161,6 +1161,7 @@ export default function ResultsPage() {
                   <Podium
                     entries={sortedScores}
                     myUid={user?.uid}
+                    showTotals
                     myEntryFooter={
                       <Button
                         type="button"

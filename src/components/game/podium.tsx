@@ -14,6 +14,7 @@ interface Entry {
   uid: string;
   displayName: string;
   bestScore: number;
+  totalScore?: number;
   bestImageUrl?: string;
   bestPromptPublic?: string;
 }
@@ -22,9 +23,15 @@ interface PodiumProps {
   entries: Entry[];
   myUid?: string;
   myEntryFooter?: ReactNode;
+  showTotals?: boolean;
 }
 
-export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
+export function Podium({
+  entries,
+  myUid,
+  myEntryFooter,
+  showTotals = false,
+}: PodiumProps) {
   const { copy } = useLanguage();
   const sorted = [...entries].sort((a, b) => b.bestScore - a.bestScore);
 
@@ -58,7 +65,25 @@ export function Podium({ entries, myUid, myEntryFooter }: PodiumProps) {
               {entry.displayName}
               {entry.uid === myUid ? <Badge className="bg-white">{copy.common.you}</Badge> : null}
             </p>
-            <p className="font-mono text-3xl font-black">{entry.bestScore}</p>
+            <div className="mt-1 rounded-lg border-2 border-[var(--pmb-ink)] bg-white px-2 py-1">
+              {showTotals ? (
+                <>
+                  <p className="text-[10px] font-black tracking-[0.14em] uppercase">
+                    {copy.common.roundScore}
+                  </p>
+                  <p className="font-mono text-3xl leading-none font-black">
+                    {entry.bestScore}
+                  </p>
+                  <p className="mt-1 font-mono text-xs font-black tracking-[0.1em] uppercase">
+                    {copy.common.total}: {entry.totalScore ?? entry.bestScore}
+                  </p>
+                </>
+              ) : (
+                <p className="font-mono text-3xl leading-none font-black">
+                  {entry.bestScore}
+                </p>
+              )}
+            </div>
             <div className="mt-2 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 text-left">
               <p className="text-[10px] font-black uppercase tracking-wide">{copy.common.prompt}</p>
               <p className="mt-1 h-16 overflow-y-auto font-mono text-[11px] font-semibold leading-tight">

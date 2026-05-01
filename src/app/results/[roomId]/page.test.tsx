@@ -66,9 +66,25 @@ vi.mock("@/lib/client/room-presence", () => ({
 vi.mock("@/components/game/podium", () => ({
   Podium: ({
     entries,
+    showTotals,
   }: {
-    entries: Array<{ displayName: string }>;
-  }) => <div data-testid="podium">{entries.map((entry) => entry.displayName).join(", ")}</div>,
+    entries: Array<{
+      displayName: string;
+      bestScore: number;
+      totalScore?: number;
+    }>;
+    showTotals?: boolean;
+  }) => (
+    <div data-testid="podium">
+      {showTotals ? "Round Score / Total Score / " : ""}
+      {entries
+        .map(
+          (entry) =>
+            `${entry.displayName}:${entry.bestScore}/${entry.totalScore}`,
+        )
+        .join(", ")}
+    </div>
+  ),
 }));
 
 function createResultsSnapshot(params?: {
@@ -122,12 +138,14 @@ function createResultsSnapshot(params?: {
         uid: "host",
         displayName: "Host",
         bestScore: 91,
+        totalScore: 191,
         bestImageUrl: "https://example.com/host.png",
       },
       {
         uid: "guest",
         displayName: "Guest",
         bestScore: 88,
+        totalScore: 188,
         bestImageUrl: "https://example.com/guest.png",
       },
     ],
@@ -138,7 +156,7 @@ function createResultsSnapshot(params?: {
         kind: "human" as const,
         ready: false,
         isHost: true,
-        totalScore: 91,
+        totalScore: 191,
       },
       {
         uid: "guest",
@@ -146,7 +164,7 @@ function createResultsSnapshot(params?: {
         kind: "human" as const,
         ready: false,
         isHost: false,
-        totalScore: 88,
+        totalScore: 188,
       },
     ],
     attempts: null,
@@ -352,6 +370,20 @@ describe("ResultsPage lobby return flow", () => {
     });
   });
 
+  it("separates round and total scores in classic results podium", async () => {
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    const podium = await screen.findByTestId("podium");
+    expect(podium.textContent).toContain("Round Score");
+    expect(podium.textContent).toContain("Total Score");
+    expect(podium.textContent).toContain("Host:91/191");
+    expect(podium.textContent).toContain("Guest:88/188");
+  });
+
   it("shows the change summary in Aha Moment results", async () => {
     snapshotState = createChangeResultsSnapshot();
 
@@ -369,6 +401,7 @@ describe("ResultsPage lobby return flow", () => {
       screen.queryByText(/replace the yellow mug with a blue glass bottle/i),
     ).not.toBeNull();
     expect(screen.queryByText("Answer Area")).toBeNull();
+    expect(screen.queryByText("Total Score")).toBeNull();
   });
 
   it("scrolls the full Aha click-results column instead of clipping lower cards", async () => {

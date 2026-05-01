@@ -71,6 +71,37 @@ describe("normalizeSnapshot", () => {
     expect(snapshot.attempts?.attempts[0]?.status).toBe("GENERATING");
   });
 
+  it("normalizes score totals while preserving legacy score payloads", () => {
+    const snapshot = normalizeSnapshot({
+      scores: [
+        {
+          uid: "anon_1",
+          displayName: "Alice",
+          bestScore: 42,
+          totalScore: 120,
+          bestImageUrl: "https://example.com/alice.png",
+        },
+        {
+          uid: "anon_2",
+          displayName: "Bob",
+          bestScore: 35,
+          bestImageUrl: "https://example.com/bob.png",
+        },
+      ],
+    });
+
+    expect(snapshot.scores[0]).toMatchObject({
+      uid: "anon_1",
+      bestScore: 42,
+      totalScore: 120,
+    });
+    expect(snapshot.scores[1]).toMatchObject({
+      uid: "anon_2",
+      bestScore: 35,
+      totalScore: 35,
+    });
+  });
+
   it("keeps transition payloads usable when only current player is provided", () => {
     const snapshot = normalizeSnapshot({
       room: {
