@@ -66,7 +66,6 @@ describe("HomePageClient", () => {
       "Display name (at least 1 character)",
     )[0];
     await user.type(createNameInput, "Haruki");
-    await user.click(screen.getByRole("button", { name: "Settings" }));
 
     const imageModelSection = screen.getByText("Image Model").closest("div");
     const promptModelSection = screen.getByText("Prompt Model").closest("div");

@@ -212,7 +212,7 @@ export default function HomePageClient({
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [createError, setCreateError] = useState<UiError | null>(null);
   const [joinError, setJoinError] = useState<UiError | null>(null);
-  const [activeMenuTab, setActiveMenuTab] = useState<HomeMenuTab>("daily");
+  const [activeMenuTab, setActiveMenuTab] = useState<HomeMenuTab>("settings");
   const [coins, setCoins] = useState(120);
   const [claimedQuestIds, setClaimedQuestIds] = useState<string[]>([]);
   const [claimedAchievementIds, setClaimedAchievementIds] = useState<string[]>(
@@ -510,25 +510,31 @@ export default function HomePageClient({
   return (
     <main className="page-enter mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
       <header className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Card className="min-w-0 bg-[var(--pmb-yellow)] p-6 md:p-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-3xl leading-tight md:text-5xl">PrompDojo</h1>
-              <p className="mt-3 w-full text-base leading-relaxed font-semibold md:text-xl">
-                {copy.home.heroLine1}
-                <br />
-                {copy.home.heroLine2}
-              </p>
-            </div>
+        <Card className="relative min-w-0 bg-[var(--pmb-yellow)] p-6 md:p-8">
+          <div className="min-w-0">
+            <h1 className="pr-36 text-3xl leading-tight md:text-5xl">
+              PrompDojo
+            </h1>
+            <p className="mt-3 w-full text-base leading-relaxed font-semibold md:text-xl">
+              {copy.home.heroLine1}
+              <br />
+              {copy.home.heroLine2}
+            </p>
+          </div>
 
-            <div className="inline-flex w-fit min-w-28 items-center justify-center gap-2 rounded-[10px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-2 text-sm font-black whitespace-nowrap shadow-[4px_4px_0_var(--pmb-ink)]">
-              <Coins size={18} aria-hidden="true" />
-              {copy.home.coins(coins)}
-            </div>
+          <div className="absolute top-6 right-6 inline-flex w-fit min-w-28 items-center justify-center gap-2 rounded-[10px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-2 text-sm font-black whitespace-nowrap shadow-[4px_4px_0_var(--pmb-ink)] md:top-8 md:right-8">
+            <Coins size={18} aria-hidden="true" />
+            {copy.home.coins(coins)}
           </div>
 
           <div className="mt-7">
             <div className="grid max-w-xl grid-cols-3 gap-3">
+              <HomeMenuButton
+                active={activeMenuTab === "settings"}
+                label={copy.home.settings}
+                icon={<Settings size={17} aria-hidden="true" />}
+                onClick={() => setActiveMenuTab("settings")}
+              />
               <HomeMenuButton
                 active={activeMenuTab === "daily"}
                 label={copy.home.dailyQuest}
@@ -542,12 +548,6 @@ export default function HomePageClient({
                 icon={<Trophy size={17} aria-hidden="true" />}
                 showAlert={claimableAchievements.length > 0}
                 onClick={() => setActiveMenuTab("achievements")}
-              />
-              <HomeMenuButton
-                active={activeMenuTab === "settings"}
-                label={copy.home.settings}
-                icon={<Settings size={17} aria-hidden="true" />}
-                onClick={() => setActiveMenuTab("settings")}
               />
             </div>
 
