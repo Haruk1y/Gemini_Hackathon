@@ -138,6 +138,12 @@ export interface ScoreEntry {
   bestPromptPublic?: string;
 }
 
+export interface RoundScoreHistoryEntry {
+  roundId: string;
+  roundIndex: number;
+  scores: ScoreEntry[];
+}
+
 export interface AttemptData {
   attemptsUsed: number;
   hintUsed?: number;
@@ -200,6 +206,7 @@ export interface RoomSyncSnapshot {
   finalSimilarityScore?: number | null;
   changeResults: ChangeResultData[];
   turnTimeline: TurnTimelineEntry[];
+  scoreHistory: RoundScoreHistoryEntry[];
   recentStamps: StampEventData[];
   revealLocked?: boolean;
 }
@@ -249,6 +256,7 @@ const EMPTY_SNAPSHOT: RoomSyncSnapshot = {
   finalSimilarityScore: null,
   changeResults: [],
   turnTimeline: [],
+  scoreHistory: [],
   recentStamps: [],
   revealLocked: false,
 };
@@ -574,6 +582,18 @@ function normalizeScores(value: unknown): ScoreEntry[] {
     .filter((entry) => entry.uid.length > 0);
 }
 
+function normalizeScoreHistory(value: unknown): RoundScoreHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      roundId: asString(entry.roundId) ?? "",
+      roundIndex: asNumber(entry.roundIndex) ?? 0,
+      scores: normalizeScores(entry.scores),
+    }))
+    .filter((entry) => entry.roundId.length > 0 && entry.roundIndex > 0);
+}
+
 function normalizeAttempts(value: unknown): AttemptData | null {
   if (!isRecord(value)) return null;
   const attemptsUsed = asNumber(value.attemptsUsed);
@@ -714,6 +734,7 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
           : undefined,
     changeResults: normalizeChangeResults(value.changeResults),
     turnTimeline: normalizeTurnTimeline(value.turnTimeline),
+    scoreHistory: normalizeScoreHistory(value.scoreHistory),
     recentStamps: normalizeRecentStamps(value.recentStamps),
     revealLocked:
       typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,

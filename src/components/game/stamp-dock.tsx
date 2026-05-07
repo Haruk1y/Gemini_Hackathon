@@ -3,6 +3,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { SmilePlus } from "lucide-react";
 
+import { useLanguage } from "@/components/providers/language-provider";
 import { apiPost } from "@/lib/client/api";
 import type { StampEventData } from "@/lib/client/room-sync";
 import { STAMPS } from "@/lib/game/stamps";
@@ -54,6 +55,7 @@ export function StampDock({
   recentStamps: StampEventData[];
   disabled?: boolean;
 }) {
+  const { language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [pendingStampId, setPendingStampId] = useState<string | null>(null);
   const [coolingDown, setCoolingDown] = useState(false);
@@ -141,7 +143,7 @@ export function StampDock({
                   {pendingStampId === stamp.id ? "..." : stamp.emoji}
                 </span>
                 <span className="mt-1 text-[11px] leading-tight">
-                  {stamp.label}
+                  {language === "ja" ? stamp.label : stamp.labelEn}
                 </span>
               </button>
             ))}
@@ -153,7 +155,7 @@ export function StampDock({
           disabled={disabledByState}
           onClick={() => setIsOpen((current) => !current)}
           className="pointer-events-auto inline-flex h-14 w-14 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] shadow-[5px_5px_0_var(--pmb-ink)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="スタンプ"
+          aria-label={language === "ja" ? "スタンプ" : "Stamps"}
         >
           <SmilePlus className="h-7 w-7" />
         </button>

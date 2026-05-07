@@ -7,6 +7,7 @@
   --pmb-blue: #00a8ff;
   --pmb-yellow: #ffd60a;
   --pmb-green: #2ecc71;
+  --pmb-orange: #ff9500;
 }
 
 @theme inline {
@@ -109,5 +110,23 @@ h4 {
     opacity: 0;
     transform: translate3d(calc(-50% + var(--stamp-drift)), 78vh, 0)
       rotate(var(--stamp-rotate-end)) scale(0.72);
+  }
+}
+
+.pmb-total-rank-row {
+  animation: pmb-total-rank-row 760ms cubic-bezier(0.2, 0.86, 0.22, 1)
+    var(--rank-delay) both;
+  will-change: transform;
+}
+
+@keyframes pmb-total-rank-row {
+  0% {
+    transform: translateY(var(--rank-shift)) scale(1);
+  }
+  65% {
+    transform: translateY(-4px) scale(1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
   }
 }

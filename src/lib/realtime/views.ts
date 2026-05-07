@@ -139,6 +139,17 @@ function getSortedScores(state: RoomState, roundId: string | null) {
     .sort((a, b) => b.bestScore - a.bestScore);
 }
 
+function getScoreHistory(state: RoomState) {
+  return Object.values(state.rounds)
+    .filter((round) => round.status === "RESULTS")
+    .sort((a, b) => a.index - b.index)
+    .map((round) => ({
+      roundId: round.roundId,
+      roundIndex: round.index,
+      scores: getSortedScores(state, round.roundId),
+    }));
+}
+
 function getLiveStamps(state: RoomState) {
   const now = Date.now();
   return (state.recentStamps ?? []).filter((event) => {
@@ -448,6 +459,7 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
           })),
         )
       : [],
+    scoreHistory: serializeForClient(getScoreHistory(state)),
     revealLocked,
   };
 }
