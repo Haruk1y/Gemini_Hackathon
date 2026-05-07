@@ -9,6 +9,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useLanguage } from "@/components/providers/language-provider";
 import { CountdownTimer } from "@/components/game/countdown-timer";
 import { Scoreboard } from "@/components/game/scoreboard";
+import { StampDock } from "@/components/game/stamp-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -284,6 +285,7 @@ export default function RoundPage() {
   const derivedScores = snapshot.scores as ScoreEntry[];
   const derivedAttempts = snapshot.attempts as AttemptData | null;
   const derivedPlayers = snapshot.players as PlayerData[];
+  const recentStamps = snapshot.recentStamps;
   const derivedPlayerCount = snapshot.playerCount || snapshot.players.length;
 
   const applyImageFallback = (element: HTMLImageElement, label: string) => {
@@ -796,6 +798,11 @@ export default function RoundPage() {
 
     return (
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-7xl flex-col gap-3 overflow-hidden px-4 py-3 md:px-6">
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isRoundLive}
+        />
         <Card className="bg-white p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -1113,6 +1120,11 @@ export default function RoundPage() {
 
     return (
       <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isRoundLive || isCpuTurn}
+        />
         <Card className="bg-white p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -1343,6 +1355,11 @@ export default function RoundPage() {
 
   return (
     <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+      <StampDock
+        roomId={roomId}
+        recentStamps={recentStamps}
+        disabled={!isRoundLive}
+      />
       <Card className="bg-white p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>

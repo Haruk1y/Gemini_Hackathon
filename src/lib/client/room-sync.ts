@@ -170,6 +170,17 @@ export interface TurnTimelineEntry {
   votedForUid?: string | null;
 }
 
+export interface StampEventData {
+  id: string;
+  uid: string;
+  displayName: string;
+  stampId: string;
+  emoji: string;
+  label: string;
+  createdAt?: unknown;
+  expiresAt?: unknown;
+}
+
 export interface RoomSyncSnapshot {
   room: RoomData | null;
   players: PlayerData[];
@@ -189,6 +200,7 @@ export interface RoomSyncSnapshot {
   finalSimilarityScore?: number | null;
   changeResults: ChangeResultData[];
   turnTimeline: TurnTimelineEntry[];
+  recentStamps: StampEventData[];
   revealLocked?: boolean;
 }
 
@@ -237,6 +249,7 @@ const EMPTY_SNAPSHOT: RoomSyncSnapshot = {
   finalSimilarityScore: null,
   changeResults: [],
   turnTimeline: [],
+  recentStamps: [],
   revealLocked: false,
 };
 
@@ -288,7 +301,9 @@ function normalizeImageModelSetting(value: unknown): ImageModel | null {
 }
 
 function normalizeTextModelSetting(value: unknown): TextModelVariant | null {
-  return value === "flash" || value === "flash-lite" || value === "gemini-2.5-flash" ||
+  return value === "flash" ||
+    value === "flash-lite" ||
+    value === "gemini-2.5-flash" ||
     value === "gemini-2.5-flash-lite"
     ? normalizeTextModelVariant(value)
     : null;
@@ -327,7 +342,9 @@ function normalizeNormalizedBox(value: unknown): NormalizedBoxData | null {
   };
 }
 
-function normalizeChangeSubmission(value: unknown): ChangeSubmissionData | null {
+function normalizeChangeSubmission(
+  value: unknown,
+): ChangeSubmissionData | null {
   if (!isRecord(value)) return null;
   const uid = asString(value.uid);
   const displayName = asString(value.displayName);
@@ -364,9 +381,7 @@ function normalizeChangeResults(value: unknown): ChangeResultData[] {
     if (!uid || !displayName) continue;
 
     const point =
-      rawEntry.point === null
-        ? null
-        : normalizeNormalizedPoint(rawEntry.point);
+      rawEntry.point === null ? null : normalizeNormalizedPoint(rawEntry.point);
     if (rawEntry.point !== null && !point) continue;
 
     results.push({
@@ -639,6 +654,29 @@ function normalizeTurnTimeline(value: unknown): TurnTimelineEntry[] {
     .filter((entry) => entry.uid.length > 0);
 }
 
+function normalizeRecentStamps(value: unknown): StampEventData[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      id: asString(entry.id) ?? "",
+      uid: asString(entry.uid) ?? "",
+      displayName: asString(entry.displayName) ?? "",
+      stampId: asString(entry.stampId) ?? "",
+      emoji: asString(entry.emoji) ?? "",
+      label: asString(entry.label) ?? "",
+      createdAt: entry.createdAt ?? undefined,
+      expiresAt: entry.expiresAt ?? undefined,
+    }))
+    .filter(
+      (entry) =>
+        entry.id.length > 0 &&
+        entry.uid.length > 0 &&
+        entry.stampId.length > 0 &&
+        entry.emoji.length > 0,
+    );
+}
+
 export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
   if (!isRecord(value)) {
     return { ...EMPTY_SNAPSHOT };
@@ -676,6 +714,7 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
           : undefined,
     changeResults: normalizeChangeResults(value.changeResults),
     turnTimeline: normalizeTurnTimeline(value.turnTimeline),
+    recentStamps: normalizeRecentStamps(value.recentStamps),
     revealLocked:
       typeof value.revealLocked === "boolean" ? value.revealLocked : undefined,
   };

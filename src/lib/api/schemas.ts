@@ -47,6 +47,11 @@ export const readySchema = z.object({
   ready: z.boolean(),
 });
 
+export const stampSchema = z.object({
+  roomId: z.string().trim().min(1),
+  stampId: z.string().trim().min(1).max(40),
+});
+
 export const roomOnlySchema = z.object({
   roomId: z.string().trim().min(1),
 });

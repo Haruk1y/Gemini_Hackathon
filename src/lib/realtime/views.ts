@@ -61,7 +61,10 @@ export function serializeForClient<T>(value: T): T {
 
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [key, serializeForClient(nested)]),
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        serializeForClient(nested),
+      ]),
     ) as T;
   }
 
@@ -111,19 +114,19 @@ export function shouldConcealRoundTarget(params: {
 }
 
 function getSortedPlayers(state: RoomState) {
-  return Object.values(state.players).sort(
-    (a, b) => {
-      const seatA = typeof a.seatOrder === "number" ? a.seatOrder : Number.MAX_SAFE_INTEGER;
-      const seatB = typeof b.seatOrder === "number" ? b.seatOrder : Number.MAX_SAFE_INTEGER;
-      if (seatA !== seatB) {
-        return seatA - seatB;
-      }
+  return Object.values(state.players).sort((a, b) => {
+    const seatA =
+      typeof a.seatOrder === "number" ? a.seatOrder : Number.MAX_SAFE_INTEGER;
+    const seatB =
+      typeof b.seatOrder === "number" ? b.seatOrder : Number.MAX_SAFE_INTEGER;
+    if (seatA !== seatB) {
+      return seatA - seatB;
+    }
 
-      const joinedA = parseDate(a.joinedAt)?.getTime() ?? 0;
-      const joinedB = parseDate(b.joinedAt)?.getTime() ?? 0;
-      return joinedA - joinedB;
-    },
-  );
+    const joinedA = parseDate(a.joinedAt)?.getTime() ?? 0;
+    const joinedB = parseDate(b.joinedAt)?.getTime() ?? 0;
+    return joinedA - joinedB;
+  });
 }
 
 function getSortedScores(state: RoomState, roundId: string | null) {
@@ -134,6 +137,14 @@ function getSortedScores(state: RoomState, roundId: string | null) {
       totalScore: state.players[entry.uid]?.totalScore ?? entry.bestScore,
     }))
     .sort((a, b) => b.bestScore - a.bestScore);
+}
+
+function getLiveStamps(state: RoomState) {
+  const now = Date.now();
+  return (state.recentStamps ?? []).filter((event) => {
+    const expiresAtMs = parseDate(event.expiresAt)?.getTime() ?? 0;
+    return expiresAtMs > now;
+  });
 }
 
 function getAttempts(state: RoomState, roundId: string | null, uid: string) {
@@ -191,7 +202,9 @@ function getOrderedImpostorTurnRecords(params: {
   });
 
   const orderedUidSet = new Set(params.turnOrder);
-  const extraRecords = params.turnRecords.filter((record) => !orderedUidSet.has(record.uid));
+  const extraRecords = params.turnRecords.filter(
+    (record) => !orderedUidSet.has(record.uid),
+  );
 
   return [...orderedRecords, ...extraRecords];
 }
@@ -242,14 +255,16 @@ function buildLobbySnapshot(state: RoomState, uid: string) {
         cpuCount: state.room.settings.cpuCount,
       },
     },
-    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
+    players: getSortedPlayers(state).map((player) =>
+      serializeForClient(player),
+    ),
     meUid: uid,
   };
 }
 
 function buildRoundSnapshot(state: RoomState, uid: string) {
   const currentRoundId = state.room.currentRoundId;
-  const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
+  const round = currentRoundId ? (state.rounds[currentRoundId] ?? null) : null;
   const attemptData = getAttempts(state, currentRoundId, uid);
   const impostor = getImpostorModeState(state, currentRoundId);
   const change = getChangeModeState(state, currentRoundId);
@@ -262,7 +277,8 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
   if (impostor) {
     currentTurnUid = impostor.round.modeState.currentTurnUid;
     isMyTurn =
-      impostor.round.modeState.phase === "CHAIN" && impostor.round.modeState.currentTurnUid === uid;
+      impostor.round.modeState.phase === "CHAIN" &&
+      impostor.round.modeState.currentTurnUid === uid;
     myRole = impostor.roundPrivate.modeState.rolesByUid[uid] ?? null;
 
     if (!isMyTurn && impostor.round.modeState.phase === "CHAIN") {
@@ -309,44 +325,58 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
           targetThumbUrl: shouldConcealTarget ? "" : roundData.targetThumbUrl,
         })
       : null,
-    scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
+    scores: getSortedScores(state, currentRoundId).map((entry) =>
+      serializeForClient(entry),
+    ),
     attempts: attemptData ? serializeForClient(attemptData) : null,
     mySubmission: change
-      ? serializeForClient(change.roundPrivate.modeState.submissionsByUid[uid] ?? null)
+      ? serializeForClient(
+          change.roundPrivate.modeState.submissionsByUid[uid] ?? null,
+        )
       : null,
-    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
+    players: getSortedPlayers(state).map((player) =>
+      serializeForClient(player),
+    ),
+    recentStamps: getLiveStamps(state).map((event) =>
+      serializeForClient(event),
+    ),
     playerCount: getSortedPlayers(state).length,
     myRole,
     isMyTurn,
     currentTurnUid,
-    turnTimeline: impostor && impostor.round.modeState.phase !== "CHAIN"
-      ? serializeForClient(
-          getOrderedImpostorTurnRecords({
-            turnOrder: impostor.round.modeState.turnOrder,
-            turnRecords: impostor.roundPrivate.modeState.turnRecords,
-          }).map((record) => ({
-            uid: record.uid,
-            displayName: record.displayName,
-            kind: record.kind,
-            imageUrl: record.imageUrl,
-            similarityScore: record.similarityScore,
-            matchedElements: record.matchedElements,
-            missingElements: record.missingElements,
-            judgeNote: record.judgeNote,
-            timedOut: record.timedOut ?? false,
-          })),
-        )
-      : [],
+    turnTimeline:
+      impostor && impostor.round.modeState.phase !== "CHAIN"
+        ? serializeForClient(
+            getOrderedImpostorTurnRecords({
+              turnOrder: impostor.round.modeState.turnOrder,
+              turnRecords: impostor.roundPrivate.modeState.turnRecords,
+            }).map((record) => ({
+              uid: record.uid,
+              displayName: record.displayName,
+              kind: record.kind,
+              imageUrl: record.imageUrl,
+              similarityScore: record.similarityScore,
+              matchedElements: record.matchedElements,
+              missingElements: record.missingElements,
+              judgeNote: record.judgeNote,
+              timedOut: record.timedOut ?? false,
+            })),
+          )
+        : [],
   };
 }
 
 function buildResultsSnapshot(state: RoomState, uid: string) {
   const currentRoundId = state.room.currentRoundId;
-  const round = currentRoundId ? state.rounds[currentRoundId] ?? null : null;
-  const attempts = currentRoundId ? state.attempts[currentRoundId]?.[uid] ?? null : null;
+  const round = currentRoundId ? (state.rounds[currentRoundId] ?? null) : null;
+  const attempts = currentRoundId
+    ? (state.attempts[currentRoundId]?.[uid] ?? null)
+    : null;
   const impostor = getImpostorModeState(state, currentRoundId);
   const change = getChangeModeState(state, currentRoundId);
-  const revealLocked = impostor ? impostor.round.modeState.phase !== "REVEAL" : false;
+  const revealLocked = impostor
+    ? impostor.round.modeState.phase !== "REVEAL"
+    : false;
   const votesByUid = impostor?.roundPrivate.modeState.votesByUid ?? {};
 
   return {
@@ -364,8 +394,15 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
       },
     },
     round: round ? serializeForClient(round) : null,
-    scores: getSortedScores(state, currentRoundId).map((entry) => serializeForClient(entry)),
-    players: getSortedPlayers(state).map((player) => serializeForClient(player)),
+    scores: getSortedScores(state, currentRoundId).map((entry) =>
+      serializeForClient(entry),
+    ),
+    players: getSortedPlayers(state).map((player) =>
+      serializeForClient(player),
+    ),
+    recentStamps: getLiveStamps(state).map((event) =>
+      serializeForClient(event),
+    ),
     myAttempts: attempts ? serializeForClient(attempts) : null,
     changeResults:
       change && round?.status === "RESULTS"
@@ -385,7 +422,9 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
         }
       : null,
     finalSimilarityScore:
-      impostor?.roundPrivate.modeState.finalJudge?.score ?? impostor?.round.modeState.finalSimilarityScore ?? null,
+      impostor?.roundPrivate.modeState.finalJudge?.score ??
+      impostor?.round.modeState.finalSimilarityScore ??
+      null,
     turnTimeline: impostor
       ? serializeForClient(
           getOrderedImpostorTurnRecords({
@@ -403,7 +442,9 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
             prompt: revealLocked ? undefined : record.prompt,
             role: revealLocked ? undefined : record.role,
             timedOut: record.timedOut ?? false,
-            votedForUid: revealLocked ? undefined : votesByUid[record.uid] ?? null,
+            votedForUid: revealLocked
+              ? undefined
+              : (votesByUid[record.uid] ?? null),
           })),
         )
       : [],

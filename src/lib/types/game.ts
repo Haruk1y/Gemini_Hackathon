@@ -35,17 +35,11 @@ export function normalizeTextModelVariant(
   value: unknown,
   fallback: TextModelVariant = "flash",
 ): TextModelVariant {
-  if (
-    value === "flash-lite" ||
-    value === "gemini-2.5-flash-lite"
-  ) {
+  if (value === "flash-lite" || value === "gemini-2.5-flash-lite") {
     return "flash-lite";
   }
 
-  if (
-    value === "flash" ||
-    value === "gemini-2.5-flash"
-  ) {
+  if (value === "flash" || value === "gemini-2.5-flash") {
     return "flash";
   }
 
@@ -97,6 +91,17 @@ export interface RoomDoc {
   ui: {
     theme: "neo-brutal";
   };
+}
+
+export interface StampEventDoc {
+  id: string;
+  uid: string;
+  displayName: string;
+  stampId: string;
+  emoji: string;
+  label: string;
+  createdAt: Date;
+  expiresAt: Date;
 }
 
 export interface PreparedRoundDoc {

@@ -8,6 +8,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Podium } from "@/components/game/podium";
+import { StampDock } from "@/components/game/stamp-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -137,12 +138,15 @@ function ChangeResultImage({
   fitMode?: "answer-crop" | "contain";
 }) {
   const [imageSize, setImageSize] = useState<NaturalImageSize | null>(null);
-  const imageAspectRatio = imageSize ? imageSize.width / imageSize.height : null;
+  const imageAspectRatio = imageSize
+    ? imageSize.width / imageSize.height
+    : null;
   const crop =
     fitMode === "answer-crop" && answerBox && imageSize
       ? computeAnswerCenteredSquareCrop(answerBox, imageSize)
       : null;
-  const projectedBox = answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
+  const projectedBox =
+    answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
   const projectedPoint = point && crop ? projectPointToCrop(point, crop) : null;
   const containedBox =
     fitMode === "contain" && answerBox && imageAspectRatio
@@ -251,6 +255,7 @@ export default function ResultsPage() {
   const voteProgress = activeSnapshot.voteProgress;
   const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
   const turnTimeline = activeSnapshot.turnTimeline;
+  const recentStamps = activeSnapshot.recentStamps;
   const revealLocked = Boolean(activeSnapshot.revealLocked);
   const myRole = activeSnapshot.myRole;
   const me = user?.uid
@@ -420,7 +425,16 @@ export default function ResultsPage() {
   };
 
   const onVote = async (targetUid: string) => {
-    if (!liveRoom || !liveRound || !room || !round || !me || voteBusy || !revealLocked) return;
+    if (
+      !liveRoom ||
+      !liveRound ||
+      !room ||
+      !round ||
+      !me ||
+      voteBusy ||
+      !revealLocked
+    )
+      return;
     if (liveRoom.status !== "RESULTS") return;
 
     setVoteBusy(true);
@@ -449,11 +463,18 @@ export default function ResultsPage() {
 
   if (isChangeMode) {
     const answerBox = round.reveal?.answerBox;
-    const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
-    const changeSummaryText = round.reveal?.changeSummary?.trim() || copy.common.none;
+    const changedImageUrl =
+      round.modeState?.changedImageUrl || round.targetImageUrl;
+    const changeSummaryText =
+      round.reveal?.changeSummary?.trim() || copy.common.none;
 
     return (
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isResultsPhase}
+        />
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div>
             <p className="text-sm font-black tracking-wide uppercase">
@@ -543,7 +564,9 @@ export default function ResultsPage() {
                         <ChangeResultImage
                           imageUrl={
                             entry.imageUrl ||
-                            placeholderImageUrl(`${round.gmTitle}-${entry.label}`)
+                            placeholderImageUrl(
+                              `${round.gmTitle}-${entry.label}`,
+                            )
                           }
                           alt={entry.label}
                           answerBox={answerBox}
@@ -660,6 +683,11 @@ export default function ResultsPage() {
           useFixedDesktopVoteGrid ? "gap-2.5" : "gap-3",
         )}
       >
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isResultsPhase}
+        />
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div className="min-w-0">
             <p className="text-sm font-black tracking-wide uppercase">
@@ -726,9 +754,7 @@ export default function ResultsPage() {
                 {copy.results.returningToLobby}
               </p>
             ) : lobbyHintMessage ? (
-              <p className="text-xs font-semibold">
-                {lobbyHintMessage}
-              </p>
+              <p className="text-xs font-semibold">{lobbyHintMessage}</p>
             ) : null}
           </div>
         </header>
@@ -1047,6 +1073,11 @@ export default function ResultsPage() {
 
   return (
     <>
+      <StampDock
+        roomId={roomId}
+        recentStamps={recentStamps}
+        disabled={!isResultsPhase}
+      />
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div>
@@ -1157,7 +1188,7 @@ export default function ResultsPage() {
                 <p className="h-7 text-base font-black md:text-lg">
                   {copy.results.generatedImages}
                 </p>
-                <div className="mt-2 min-h-0 flex-1 overflow-auto pb-2 pr-1">
+                <div className="mt-2 min-h-0 flex-1 overflow-auto pr-1 pb-2">
                   <Podium
                     entries={sortedScores}
                     myUid={user?.uid}
