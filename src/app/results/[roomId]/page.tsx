@@ -286,7 +286,7 @@ function AnimatedTotalScore({
   }, [delayMs, from, to]);
 
   return (
-    <span className="font-mono text-3xl leading-none font-black tabular-nums">
+    <span className="font-mono text-4xl leading-none font-black tabular-nums md:text-5xl">
       {displayScore}
     </span>
   );
@@ -318,8 +318,8 @@ function RankTrendIcon({ rankDelta }: { rankDelta: number }) {
   }
 
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-orange)] text-white">
-      <ArrowRight className="h-6 w-6 stroke-[4]" />
+    <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-zinc-300 font-mono text-2xl leading-none font-black text-[var(--pmb-ink)]">
+      -
     </div>
   );
 }
@@ -475,10 +475,12 @@ function TotalScoreBoard({
                   key={`${round.roundId}-timeline-label`}
                   className="flex shrink-0 items-center gap-2"
                 >
-                  <div className="w-32 text-center font-mono text-sm font-black md:w-36">
-                    R{round.roundIndex}
+                  <div className="w-32 text-center font-mono text-lg leading-none font-black md:w-36 md:text-xl">
+                    Round{round.roundIndex}
                   </div>
-                  {roundIndex < rounds.length - 1 ? <TimelineArrow /> : null}
+                  {roundIndex < rounds.length - 1 ? (
+                    <div className="w-12 shrink-0" aria-hidden="true" />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -510,13 +512,16 @@ function TotalScoreBoard({
                   } as CSSProperties
                 }
               >
-                <div className="grid min-w-0 grid-cols-[56px_minmax(0,max-content)_44px] items-center gap-2 py-3 pl-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border-4 border-[var(--pmb-ink)] bg-white font-mono text-xl font-black">
-                    #{index + 1}
+                <div className="grid min-w-[220px] grid-cols-[72px_minmax(0,1fr)] items-center gap-4 py-3 pr-5 pl-3">
+                  <div className="flex shrink-0 flex-col items-center gap-1 self-start pt-1">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border-4 border-[var(--pmb-ink)] bg-white font-mono text-2xl leading-none font-black">
+                      #{index + 1}
+                    </div>
+                    <RankTrendIcon rankDelta={rankDelta} />
                   </div>
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-lg font-black">
+                      <p className="truncate text-xl leading-tight font-black md:text-2xl">
                         {entry.displayName}
                       </p>
                     </div>
@@ -527,9 +532,6 @@ function TotalScoreBoard({
                         delayMs={TOTAL_RANKING_ANIMATION_START_DELAY_MS}
                       />
                     </div>
-                  </div>
-                  <div className="flex justify-center">
-                    <RankTrendIcon rankDelta={rankDelta} />
                   </div>
                 </div>
 
@@ -542,7 +544,7 @@ function TotalScoreBoard({
                           className="flex shrink-0 items-center gap-2"
                         >
                           <div className="relative w-32 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 md:w-36">
-                            <div className="absolute top-1 left-1 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] px-2 py-0.5 font-mono text-xs font-black text-white">
+                            <div className="absolute top-1 left-1 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-ink)] px-3 py-1 font-mono text-base leading-none font-black text-white">
                               {round.score}
                             </div>
                             <img
@@ -683,6 +685,7 @@ export default function ResultsPage() {
     myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
   const [showTotalRanking, setShowTotalRanking] = useState(false);
+  const totalRankingLabel = language === "ja" ? "合計順位" : "Total Ranking";
 
   useEffect(() => {
     setShowTotalRanking(false);
@@ -836,7 +839,9 @@ export default function ResultsPage() {
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="text-4xl leading-none md:text-5xl">
-                {showTotalRanking ? "合計順位" : copy.results.clickResults}
+                {showTotalRanking
+                  ? totalRankingLabel
+                  : copy.results.clickResults}
               </h1>
               <Badge className="bg-white">{currentMode.label}</Badge>
             </div>
@@ -848,20 +853,22 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                type="button"
-                variant={showTotalRanking ? "primary" : "ghost"}
-                onClick={() => setShowTotalRanking((current) => !current)}
-                disabled={scoreHistory.length < 1}
-              >
-                {showTotalRanking ? "画像を見る" : "合計順位へ"}
-              </Button>
-              {!isFinalRound ? (
+              {!showTotalRanking ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowTotalRanking(true)}
+                  disabled={scoreHistory.length < 1}
+                >
+                  {totalRankingLabel}
+                </Button>
+              ) : null}
+              {me?.isHost && !isFinalRound ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onNext}
-                  disabled={!me?.isHost || !isResultsPhase}
+                  disabled={!isResultsPhase}
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
                   {copy.results.nextRound}
@@ -1458,7 +1465,7 @@ export default function ResultsPage() {
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="text-4xl leading-none md:text-5xl">
                 {showTotalRanking
-                  ? "合計順位"
+                  ? totalRankingLabel
                   : copy.results.rankingAnnouncement}
               </h1>
               <Badge className="bg-white">{currentMode.label}</Badge>
@@ -1471,20 +1478,22 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                type="button"
-                variant={showTotalRanking ? "primary" : "ghost"}
-                onClick={() => setShowTotalRanking((current) => !current)}
-                disabled={scoreHistory.length < 1}
-              >
-                {showTotalRanking ? "画像を見る" : "合計順位へ"}
-              </Button>
-              {!isFinalRound ? (
+              {!showTotalRanking ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowTotalRanking(true)}
+                  disabled={scoreHistory.length < 1}
+                >
+                  {totalRankingLabel}
+                </Button>
+              ) : null}
+              {me?.isHost && !isFinalRound ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onNext}
-                  disabled={!me?.isHost || !isResultsPhase}
+                  disabled={!isResultsPhase}
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
                   {copy.results.nextRound}
