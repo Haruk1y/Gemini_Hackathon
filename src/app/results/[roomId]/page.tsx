@@ -339,6 +339,10 @@ function TotalScoreBoard({
     () => [...scoreHistory].sort((a, b) => a.roundIndex - b.roundIndex),
     [scoreHistory],
   );
+  const hasPreviousRanking = useMemo(
+    () => rounds.some((round) => round.roundIndex < currentRoundIndex),
+    [currentRoundIndex, rounds],
+  );
   const rows = useMemo(() => {
     const scoreByUid = new Map(
       players.map((player) => [
@@ -374,16 +378,6 @@ function TotalScoreBoard({
       };
     });
   }, [currentRoundIndex, players, rounds]);
-  const previousOrder = useMemo(
-    () =>
-      [...rows].sort((a, b) => {
-        if (b.previousTotal !== a.previousTotal) {
-          return b.previousTotal - a.previousTotal;
-        }
-        return a.displayName.localeCompare(b.displayName);
-      }),
-    [rows],
-  );
   const finalOrder = useMemo(
     () =>
       [...rows].sort((a, b) => {
@@ -392,6 +386,18 @@ function TotalScoreBoard({
       }),
     [rows],
   );
+  const previousOrder = useMemo(() => {
+    if (!hasPreviousRanking) {
+      return finalOrder;
+    }
+
+    return [...rows].sort((a, b) => {
+      if (b.previousTotal !== a.previousTotal) {
+        return b.previousTotal - a.previousTotal;
+      }
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [finalOrder, hasPreviousRanking, rows]);
   const previousRankByUid = useMemo(
     () => new Map(previousOrder.map((entry, index) => [entry.uid, index + 1])),
     [previousOrder],
@@ -487,8 +493,11 @@ function TotalScoreBoard({
           </div>
 
           {finalOrder.map((entry, index) => {
-            const previousRank = previousRankByUid.get(entry.uid) ?? index + 1;
-            const rankDelta = previousRank - (index + 1);
+            const previousRank = hasPreviousRanking
+              ? (previousRankByUid.get(entry.uid) ?? index + 1)
+              : null;
+            const rankDelta =
+              previousRank === null ? 0 : previousRank - (index + 1);
 
             return (
               <div
@@ -605,8 +614,8 @@ export default function ResultsPage() {
   const voteProgress = activeSnapshot.voteProgress;
   const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
   const turnTimeline = activeSnapshot.turnTimeline;
-  const scoreHistory = activeSnapshot.scoreHistory;
-  const recentStamps = activeSnapshot.recentStamps;
+  const scoreHistory = activeSnapshot.scoreHistory ?? [];
+  const recentStamps = activeSnapshot.recentStamps ?? [];
   const revealLocked = Boolean(activeSnapshot.revealLocked);
   const myRole = activeSnapshot.myRole;
   const me = user?.uid

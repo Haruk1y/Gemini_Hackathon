@@ -38,6 +38,7 @@ import {
   useRoomSync,
 } from "@/lib/client/room-sync";
 import {
+  ALL_SCORED_RESULTS_DELAY_SECONDS,
   CHANGE_ANSWER_SECONDS,
   CHANGE_DEFAULT_ROUND_SECONDS,
   CHANGE_RESET_SECONDS,
@@ -285,7 +286,7 @@ export default function RoundPage() {
   const derivedScores = snapshot.scores as ScoreEntry[];
   const derivedAttempts = snapshot.attempts as AttemptData | null;
   const derivedPlayers = snapshot.players as PlayerData[];
-  const recentStamps = snapshot.recentStamps;
+  const recentStamps = snapshot.recentStamps ?? [];
   const derivedPlayerCount = snapshot.playerCount || snapshot.players.length;
 
   const applyImageFallback = (element: HTMLImageElement, label: string) => {
@@ -552,6 +553,8 @@ export default function RoundPage() {
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
   );
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
+  const shouldAutoEndAfterScores =
+    !isChangeMode && everyoneScored && (room?.settings?.maxAttempts ?? 1) <= 1;
   const postDeadlineGraceActive =
     isRoundLive &&
     isPostDeadlineGraceActive({
@@ -562,8 +565,7 @@ export default function RoundPage() {
   const roundEndReached =
     isRoundLive && round?.endsAt ? millisecondsLeft(round.endsAt) <= 0 : false;
   const autoEndingSoon =
-    isRoundLive &&
-    ((!isChangeMode && everyoneScored) || postDeadlineGraceActive);
+    isRoundLive && (shouldAutoEndAfterScores || postDeadlineGraceActive);
   const visibleSecondsLeft = autoEndingSoon ? 0 : secondsLeft;
   const isPreviewPhase =
     currentGameMode === "memory" &&
@@ -658,8 +660,12 @@ export default function RoundPage() {
         ? parsedEndsAt.getTime()
         : (() => {
             if (resultCountdownFallbackTargetRef.current == null) {
+              const fallbackSeconds =
+                shouldAutoEndAfterScores && !postDeadlineGraceActive
+                  ? ALL_SCORED_RESULTS_DELAY_SECONDS
+                  : RESULTS_GRACE_SECONDS;
               resultCountdownFallbackTargetRef.current =
-                now + RESULTS_GRACE_SECONDS * 1000;
+                now + fallbackSeconds * 1000;
             }
             return resultCountdownFallbackTargetRef.current;
           })();
@@ -675,24 +681,14 @@ export default function RoundPage() {
     update();
     const intervalId = setInterval(update, 250);
     return () => clearInterval(intervalId);
-  }, [autoEndingSoon, round?.endsAt]);
-
-  useEffect(() => {
-    if (!room || !round) return;
-    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
-    if (isChangeMode || !everyoneScored) return;
-
-    const timeoutId = setTimeout(() => {
-      void apiPost("/api/rounds/endIfNeeded", {
-        roomId,
-        roundId: round.roundId,
-      }).catch((err) => {
-        console.error("auto endIfNeeded failed", err);
-      });
-    }, 10_500);
-
-    return () => clearTimeout(timeoutId);
-  }, [everyoneScored, isChangeMode, room, round, roomId]);
+  }, [
+    autoEndingSoon,
+    everyoneScored,
+    isChangeMode,
+    postDeadlineGraceActive,
+    round?.endsAt,
+    shouldAutoEndAfterScores,
+  ]);
 
   useRoomPresence({
     roomId,

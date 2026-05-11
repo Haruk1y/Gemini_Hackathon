@@ -52,7 +52,8 @@ vi.mock("@/components/providers/auth-provider", () => ({
 }));
 
 vi.mock("@/lib/client/api", () => ({
-  apiPost: (path: string, body: Record<string, unknown>) => apiPostMock(path, body),
+  apiPost: (path: string, body: Record<string, unknown>) =>
+    apiPostMock(path, body),
 }));
 
 vi.mock("@/lib/client/room-sync", () => ({
@@ -149,6 +150,28 @@ function createResultsSnapshot(params?: {
         bestImageUrl: "https://example.com/guest.png",
       },
     ],
+    scoreHistory: [
+      {
+        roundId: "round-1",
+        roundIndex: params?.roundIndex ?? 1,
+        scores: [
+          {
+            uid: "host",
+            displayName: "Host",
+            bestScore: 91,
+            totalScore: 191,
+            bestImageUrl: "https://example.com/host.png",
+          },
+          {
+            uid: "guest",
+            displayName: "Guest",
+            bestScore: 88,
+            totalScore: 188,
+            bestImageUrl: "https://example.com/guest.png",
+          },
+        ],
+      },
+    ],
     players: [
       {
         uid: "host",
@@ -172,6 +195,7 @@ function createResultsSnapshot(params?: {
     voteProgress: null,
     finalSimilarityScore: null,
     turnTimeline: [],
+    recentStamps: [],
     revealLocked: false,
     myRole: null,
     isMyTurn: false,
@@ -255,6 +279,8 @@ function createChangeResultsSnapshot() {
     voteProgress: null,
     finalSimilarityScore: null,
     turnTimeline: [],
+    scoreHistory: [],
+    recentStamps: [],
     revealLocked: false,
     myRole: null,
     isMyTurn: false,
@@ -382,6 +408,21 @@ describe("ResultsPage lobby return flow", () => {
     expect(podium.textContent).toContain("Total Score");
     expect(podium.textContent).toContain("Host:91/191");
     expect(podium.textContent).toContain("Guest:88/188");
+  });
+
+  it("shows hyphen rank trends in total ranking on the first round", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Total Ranking" }),
+    );
+
+    expect(screen.getAllByText("-")).toHaveLength(2);
   });
 
   it("shows the change summary in Aha Moment results", async () => {

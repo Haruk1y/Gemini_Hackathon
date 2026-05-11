@@ -128,6 +128,7 @@ describe("HomePageClient", () => {
 
     expect(screen.getByText("120 coins")).toBeTruthy();
 
+    await user.click(screen.getByRole("button", { name: /Daily Quest/ }));
     await user.click(screen.getByRole("button", { name: "Claim 80 coins" }));
 
     expect(screen.getByText("200 coins")).toBeTruthy();

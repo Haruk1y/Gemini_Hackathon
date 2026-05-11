@@ -1,10 +1,7 @@
+import { fallbackJudgeNote, scoreImageSimilarity } from "@/lib/gemini/client";
 import {
-  fallbackJudgeNote,
-  scoreImageSimilarity,
-} from "@/lib/gemini/client";
-import {
+  ALL_SCORED_RESULTS_DELAY_SECONDS,
   getRoundSubmissionDeadline,
-  RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
 import {
   generateImage,
@@ -81,7 +78,12 @@ function assertTimeoutReservationWindow(params: {
   now: Date;
 }) {
   if (params.room.status !== "IN_ROUND") {
-    throw new AppError("ROUND_CLOSED", "Room is not in round state", false, 409);
+    throw new AppError(
+      "ROUND_CLOSED",
+      "Room is not in round state",
+      false,
+      409,
+    );
   }
 
   if (params.room.currentRoundId !== params.roundId) {
@@ -94,7 +96,12 @@ function assertTimeoutReservationWindow(params: {
 
   const promptStartsAt = parseDate(params.round.promptStartsAt);
   if (promptStartsAt && params.now.getTime() < promptStartsAt.getTime()) {
-    throw new AppError("ROUND_CLOSED", "まだプロンプト入力開始前です。", false, 409);
+    throw new AppError(
+      "ROUND_CLOSED",
+      "まだプロンプト入力開始前です。",
+      false,
+      409,
+    );
   }
 
   const submissionDeadline =
@@ -107,7 +114,12 @@ function assertTimeoutReservationWindow(params: {
     !submissionDeadline ||
     params.now.getTime() < submissionDeadline.getTime()
   ) {
-    throw new AppError("ROUND_CLOSED", "Round timeout has not started", false, 409);
+    throw new AppError(
+      "ROUND_CLOSED",
+      "Round timeout has not started",
+      false,
+      409,
+    );
   }
 }
 
@@ -142,11 +154,21 @@ function assertClassicFinalizeWindow(params: {
     const allowedStatuses = ["IN_ROUND", "RESULTS"];
 
     if (!allowedStatuses.includes(params.room.status)) {
-      throw new AppError("ROUND_CLOSED", "Room is not in round state", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "Room is not in round state",
+        false,
+        409,
+      );
     }
 
     if (params.room.currentRoundId !== params.roundId) {
-      throw new AppError("ROUND_CLOSED", "This round is not active", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "This round is not active",
+        false,
+        409,
+      );
     }
 
     if (!allowedStatuses.includes(params.round.status)) {
@@ -158,7 +180,12 @@ function assertClassicFinalizeWindow(params: {
       promptStartsAt &&
       params.submitStartedAt.getTime() < promptStartsAt.getTime()
     ) {
-      throw new AppError("ROUND_CLOSED", "まだプロンプト入力開始前です。", false, 409);
+      throw new AppError(
+        "ROUND_CLOSED",
+        "まだプロンプト入力開始前です。",
+        false,
+        409,
+      );
     }
 
     return;
@@ -268,7 +295,12 @@ export function reserveClassicRoundAttemptInState(params: {
   const round = params.state.rounds[params.roundId];
 
   if (!room || !round || !params.state.players[params.uid]) {
-    throw new AppError("INTERNAL_ERROR", "Failed to reserve round attempt", true, 500);
+    throw new AppError(
+      "INTERNAL_ERROR",
+      "Failed to reserve round attempt",
+      true,
+      500,
+    );
   }
 
   assertClassicReservationWindow({
@@ -336,7 +368,12 @@ async function reserveClassicRoundAttempt(params: {
   return withRoomLock(params.roomId, async () => {
     const state = await loadRoomState(params.roomId);
     if (!state) {
-      throw new AppError("INTERNAL_ERROR", "Failed to reserve round attempt", true, 500);
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Failed to reserve round attempt",
+        true,
+        500,
+      );
     }
 
     const reservedAttempt = reserveClassicRoundAttemptInState({
@@ -370,7 +407,8 @@ async function rollbackReservedAttempt(params: {
     }
 
     const nextAttempts = reservedDoc.attempts.filter(
-      (attempt) => !(attempt.attemptNo === params.attemptNo && attempt.status !== "DONE"),
+      (attempt) =>
+        !(attempt.attemptNo === params.attemptNo && attempt.status !== "DONE"),
     );
 
     if (nextAttempts.length === reservedDoc.attempts.length) {
@@ -541,7 +579,7 @@ async function finalizeReservedAttempt(params: {
     const nextBestAttemptNo =
       params.score >= prevBest
         ? params.reservedAttempt.attemptNo
-        : reservedDoc.bestAttemptNo ?? null;
+        : (reservedDoc.bestAttemptNo ?? null);
 
     state.attempts[params.roundId] = {
       ...roundAttempts,
@@ -601,9 +639,20 @@ async function finalizeReservedAttempt(params: {
     );
 
     const totalPlayers = Object.keys(state.players).length;
-    if (totalPlayers > 0 && scoredPlayersAfter >= totalPlayers) {
+    const roundAttemptsAfter = state.attempts[params.roundId] ?? {};
+    const allAttemptSlotsUsed = Object.keys(state.players).every(
+      (uid) =>
+        (roundAttemptsAfter[uid]?.attemptsUsed ?? 0) >=
+        currentRoom.settings.maxAttempts,
+    );
+    const shouldShortenForCompletedScores =
+      totalPlayers > 0 &&
+      scoredPlayersAfter >= totalPlayers &&
+      (currentRoom.settings.maxAttempts <= 1 || allAttemptSlotsUsed);
+
+    if (shouldShortenForCompletedScores) {
       const autoEndAt = new Date(
-        createdAt.getTime() + RESULTS_GRACE_SECONDS * 1000,
+        createdAt.getTime() + ALL_SCORED_RESULTS_DELAY_SECONDS * 1000,
       );
       if (!endsAt || endsAt.getTime() > autoEndAt.getTime()) {
         currentRound.endsAt = autoEndAt;
@@ -704,7 +753,10 @@ export async function submitClassicRoundAttemptWithReservation(params: {
         imageForVisualScoring(generatedImage, transientImageUrl),
       ]);
 
-      if (!targetImageForJudge?.base64Data || !attemptImageForJudge?.base64Data) {
+      if (
+        !targetImageForJudge?.base64Data ||
+        !attemptImageForJudge?.base64Data
+      ) {
         throw new AppError(
           "GEMINI_ERROR",
           "Failed to prepare images for visual scoring",
@@ -777,31 +829,26 @@ export async function submitClassicRoundAttempt(params: {
   const submitStartedAt = new Date();
   const mode = params.mode ?? "normal";
 
-  return withSubmitLock(
-    params.roomId,
-    params.roundId,
-    params.uid,
-    async () => {
-      const reservedAttempt = await reserveClassicRoundAttempt({
-        roomId: params.roomId,
-        roundId: params.roundId,
-        uid: params.uid,
-        prompt: params.prompt,
-        submitStartedAt,
-        mode,
-      });
+  return withSubmitLock(params.roomId, params.roundId, params.uid, async () => {
+    const reservedAttempt = await reserveClassicRoundAttempt({
+      roomId: params.roomId,
+      roundId: params.roundId,
+      uid: params.uid,
+      prompt: params.prompt,
+      submitStartedAt,
+      mode,
+    });
 
-      return submitClassicRoundAttemptWithReservation({
-        roomId: params.roomId,
-        roundId: params.roundId,
-        uid: params.uid,
-        prompt: params.prompt,
-        language: params.language,
-        submitStartedAt,
-        reservedAttempt,
-        mode,
-        logStageFailure: params.logStageFailure,
-      });
-    },
-  );
+    return submitClassicRoundAttemptWithReservation({
+      roomId: params.roomId,
+      roundId: params.roundId,
+      uid: params.uid,
+      prompt: params.prompt,
+      language: params.language,
+      submitStartedAt,
+      reservedAttempt,
+      mode,
+      logStageFailure: params.logStageFailure,
+    });
+  });
 }

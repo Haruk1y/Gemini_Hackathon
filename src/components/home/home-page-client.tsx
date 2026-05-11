@@ -762,12 +762,14 @@ export default function HomePageClient({
                 </div>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <DebugToggleGroup
-                    label={copy.home.imageModelDebug}
-                    value={createImageModel}
-                    options={IMAGE_MODEL_OPTIONS}
-                    onChange={setCreateImageModel}
-                  />
+                  <div className="sm:col-span-2 sm:w-[calc((100%_-_1rem)/2)]">
+                    <DebugToggleGroup
+                      label={copy.home.imageModelDebug}
+                      value={createImageModel}
+                      options={IMAGE_MODEL_OPTIONS}
+                      onChange={setCreateImageModel}
+                    />
+                  </div>
                   <DebugToggleGroup
                     label={copy.home.promptModelDebug}
                     value={createPromptModel}
