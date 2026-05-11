@@ -4,6 +4,7 @@ import { parseDate } from "@/lib/utils/time";
 
 export const MEMORY_PREVIEW_SECONDS = 10;
 export const RESULTS_GRACE_SECONDS = 10;
+export const ALL_SCORED_RESULTS_DELAY_SECONDS = 0;
 export const CHANGE_WAIT_SECONDS = 5;
 export const CHANGE_TRANSITION_SECONDS = 20;
 export const CHANGE_ANSWER_SECONDS = 5;

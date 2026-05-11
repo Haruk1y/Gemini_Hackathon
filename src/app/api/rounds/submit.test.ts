@@ -7,7 +7,7 @@ import {
   saveRoomState,
   __test__ as roomStateTest,
 } from "@/lib/server/room-state";
-import { dateAfterHours } from "@/lib/utils/time";
+import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 const {
   mockGenerateImage,
@@ -167,13 +167,14 @@ describe("POST /api/rounds/submit reservations", () => {
     mockUploadImageToStorage.mockReset();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(Buffer.from("target-image"), {
-          status: 200,
-          headers: {
-            "content-type": "image/png",
-          },
-        }),
+      vi.fn(
+        async () =>
+          new Response(Buffer.from("target-image"), {
+            status: 200,
+            headers: {
+              "content-type": "image/png",
+            },
+          }),
       ),
     );
   });
@@ -407,6 +408,26 @@ describe("POST /api/rounds/submit reservations", () => {
       expect.objectContaining({
         language: "ja",
       }),
+    );
+  });
+
+  it("shortens the round immediately when every player has a score", async () => {
+    await saveRoomState(createRoundState());
+
+    const { POST } = await import("@/app/api/rounds/submit/route");
+    mockSuccessfulSubmit(88, "https://blob.example/generated.png");
+    const response = await POST(
+      createRequest({
+        roomId: "ROOM1",
+        roundId: "round-1",
+        prompt: "prompt text",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const state = await loadRoomState("ROOM1");
+    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
+      "2026-04-07T10:00:05.000Z",
     );
   });
 

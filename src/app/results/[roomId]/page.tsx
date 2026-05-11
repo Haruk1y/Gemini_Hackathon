@@ -1,13 +1,30 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Flag, LoaderCircle, LogOut, X } from "lucide-react";
+import {
+  type CSSProperties,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ChevronRight,
+  Flag,
+  LoaderCircle,
+  LogOut,
+  X,
+} from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Podium } from "@/components/game/podium";
+import { StampDock } from "@/components/game/stamp-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -29,6 +46,7 @@ import {
   type NormalizedBoxData,
   type NormalizedPointData,
   type PlayerData,
+  type RoundScoreHistoryEntry,
   type RoomData,
   type RoundData,
   type ScoreEntry,
@@ -36,6 +54,8 @@ import {
 } from "@/lib/client/room-sync";
 import { getGameModeDefinition } from "@/lib/game/modes";
 import { cn } from "@/lib/utils/cn";
+
+const TOTAL_RANKING_ANIMATION_START_DELAY_MS = 1_000;
 
 interface NaturalImageSize {
   width: number;
@@ -137,12 +157,15 @@ function ChangeResultImage({
   fitMode?: "answer-crop" | "contain";
 }) {
   const [imageSize, setImageSize] = useState<NaturalImageSize | null>(null);
-  const imageAspectRatio = imageSize ? imageSize.width / imageSize.height : null;
+  const imageAspectRatio = imageSize
+    ? imageSize.width / imageSize.height
+    : null;
   const crop =
     fitMode === "answer-crop" && answerBox && imageSize
       ? computeAnswerCenteredSquareCrop(answerBox, imageSize)
       : null;
-  const projectedBox = answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
+  const projectedBox =
+    answerBox && crop ? projectBoxToCrop(answerBox, crop) : null;
   const projectedPoint = point && crop ? projectPointToCrop(point, crop) : null;
   const containedBox =
     fitMode === "contain" && answerBox && imageAspectRatio
@@ -221,6 +244,346 @@ function ChangeResultImage({
   );
 }
 
+function AnimatedTotalScore({
+  from,
+  to,
+  delayMs,
+}: {
+  from: number;
+  to: number;
+  delayMs: number;
+}) {
+  const [displayScore, setDisplayScore] = useState(from);
+
+  useEffect(() => {
+    if (from === to) {
+      setDisplayScore(to);
+      return;
+    }
+
+    let frameId = 0;
+    let startMs: number | null = null;
+    const durationMs = 1_050;
+    const timeoutId = window.setTimeout(() => {
+      const tick = (nowMs: number) => {
+        startMs ??= nowMs;
+        const progress = Math.min(1, (nowMs - startMs) / durationMs);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setDisplayScore(Math.round(from + (to - from) * eased));
+
+        if (progress < 1) {
+          frameId = window.requestAnimationFrame(tick);
+        }
+      };
+
+      frameId = window.requestAnimationFrame(tick);
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [delayMs, from, to]);
+
+  return (
+    <span className="font-mono text-4xl leading-none font-black tabular-nums md:text-5xl">
+      {displayScore}
+    </span>
+  );
+}
+
+function TimelineArrow() {
+  return (
+    <div className="flex w-12 shrink-0 items-center justify-center">
+      <ArrowRight className="h-10 w-12 shrink-0 stroke-[3.5]" />
+    </div>
+  );
+}
+
+function RankTrendIcon({ rankDelta }: { rankDelta: number }) {
+  if (rankDelta > 0) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-green)] text-white">
+        <ArrowUp className="h-6 w-6 stroke-[4]" />
+      </div>
+    );
+  }
+
+  if (rankDelta < 0) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-red)] text-white">
+        <ArrowDown className="h-6 w-6 stroke-[4]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded-full border-4 border-[var(--pmb-ink)] bg-zinc-300 font-mono text-2xl leading-none font-black text-[var(--pmb-ink)]">
+      -
+    </div>
+  );
+}
+
+function TotalScoreBoard({
+  players,
+  scoreHistory,
+  currentRoundIndex,
+  myUid,
+}: {
+  players: PlayerData[];
+  scoreHistory: RoundScoreHistoryEntry[];
+  currentRoundIndex: number;
+  myUid?: string;
+}) {
+  const rounds = useMemo(
+    () => [...scoreHistory].sort((a, b) => a.roundIndex - b.roundIndex),
+    [scoreHistory],
+  );
+  const hasPreviousRanking = useMemo(
+    () => rounds.some((round) => round.roundIndex < currentRoundIndex),
+    [currentRoundIndex, rounds],
+  );
+  const rows = useMemo(() => {
+    const scoreByUid = new Map(
+      players.map((player) => [
+        player.uid,
+        {
+          uid: player.uid,
+          displayName: player.displayName,
+          rounds: rounds.map((round) => {
+            const score = round.scores.find(
+              (entry) => entry.uid === player.uid,
+            );
+            return {
+              roundId: round.roundId,
+              roundIndex: round.roundIndex,
+              score: score?.bestScore ?? 0,
+              imageUrl: score?.bestImageUrl ?? "",
+            };
+          }),
+        },
+      ]),
+    );
+
+    return Array.from(scoreByUid.values()).map((player) => {
+      const total = player.rounds.reduce((sum, round) => sum + round.score, 0);
+      const currentRoundScore =
+        player.rounds.find((round) => round.roundIndex === currentRoundIndex)
+          ?.score ?? 0;
+      return {
+        ...player,
+        total,
+        previousTotal: total - currentRoundScore,
+        currentRoundScore,
+      };
+    });
+  }, [currentRoundIndex, players, rounds]);
+  const finalOrder = useMemo(
+    () =>
+      [...rows].sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        return a.displayName.localeCompare(b.displayName);
+      }),
+    [rows],
+  );
+  const previousOrder = useMemo(() => {
+    if (!hasPreviousRanking) {
+      return finalOrder;
+    }
+
+    return [...rows].sort((a, b) => {
+      if (b.previousTotal !== a.previousTotal) {
+        return b.previousTotal - a.previousTotal;
+      }
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [finalOrder, hasPreviousRanking, rows]);
+  const previousRankByUid = useMemo(
+    () => new Map(previousOrder.map((entry, index) => [entry.uid, index + 1])),
+    [previousOrder],
+  );
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const [rankShifts, setRankShifts] = useState<Record<string, number>>({});
+  const finalOrderKey = finalOrder.map((entry) => entry.uid).join("|");
+  const previousOrderKey = previousOrder.map((entry) => entry.uid).join("|");
+
+  useLayoutEffect(() => {
+    const measureRankShifts = () => {
+      const measuredRows = finalOrder
+        .map((entry) => {
+          const element = rowRefs.current.get(entry.uid);
+          return element
+            ? {
+                uid: entry.uid,
+                element,
+                top: element.offsetTop,
+                height: element.offsetHeight,
+              }
+            : null;
+        })
+        .filter((entry) => entry !== null);
+
+      if (
+        measuredRows.length !== finalOrder.length ||
+        measuredRows.length < 1
+      ) {
+        return;
+      }
+
+      const gridElement = measuredRows[0]?.element.parentElement;
+      const rowGap = gridElement
+        ? Number.parseFloat(window.getComputedStyle(gridElement).rowGap) || 0
+        : 0;
+      const finalTopByUid = new Map(
+        measuredRows.map((entry) => [entry.uid, entry.top]),
+      );
+      const heightByUid = new Map(
+        measuredRows.map((entry) => [entry.uid, entry.height]),
+      );
+      const previousTopByUid = new Map<string, number>();
+      let previousTop = measuredRows[0]?.top ?? 0;
+
+      previousOrder.forEach((entry) => {
+        previousTopByUid.set(entry.uid, previousTop);
+        previousTop += (heightByUid.get(entry.uid) ?? 0) + rowGap;
+      });
+
+      const nextRankShifts = Object.fromEntries(
+        finalOrder.map((entry) => {
+          const finalTop = finalTopByUid.get(entry.uid) ?? 0;
+          const originalTop = previousTopByUid.get(entry.uid) ?? finalTop;
+          return [entry.uid, Math.round(originalTop - finalTop)];
+        }),
+      );
+
+      setRankShifts((current) => {
+        const unchanged = finalOrder.every(
+          (entry) => current[entry.uid] === nextRankShifts[entry.uid],
+        );
+        return unchanged ? current : nextRankShifts;
+      });
+    };
+
+    measureRankShifts();
+    window.addEventListener("resize", measureRankShifts);
+    return () => window.removeEventListener("resize", measureRankShifts);
+  }, [finalOrder, finalOrderKey, previousOrder, previousOrderKey]);
+
+  return (
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="grid gap-x-4 gap-y-3 lg:grid-cols-[max-content_minmax(0,1fr)]">
+          <div className="hidden lg:block" />
+          <div className="min-w-0 overflow-x-auto pb-1">
+            <div className="flex w-max items-center gap-2">
+              {rounds.map((round, roundIndex) => (
+                <div
+                  key={`${round.roundId}-timeline-label`}
+                  className="flex shrink-0 items-center gap-2"
+                >
+                  <div className="w-32 text-center font-mono text-lg leading-none font-black md:w-36 md:text-xl">
+                    Round{round.roundIndex}
+                  </div>
+                  {roundIndex < rounds.length - 1 ? (
+                    <div className="w-12 shrink-0" aria-hidden="true" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {finalOrder.map((entry, index) => {
+            const previousRank = hasPreviousRanking
+              ? (previousRankByUid.get(entry.uid) ?? index + 1)
+              : null;
+            const rankDelta =
+              previousRank === null ? 0 : previousRank - (index + 1);
+
+            return (
+              <div
+                key={entry.uid}
+                ref={(element) => {
+                  if (element) {
+                    rowRefs.current.set(entry.uid, element);
+                  } else {
+                    rowRefs.current.delete(entry.uid);
+                  }
+                }}
+                className={[
+                  "pmb-total-rank-row col-span-full grid rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[5px_5px_0_var(--pmb-ink)] lg:items-center",
+                  entry.uid === myUid ? "bg-[var(--pmb-yellow)]" : "",
+                ].join(" ")}
+                style={
+                  {
+                    gridTemplateColumns: "subgrid",
+                    "--rank-shift": `${rankShifts[entry.uid] ?? 0}px`,
+                    "--rank-delay": `${TOTAL_RANKING_ANIMATION_START_DELAY_MS}ms`,
+                  } as CSSProperties
+                }
+              >
+                <div className="grid min-w-[220px] grid-cols-[72px_minmax(0,1fr)] items-center gap-4 py-3 pr-5 pl-3">
+                  <div className="flex shrink-0 flex-col items-center gap-1 self-start pt-1">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border-4 border-[var(--pmb-ink)] bg-white font-mono text-2xl leading-none font-black">
+                      #{index + 1}
+                    </div>
+                    <RankTrendIcon rankDelta={rankDelta} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-xl leading-tight font-black md:text-2xl">
+                        {entry.displayName}
+                      </p>
+                    </div>
+                    <div className="mt-2">
+                      <AnimatedTotalScore
+                        from={entry.previousTotal}
+                        to={entry.total}
+                        delayMs={TOTAL_RANKING_ANIMATION_START_DELAY_MS}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="min-w-0 overflow-x-auto py-3 pr-3">
+                  <div className="w-max">
+                    <div className="flex items-center gap-2">
+                      {entry.rounds.map((round, roundIndex) => (
+                        <div
+                          key={round.roundId}
+                          className="flex shrink-0 items-center gap-2"
+                        >
+                          <div className="relative w-32 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 md:w-36">
+                            <div className="absolute top-1 left-1 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-ink)] px-3 py-1 font-mono text-base leading-none font-black text-white">
+                              {round.score}
+                            </div>
+                            <img
+                              src={
+                                round.imageUrl ||
+                                placeholderImageUrl(
+                                  `${entry.displayName}-round-${round.roundIndex}`,
+                                )
+                              }
+                              alt={`${entry.displayName} round ${round.roundIndex}`}
+                              className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] object-contain p-0.5"
+                            />
+                          </div>
+                          {roundIndex < entry.rounds.length - 1 ? (
+                            <TimelineArrow />
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function ResultsPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
@@ -251,6 +614,8 @@ export default function ResultsPage() {
   const voteProgress = activeSnapshot.voteProgress;
   const finalSimilarityScore = activeSnapshot.finalSimilarityScore ?? null;
   const turnTimeline = activeSnapshot.turnTimeline;
+  const scoreHistory = activeSnapshot.scoreHistory ?? [];
+  const recentStamps = activeSnapshot.recentStamps ?? [];
   const revealLocked = Boolean(activeSnapshot.revealLocked);
   const myRole = activeSnapshot.myRole;
   const me = user?.uid
@@ -328,6 +693,12 @@ export default function ResultsPage() {
   const myLatestAttempt =
     myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
+  const [showTotalRanking, setShowTotalRanking] = useState(false);
+  const totalRankingLabel = language === "ja" ? "合計順位" : "Total Ranking";
+
+  useEffect(() => {
+    setShowTotalRanking(false);
+  }, [round?.roundId]);
   const [lobbyBusy, setLobbyBusy] = useState(false);
   const [voteBusy, setVoteBusy] = useState(false);
   const [voteError, setVoteError] = useState<UiError | null>(null);
@@ -420,7 +791,16 @@ export default function ResultsPage() {
   };
 
   const onVote = async (targetUid: string) => {
-    if (!liveRoom || !liveRound || !room || !round || !me || voteBusy || !revealLocked) return;
+    if (
+      !liveRoom ||
+      !liveRound ||
+      !room ||
+      !round ||
+      !me ||
+      voteBusy ||
+      !revealLocked
+    )
+      return;
     if (liveRoom.status !== "RESULTS") return;
 
     setVoteBusy(true);
@@ -449,11 +829,18 @@ export default function ResultsPage() {
 
   if (isChangeMode) {
     const answerBox = round.reveal?.answerBox;
-    const changedImageUrl = round.modeState?.changedImageUrl || round.targetImageUrl;
-    const changeSummaryText = round.reveal?.changeSummary?.trim() || copy.common.none;
+    const changedImageUrl =
+      round.modeState?.changedImageUrl || round.targetImageUrl;
+    const changeSummaryText =
+      round.reveal?.changeSummary?.trim() || copy.common.none;
 
     return (
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isResultsPhase}
+        />
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div>
             <p className="text-sm font-black tracking-wide uppercase">
@@ -461,7 +848,9 @@ export default function ResultsPage() {
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="text-4xl leading-none md:text-5xl">
-                {copy.results.clickResults}
+                {showTotalRanking
+                  ? totalRankingLabel
+                  : copy.results.clickResults}
               </h1>
               <Badge className="bg-white">{currentMode.label}</Badge>
             </div>
@@ -473,12 +862,22 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!isFinalRound ? (
+              {!showTotalRanking ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowTotalRanking(true)}
+                  disabled={scoreHistory.length < 1}
+                >
+                  {totalRankingLabel}
+                </Button>
+              ) : null}
+              {me?.isHost && !isFinalRound ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onNext}
-                  disabled={!me?.isHost || !isResultsPhase}
+                  disabled={!isResultsPhase}
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
                   {copy.results.nextRound}
@@ -521,120 +920,131 @@ export default function ResultsPage() {
         ) : null}
 
         <section className="min-h-0 flex-1 overflow-hidden">
-          <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
-            <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="min-h-0 overflow-y-auto pr-1">
-                <div className="grid gap-3">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {[
-                      {
-                        label: copy.results.beforeImage,
-                        imageUrl: round.targetImageUrl,
-                      },
-                      {
-                        label: copy.results.afterImage,
-                        imageUrl: changedImageUrl,
-                      },
-                    ].map((entry) => (
-                      <div key={entry.label}>
-                        <p className="mb-2 text-base font-black">
-                          {entry.label}
-                        </p>
-                        <ChangeResultImage
-                          imageUrl={
-                            entry.imageUrl ||
-                            placeholderImageUrl(`${round.gmTitle}-${entry.label}`)
-                          }
-                          alt={entry.label}
-                          answerBox={answerBox}
-                        />
+          {showTotalRanking ? (
+            <TotalScoreBoard
+              players={activeSnapshot.players}
+              scoreHistory={scoreHistory}
+              currentRoundIndex={round.index}
+              myUid={user?.uid}
+            />
+          ) : (
+            <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+              <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="min-h-0 overflow-y-auto pr-1">
+                  <div className="grid gap-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {[
+                        {
+                          label: copy.results.beforeImage,
+                          imageUrl: round.targetImageUrl,
+                        },
+                        {
+                          label: copy.results.afterImage,
+                          imageUrl: changedImageUrl,
+                        },
+                      ].map((entry) => (
+                        <div key={entry.label}>
+                          <p className="mb-2 text-base font-black">
+                            {entry.label}
+                          </p>
+                          <ChangeResultImage
+                            imageUrl={
+                              entry.imageUrl ||
+                              placeholderImageUrl(
+                                `${round.gmTitle}-${entry.label}`,
+                              )
+                            }
+                            alt={entry.label}
+                            answerBox={answerBox}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                      <p className="text-xs font-black tracking-[0.16em] uppercase">
+                        {copy.results.changeSummary}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold">
+                        {changeSummaryText}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-col overflow-y-auto pr-1 lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                  <p className="shrink-0 text-base font-black md:text-lg">
+                    {copy.results.clickResults}
+                  </p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {sortedChangeResults.map((entry) => (
+                      <div
+                        key={entry.uid}
+                        className={cn(
+                          "flex min-h-0 flex-col rounded-lg border-4 border-[var(--pmb-ink)] p-3",
+                          entry.hit
+                            ? "bg-[var(--pmb-green)]/35"
+                            : entry.submitted
+                              ? "bg-[var(--pmb-red)]/20"
+                              : "bg-[var(--pmb-base)]",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="min-w-0 flex-1 truncate text-sm font-black">
+                            {entry.displayName}
+                          </p>
+                          {entry.uid === user?.uid ? (
+                            <Badge className="bg-white px-2 py-0 text-[10px]">
+                              {copy.common.you}
+                            </Badge>
+                          ) : null}
+                          <Badge
+                            className={
+                              entry.hit
+                                ? "bg-[var(--pmb-green)] text-white"
+                                : entry.submitted
+                                  ? "bg-[var(--pmb-red)] text-white"
+                                  : "bg-white"
+                            }
+                          >
+                            {entry.submitted
+                              ? entry.hit
+                                ? copy.common.hit
+                                : copy.common.miss
+                              : copy.common.notSubmitted}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3">
+                          <ChangeResultImage
+                            imageUrl={
+                              changedImageUrl ||
+                              placeholderImageUrl(entry.displayName)
+                            }
+                            alt={entry.displayName}
+                            answerBox={answerBox}
+                            point={entry.point}
+                            pointHit={entry.hit}
+                            borderClassName="border-2"
+                            fitMode="contain"
+                          />
+                        </div>
+
+                        <div className="mt-3 space-y-1 text-sm font-semibold">
+                          <p>{copy.common.points(entry.score)}</p>
+                          <p>
+                            {entry.rank
+                              ? copy.results.rankLabel(entry.rank)
+                              : copy.results.noClick}
+                          </p>
+                        </div>
                       </div>
                     ))}
                   </div>
-
-                  <div className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                    <p className="text-xs font-black tracking-[0.16em] uppercase">
-                      {copy.results.changeSummary}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold">
-                      {changeSummaryText}
-                    </p>
-                  </div>
                 </div>
               </div>
-
-              <div className="flex min-h-0 flex-col overflow-y-auto pr-1 lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="shrink-0 text-base font-black md:text-lg">
-                  {copy.results.clickResults}
-                </p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {sortedChangeResults.map((entry) => (
-                    <div
-                      key={entry.uid}
-                      className={cn(
-                        "flex min-h-0 flex-col rounded-lg border-4 border-[var(--pmb-ink)] p-3",
-                        entry.hit
-                          ? "bg-[var(--pmb-green)]/35"
-                          : entry.submitted
-                            ? "bg-[var(--pmb-red)]/20"
-                            : "bg-[var(--pmb-base)]",
-                      )}
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="min-w-0 flex-1 truncate text-sm font-black">
-                          {entry.displayName}
-                        </p>
-                        {entry.uid === user?.uid ? (
-                          <Badge className="bg-white px-2 py-0 text-[10px]">
-                            {copy.common.you}
-                          </Badge>
-                        ) : null}
-                        <Badge
-                          className={
-                            entry.hit
-                              ? "bg-[var(--pmb-green)] text-white"
-                              : entry.submitted
-                                ? "bg-[var(--pmb-red)] text-white"
-                                : "bg-white"
-                          }
-                        >
-                          {entry.submitted
-                            ? entry.hit
-                              ? copy.common.hit
-                              : copy.common.miss
-                            : copy.common.notSubmitted}
-                        </Badge>
-                      </div>
-
-                      <div className="mt-3">
-                        <ChangeResultImage
-                          imageUrl={
-                            changedImageUrl ||
-                            placeholderImageUrl(entry.displayName)
-                          }
-                          alt={entry.displayName}
-                          answerBox={answerBox}
-                          point={entry.point}
-                          pointHit={entry.hit}
-                          borderClassName="border-2"
-                          fitMode="contain"
-                        />
-                      </div>
-
-                      <div className="mt-3 space-y-1 text-sm font-semibold">
-                        <p>{copy.common.points(entry.score)}</p>
-                        <p>
-                          {entry.rank
-                            ? copy.results.rankLabel(entry.rank)
-                            : copy.results.noClick}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          )}
         </section>
       </main>
     );
@@ -660,6 +1070,11 @@ export default function ResultsPage() {
           useFixedDesktopVoteGrid ? "gap-2.5" : "gap-3",
         )}
       >
+        <StampDock
+          roomId={roomId}
+          recentStamps={recentStamps}
+          disabled={!isResultsPhase}
+        />
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div className="min-w-0">
             <p className="text-sm font-black tracking-wide uppercase">
@@ -726,9 +1141,7 @@ export default function ResultsPage() {
                 {copy.results.returningToLobby}
               </p>
             ) : lobbyHintMessage ? (
-              <p className="text-xs font-semibold">
-                {lobbyHintMessage}
-              </p>
+              <p className="text-xs font-semibold">{lobbyHintMessage}</p>
             ) : null}
           </div>
         </header>
@@ -1047,6 +1460,11 @@ export default function ResultsPage() {
 
   return (
     <>
+      <StampDock
+        roomId={roomId}
+        recentStamps={recentStamps}
+        disabled={!isResultsPhase}
+      />
       <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div>
@@ -1055,7 +1473,9 @@ export default function ResultsPage() {
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="text-4xl leading-none md:text-5xl">
-                {copy.results.rankingAnnouncement}
+                {showTotalRanking
+                  ? totalRankingLabel
+                  : copy.results.rankingAnnouncement}
               </h1>
               <Badge className="bg-white">{currentMode.label}</Badge>
             </div>
@@ -1067,12 +1487,22 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!isFinalRound ? (
+              {!showTotalRanking ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowTotalRanking(true)}
+                  disabled={scoreHistory.length < 1}
+                >
+                  {totalRankingLabel}
+                </Button>
+              ) : null}
+              {me?.isHost && !isFinalRound ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onNext}
-                  disabled={!me?.isHost || !isResultsPhase}
+                  disabled={!isResultsPhase}
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
                   {copy.results.nextRound}
@@ -1121,63 +1551,72 @@ export default function ResultsPage() {
         ) : null}
 
         <section className="min-h-0 flex-1 overflow-hidden">
-          <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
-            <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch">
-              <div className="min-h-0 lg:flex lg:h-full lg:flex-col">
-                <p className="h-7 text-base font-black md:text-lg">
-                  {copy.results.targetImage}
-                </p>
-                <div className="mt-2 h-[220px] w-full shrink-0 sm:h-[260px] lg:h-[240px] xl:h-[280px]">
-                  <img
-                    src={
-                      round.targetImageUrl ||
-                      placeholderImageUrl(
-                        round.gmTitle || `round-${round.index}`,
-                      )
-                    }
-                    alt="target"
-                    className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
-                  />
-                </div>
-                {round.reveal?.gmPromptPublic ? (
-                  <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
-                    <p className="shrink-0 text-xs font-bold">
-                      {copy.results.answerPrompt}
-                    </p>
-                    <div className="mt-1 h-full max-h-[min(28vh,220px)] overflow-y-auto pr-1">
-                      <p className="font-mono text-xs font-semibold break-words">
-                        {round.reveal.gmPromptPublic}
-                      </p>
-                    </div>
+          {showTotalRanking ? (
+            <TotalScoreBoard
+              players={activeSnapshot.players}
+              scoreHistory={scoreHistory}
+              currentRoundIndex={round.index}
+              myUid={user?.uid}
+            />
+          ) : (
+            <Card className="flex h-full min-h-0 flex-col overflow-hidden bg-white p-3 md:p-4">
+              <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-stretch">
+                <div className="min-h-0 lg:flex lg:h-full lg:flex-col">
+                  <p className="h-7 text-base font-black md:text-lg">
+                    {copy.results.targetImage}
+                  </p>
+                  <div className="mt-2 h-[220px] w-full shrink-0 sm:h-[260px] lg:h-[240px] xl:h-[280px]">
+                    <img
+                      src={
+                        round.targetImageUrl ||
+                        placeholderImageUrl(
+                          round.gmTitle || `round-${round.index}`,
+                        )
+                      }
+                      alt="target"
+                      className="h-full w-full rounded-lg border-4 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                    />
                   </div>
-                ) : null}
-              </div>
+                  {round.reveal?.gmPromptPublic ? (
+                    <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-3">
+                      <p className="shrink-0 text-xs font-bold">
+                        {copy.results.answerPrompt}
+                      </p>
+                      <div className="mt-1 h-full max-h-[min(28vh,220px)] overflow-y-auto pr-1">
+                        <p className="font-mono text-xs font-semibold break-words">
+                          {round.reveal.gmPromptPublic}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
-              <div className="min-h-0 overflow-hidden lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
-                <p className="h-7 text-base font-black md:text-lg">
-                  {copy.results.generatedImages}
-                </p>
-                <div className="mt-2 min-h-0 flex-1 overflow-auto pb-2 pr-1">
-                  <Podium
-                    entries={sortedScores}
-                    myUid={user?.uid}
-                    showTotals
-                    myEntryFooter={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setShowJudgeReason(true)}
-                        disabled={!myLatestAttempt}
-                        className="w-full bg-white"
-                      >
-                        {copy.results.showJudgeNotes}
-                      </Button>
-                    }
-                  />
+                <div className="min-h-0 overflow-hidden lg:flex lg:h-full lg:flex-col lg:border-l-4 lg:border-[var(--pmb-ink)] lg:pl-4">
+                  <p className="h-7 text-base font-black md:text-lg">
+                    {copy.results.generatedImages}
+                  </p>
+                  <div className="mt-2 min-h-0 flex-1 overflow-auto pr-1 pb-2">
+                    <Podium
+                      entries={sortedScores}
+                      myUid={user?.uid}
+                      showTotals
+                      myEntryFooter={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setShowJudgeReason(true)}
+                          disabled={!myLatestAttempt}
+                          className="w-full bg-white"
+                        >
+                          {copy.results.showJudgeNotes}
+                        </Button>
+                      }
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
         </section>
       </main>
 

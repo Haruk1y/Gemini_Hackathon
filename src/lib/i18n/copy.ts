@@ -59,6 +59,47 @@ const TRANSLATIONS = {
       imageModelDebug: "画像モデル",
       promptModelDebug: "お題モデル",
       judgeModelDebug: "採点モデル",
+      dailyQuest: "デイリークエスト",
+      achievements: "実績",
+      settings: "設定",
+      coins: (count: number) => `${count} コイン`,
+      missionComplete: "COMPLETE",
+      claimableRewards: (count: number) => `受け取り可能 +${count}`,
+      claimAllRewards: "一括受け取り",
+      claimReward: (count: number) => `${count}コインを受け取る`,
+      claimRewardShort: "受取",
+      rewardClaimed: "受け取り済み",
+      rewardClaimedShort: "済",
+      achievementPlayCategory: "プレイ",
+      achievementScoreCategory: "スコア",
+      achievementCollectionCategory: "解放",
+      achievementClassicPlayTitle: (target: number) => `クラシック${target}回`,
+      achievementClassicPlayDescription: (target: number) =>
+        `通常モードを通算${target}回プレイ`,
+      achievementImpostorWinTitle: (target: number) => `Impostor ${target}勝`,
+      achievementImpostorWinDescription: (target: number) =>
+        `Impostorで通算${target}回勝利`,
+      achievementScoreNinetyTitle: (target: number) => `90点以上${target}回`,
+      achievementScoreNinetyDescription: (target: number) =>
+        `高得点を通算${target}回記録`,
+      achievementChangeClearTitle: (target: number) => `アハ${target}回正解`,
+      achievementChangeClearDescription: (target: number) =>
+        `変化場所を通算${target}回的中`,
+      achievementAvatarTitle: (target: number) => `アバター${target}個`,
+      achievementAvatarDescription: (target: number) =>
+        `アバター報酬を${target}個解放`,
+      achievementLoginTitle: (target: number) => `${target}日ログイン`,
+      achievementLoginDescription: (target: number) =>
+        `累計${target}日アクセスする`,
+      achievementGenericDescription: (target: number) =>
+        `通算${target}回で達成`,
+      dailyQuestClassicTitle: "クラシックを3回プレイ",
+      dailyQuestClassicDescription: "通常モードで3ラウンド分遊ぶ",
+      dailyQuestScoreTitle: "70点以上を1回とる",
+      dailyQuestScoreDescription: "どのモードでも高得点を狙う",
+      dailyQuestChangeTitle: "アハ体験を1回クリア",
+      dailyQuestChangeDescription: "変化した場所を見つける",
+      progress: (current: number, target: number) => `${current}/${target}`,
       createRoom: "ルーム作成",
       creatingRoom: "作成中...",
       joinRoom: "ルーム参加",
@@ -66,8 +107,10 @@ const TRANSLATIONS = {
     },
     lobby: {
       loading: "読み込み中...",
-      roomInfoFetchFailed: (detail: string) => `ルーム情報の取得に失敗しました: ${detail}`,
-      roomInfoUnavailable: "ルーム情報を取得できませんでした。しばらくしてから再度お試しください。",
+      roomInfoFetchFailed: (detail: string) =>
+        `ルーム情報の取得に失敗しました: ${detail}`,
+      roomInfoUnavailable:
+        "ルーム情報を取得できませんでした。しばらくしてから再度お試しください。",
       roomSessionMismatch:
         "セッションがルーム参加情報と一致しませんでした。ページを再読み込みしてください。",
       roomCode: "Room Code",
@@ -102,7 +145,8 @@ const TRANSLATIONS = {
       changeWaitingForOthers: "他プレイヤーのクリックを待っています。",
       changeHit: "正解です。結果画面を待っています。",
       changeMiss: "そこは違います。結果画面を待っています。",
-      changeSelectionHint: "回答は1回だけです。見つけた場所をクリックしてください。",
+      changeSelectionHint:
+        "回答は1回だけです。見つけた場所をクリックしてください。",
       changeAlreadyLocked:
         "このラウンドではすでにクリックを送信しました。結果を待っています。",
       changeSubmittedCount: (submitted: number, total: number) =>
@@ -118,14 +162,17 @@ const TRANSLATIONS = {
       changeEndMarker: "変化完了",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
-      yourTurnMessage: "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。",
-      cpuTurnMessage: (name: string) => `${name} が画像を生成中です。完了次第すぐ進みます。`,
+      yourTurnMessage:
+        "今はあなたのターンです。画像を次の人に渡すつもりでプロンプトを書こう。",
+      cpuTurnMessage: (name: string) =>
+        `${name} が画像を生成中です。完了次第すぐ進みます。`,
       waitingTurnMessage: (name: string) => `${name} のターンを待っています。`,
       cpuGeneratingShort: "完了次第すぐ次へ",
       turnProgress: "Turn Progress",
       promptInputTitle: "プロンプトを入力しよう！",
       waitingTitle: "順番待ち中",
-      promptPlaceholder: "見えている画像を次のAIが再現しやすいように具体的に書く",
+      promptPlaceholder:
+        "見えている画像を次のAIが再現しやすいように具体的に書く",
       promptDisabledPlaceholder: "あなたのターンになるまで入力はできません。",
       evaluating: "判定中...",
       generateNextImage: "次の画像を生成",
@@ -145,10 +192,12 @@ const TRANSLATIONS = {
       revealedInResults: "このターンの画像はラウンド終了後に公開されます。",
       hiddenUntilTurn: "あなたの番になるまで画像は非公開です。",
       memoryPreview: "Memory Preview",
-      resultsScreenCountdown: (seconds: number) => `リザルト画面へ（残り${seconds}秒）`,
+      resultsScreenCountdown: (seconds: number) =>
+        `リザルト画面へ（残り${seconds}秒）`,
       resultsScreen: "リザルト画面へ",
       memoryPromptTitle: "プロンプトを入力しよう！",
-      memoryLockedPlaceholder: "記憶タイム中は入力できません。画像をよく覚えよう。",
+      memoryLockedPlaceholder:
+        "記憶タイム中は入力できません。画像をよく覚えよう。",
       promptExample: "例: A playful neon cat eating salmon sushi...",
       waitingForMemory: "記憶タイム終了待ち",
       generateImage: "画像を生成",
@@ -289,6 +338,48 @@ const TRANSLATIONS = {
       imageModelDebug: "Image Model",
       promptModelDebug: "Prompt Model",
       judgeModelDebug: "Judge Model",
+      dailyQuest: "Daily Quest",
+      achievements: "Achievements",
+      settings: "Settings",
+      coins: (count: number) => `${count} coins`,
+      missionComplete: "COMPLETE",
+      claimableRewards: (count: number) => `Claimable +${count}`,
+      claimAllRewards: "Claim All",
+      claimReward: (count: number) => `Claim ${count} coins`,
+      claimRewardShort: "Claim",
+      rewardClaimed: "Claimed",
+      rewardClaimedShort: "Done",
+      achievementPlayCategory: "Play",
+      achievementScoreCategory: "Score",
+      achievementCollectionCategory: "Unlock",
+      achievementClassicPlayTitle: (target: number) => `Classic x${target}`,
+      achievementClassicPlayDescription: (target: number) =>
+        `Play Classic mode ${target} times`,
+      achievementImpostorWinTitle: (target: number) =>
+        `${target} Impostor Wins`,
+      achievementImpostorWinDescription: (target: number) =>
+        `Win as Impostor ${target} times`,
+      achievementScoreNinetyTitle: (target: number) => `90+ x${target}`,
+      achievementScoreNinetyDescription: (target: number) =>
+        `Score 90 or higher ${target} times`,
+      achievementChangeClearTitle: (target: number) => `Aha x${target}`,
+      achievementChangeClearDescription: (target: number) =>
+        `Find ${target} changed spots`,
+      achievementAvatarTitle: (target: number) => `${target} Avatars`,
+      achievementAvatarDescription: (target: number) =>
+        `Unlock ${target} avatar rewards`,
+      achievementLoginTitle: (target: number) => `${target}-Day Login`,
+      achievementLoginDescription: (target: number) =>
+        `Open the game on ${target} days`,
+      achievementGenericDescription: (target: number) =>
+        `Reach ${target} total`,
+      dailyQuestClassicTitle: "Play Classic 3 times",
+      dailyQuestClassicDescription: "Play 3 rounds in classic mode",
+      dailyQuestScoreTitle: "Score 70+ once",
+      dailyQuestScoreDescription: "Reach a high score in any mode",
+      dailyQuestChangeTitle: "Clear Aha once",
+      dailyQuestChangeDescription: "Find the changed spot",
+      progress: (current: number, target: number) => `${current}/${target}`,
       createRoom: "Create Room",
       creatingRoom: "Creating...",
       joinRoom: "Join Room",
@@ -296,7 +387,8 @@ const TRANSLATIONS = {
     },
     lobby: {
       loading: "Loading...",
-      roomInfoFetchFailed: (detail: string) => `Failed to fetch room info: ${detail}`,
+      roomInfoFetchFailed: (detail: string) =>
+        `Failed to fetch room info: ${detail}`,
       roomInfoUnavailable:
         "Room info could not be loaded. Please try again in a moment.",
       roomSessionMismatch:
@@ -317,7 +409,8 @@ const TRANSLATIONS = {
       geminiModel: "Gemini",
       fluxModel: "Flux",
       nextRoundWarming: "Preparing the next target...",
-      nextRoundFallback: "The next target will be prepared when the round starts.",
+      nextRoundFallback:
+        "The next target will be prepared when the round starts.",
       advancedSettings: "Advanced Settings",
       repeatViews: "Repeat",
       changePickerAria: (label: string) => `Change ${label}`,
@@ -350,14 +443,17 @@ const TRANSLATIONS = {
       changeEndMarker: "Change ends",
       changeBeforeLabel: "Before",
       changeAfterLabel: "After",
-      yourTurnMessage: "It is your turn. Write a prompt as if you are passing the image to the next player.",
-      cpuTurnMessage: (name: string) => `${name} is generating an image. It will move on as soon as it is ready.`,
+      yourTurnMessage:
+        "It is your turn. Write a prompt as if you are passing the image to the next player.",
+      cpuTurnMessage: (name: string) =>
+        `${name} is generating an image. It will move on as soon as it is ready.`,
       waitingTurnMessage: (name: string) => `Waiting for ${name}'s turn.`,
       cpuGeneratingShort: "Moves on as soon as it is ready",
       turnProgress: "Turn Progress",
       promptInputTitle: "Enter a prompt!",
       waitingTitle: "Waiting for your turn",
-      promptPlaceholder: "Describe the visible image clearly so the next AI can recreate it.",
+      promptPlaceholder:
+        "Describe the visible image clearly so the next AI can recreate it.",
       promptDisabledPlaceholder: "You can type once your turn starts.",
       evaluating: "Evaluating...",
       generateNextImage: "Generate next image",
@@ -365,22 +461,27 @@ const TRANSLATIONS = {
       referenceImage: "Reference Image",
       hidden: "Hidden",
       hiddenWaiting: "Waiting",
-      hiddenImageMessage: (name: string) => `${name} is passing the image along`,
-      cpuPassMessage: "Once the CPU finishes generating, it will immediately hand the turn to the next player.",
+      hiddenImageMessage: (name: string) =>
+        `${name} is passing the image along`,
+      cpuPassMessage:
+        "Once the CPU finishes generating, it will immediately hand the turn to the next player.",
       hiddenImageDescription:
         "Only the current player can see the in-progress image. You will see the previous image on your turn.",
       referenceDescription:
         "Turn the image you see now into words that the next player can recreate easily.",
       turnOrder: "Turn Order",
       turnOrderHint: "Only the active player can view the image.",
-      currentTurnOnly: "Only the player taking this turn can view the previous image.",
+      currentTurnOnly:
+        "Only the player taking this turn can view the previous image.",
       revealedInResults: "This turn's image is revealed after the round.",
       hiddenUntilTurn: "The image stays hidden until your turn.",
       memoryPreview: "Memory Preview",
-      resultsScreenCountdown: (seconds: number) => `Go to results (${seconds}s left)`,
+      resultsScreenCountdown: (seconds: number) =>
+        `Go to results (${seconds}s left)`,
       resultsScreen: "Go to results",
       memoryPromptTitle: "Enter a prompt!",
-      memoryLockedPlaceholder: "Input is disabled during memory time. Memorize the image carefully.",
+      memoryLockedPlaceholder:
+        "Input is disabled during memory time. Memorize the image carefully.",
       promptExample: "Example: A playful neon cat eating salmon sushi...",
       waitingForMemory: "Waiting for memory time to end",
       generateImage: "Generate image",
