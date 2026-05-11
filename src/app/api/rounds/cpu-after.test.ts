@@ -8,27 +8,30 @@ const {
   mockStartRound,
   mockSubmitImpostorTurn,
   mockEndRoundIfNeeded,
+  mockRunClassicCpuAttempts,
   mockRunImpostorCpuTurns,
   mockLoadRoomState,
 } = vi.hoisted(() => {
   const queuedTasks: Array<() => Promise<void> | void> = [];
 
-    return {
-      scheduledTasks: queuedTasks,
-      mockAfter: vi.fn((task: () => Promise<void> | void) => {
-        queuedTasks.push(task);
-      }),
-      mockEnsurePreparedRound: vi.fn(),
-      mockStartRound: vi.fn(),
-      mockSubmitImpostorTurn: vi.fn(),
-      mockEndRoundIfNeeded: vi.fn(),
-      mockRunImpostorCpuTurns: vi.fn(),
-      mockLoadRoomState: vi.fn(),
+  return {
+    scheduledTasks: queuedTasks,
+    mockAfter: vi.fn((task: () => Promise<void> | void) => {
+      queuedTasks.push(task);
+    }),
+    mockEnsurePreparedRound: vi.fn(),
+    mockStartRound: vi.fn(),
+    mockSubmitImpostorTurn: vi.fn(),
+    mockEndRoundIfNeeded: vi.fn(),
+    mockRunClassicCpuAttempts: vi.fn(),
+    mockRunImpostorCpuTurns: vi.fn(),
+    mockLoadRoomState: vi.fn(),
   };
 });
 
 vi.mock("next/server", async () => {
-  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  const actual =
+    await vi.importActual<typeof import("next/server")>("next/server");
   return {
     ...actual,
     after: mockAfter,
@@ -44,6 +47,7 @@ vi.mock("@/lib/game/round-service", () => ({
   startRound: mockStartRound,
   submitImpostorTurn: mockSubmitImpostorTurn,
   endRoundIfNeeded: mockEndRoundIfNeeded,
+  runClassicCpuAttempts: mockRunClassicCpuAttempts,
   runImpostorCpuTurns: mockRunImpostorCpuTurns,
 }));
 
@@ -75,26 +79,33 @@ describe("Art Impostor CPU after() scheduling routes", () => {
     mockStartRound.mockReset();
     mockSubmitImpostorTurn.mockReset();
     mockEndRoundIfNeeded.mockReset();
+    mockRunClassicCpuAttempts.mockReset();
     mockRunImpostorCpuTurns.mockReset();
     mockLoadRoomState.mockReset();
 
+    mockRunClassicCpuAttempts.mockResolvedValue(undefined);
     mockRunImpostorCpuTurns.mockResolvedValue(undefined);
   });
 
   it("schedules cpu continuation after /api/rounds/start responds", async () => {
-    mockStartRound.mockImplementation(async (params: {
-      roomId: string;
-      scheduleCpuTurns?: (scheduled: { roomId: string; roundId: string }) => Promise<void> | void;
-    }) => {
-      await params.scheduleCpuTurns?.({
-        roomId: params.roomId,
-        roundId: "round-1",
-      });
-      return {
-        roundId: "round-1",
-        roundIndex: 1,
-      };
-    });
+    mockStartRound.mockImplementation(
+      async (params: {
+        roomId: string;
+        scheduleCpuTurns?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.scheduleCpuTurns?.({
+          roomId: params.roomId,
+          roundId: "round-1",
+        });
+        return {
+          roundId: "round-1",
+          roundIndex: 1,
+        };
+      },
+    );
 
     const { POST } = await import("@/app/api/rounds/start/route");
     const response = await POST(
@@ -116,6 +127,48 @@ describe("Art Impostor CPU after() scheduling routes", () => {
     await Promise.all(scheduledTasks.map((task) => task?.()));
 
     expect(mockRunImpostorCpuTurns).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+      roundId: "round-1",
+    });
+    expect(mockEnsurePreparedRound).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+    });
+  });
+
+  it("schedules standard cpu attempts after /api/rounds/start responds", async () => {
+    mockStartRound.mockImplementation(
+      async (params: {
+        roomId: string;
+        scheduleCpuAttempts?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.scheduleCpuAttempts?.({
+          roomId: params.roomId,
+          roundId: "round-1",
+        });
+        return {
+          roundId: "round-1",
+          roundIndex: 1,
+        };
+      },
+    );
+
+    const { POST } = await import("@/app/api/rounds/start/route");
+    const response = await POST(
+      createRequest("http://localhost/api/rounds/start", {
+        roomId: "ROOM1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockAfter).toHaveBeenCalledTimes(2);
+    expect(mockRunClassicCpuAttempts).not.toHaveBeenCalled();
+
+    await Promise.all(scheduledTasks.map((task) => task?.()));
+
+    expect(mockRunClassicCpuAttempts).toHaveBeenCalledWith({
       roomId: "ROOM1",
       roundId: "round-1",
     });
@@ -152,16 +205,21 @@ describe("Art Impostor CPU after() scheduling routes", () => {
         },
       });
 
-    mockSubmitImpostorTurn.mockImplementation(async (params: {
-      roomId: string;
-      roundId: string;
-      scheduleCpuTurns?: (scheduled: { roomId: string; roundId: string }) => Promise<void> | void;
-    }) => {
-      await params.scheduleCpuTurns?.({
-        roomId: params.roomId,
-        roundId: params.roundId,
-      });
-    });
+    mockSubmitImpostorTurn.mockImplementation(
+      async (params: {
+        roomId: string;
+        roundId: string;
+        scheduleCpuTurns?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.scheduleCpuTurns?.({
+          roomId: params.roomId,
+          roundId: params.roundId,
+        });
+      },
+    );
 
     const { POST } = await import("@/app/api/rounds/submit/route");
     const response = await POST(
@@ -190,19 +248,24 @@ describe("Art Impostor CPU after() scheduling routes", () => {
   });
 
   it("schedules cpu continuation after /api/rounds/endIfNeeded responds", async () => {
-    mockEndRoundIfNeeded.mockImplementation(async (params: {
-      roomId: string;
-      roundId: string;
-      scheduleCpuTurns?: (scheduled: { roomId: string; roundId: string }) => Promise<void> | void;
-    }) => {
-      await params.scheduleCpuTurns?.({
-        roomId: params.roomId,
-        roundId: params.roundId,
-      });
-      return {
-        status: "IN_ROUND" as const,
-      };
-    });
+    mockEndRoundIfNeeded.mockImplementation(
+      async (params: {
+        roomId: string;
+        roundId: string;
+        scheduleCpuTurns?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.scheduleCpuTurns?.({
+          roomId: params.roomId,
+          roundId: params.roundId,
+        });
+        return {
+          status: "IN_ROUND" as const,
+        };
+      },
+    );
 
     const { POST } = await import("@/app/api/rounds/endIfNeeded/route");
     const response = await POST(

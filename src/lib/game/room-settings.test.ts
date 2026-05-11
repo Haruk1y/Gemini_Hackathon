@@ -107,11 +107,55 @@ describe("updateRoomSettings", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const cpuPlayers = Object.values(state?.players ?? {}).filter((player) => player.kind === "cpu");
+    const cpuPlayers = Object.values(state?.players ?? {}).filter(
+      (player) => player.kind === "cpu",
+    );
 
     expect(state?.room.settings.cpuCount).toBe(2);
     expect(cpuPlayers).toHaveLength(2);
     expect(cpuPlayers.every((player) => player.ready)).toBe(true);
+  });
+
+  it("syncs up to three cpu players for classic and memory modes", async () => {
+    await saveRoomState(createBaseState());
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "classic",
+        totalRounds: 3,
+        roundSeconds: 60,
+        cpuCount: 4,
+      },
+    });
+
+    let state = await loadRoomState("ROOM1");
+    let cpuPlayers = Object.values(state?.players ?? {}).filter(
+      (player) => player.kind === "cpu",
+    );
+
+    expect(state?.room.settings.cpuCount).toBe(3);
+    expect(cpuPlayers).toHaveLength(3);
+
+    await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "memory",
+        totalRounds: 3,
+        roundSeconds: 45,
+        cpuCount: 2,
+      },
+    });
+
+    state = await loadRoomState("ROOM1");
+    cpuPlayers = Object.values(state?.players ?? {}).filter(
+      (player) => player.kind === "cpu",
+    );
+
+    expect(state?.room.settings.cpuCount).toBe(2);
+    expect(cpuPlayers).toHaveLength(2);
   });
 
   it("prunes cpu players when leaving impostor mode", async () => {
@@ -140,7 +184,9 @@ describe("updateRoomSettings", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const cpuPlayers = Object.values(state?.players ?? {}).filter((player) => player.kind === "cpu");
+    const cpuPlayers = Object.values(state?.players ?? {}).filter(
+      (player) => player.kind === "cpu",
+    );
 
     expect(state?.room.settings.cpuCount).toBe(0);
     expect(cpuPlayers).toHaveLength(0);
@@ -185,16 +231,18 @@ describe("updateRoomSettings", () => {
     state.room.settings.imageModel = "flux";
     await saveRoomState(state);
 
-    await expect(updateRoomSettings({
-      roomId: "ROOM1",
-      uid: "host",
-      settings: {
-        gameMode: "change",
-        totalRounds: 3,
-        roundSeconds: 30,
-        cpuCount: 0,
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      updateRoomSettings({
+        roomId: "ROOM1",
+        uid: "host",
+        settings: {
+          gameMode: "change",
+          totalRounds: 3,
+          roundSeconds: 30,
+          cpuCount: 0,
+        },
+      }),
+    ).resolves.toMatchObject({
       gameMode: "change",
       imageModel: "flux",
       aspectRatio: "16:9",
@@ -206,13 +254,13 @@ describe("updateRoomSettings", () => {
 
     await expect(
       updateRoomSettings({
-      roomId: "ROOM1",
-      uid: "guest",
-      settings: {
-        gameMode: "memory",
-        totalRounds: 2,
-        roundSeconds: 30,
-        cpuCount: 0,
+        roomId: "ROOM1",
+        uid: "guest",
+        settings: {
+          gameMode: "memory",
+          totalRounds: 2,
+          roundSeconds: 30,
+          cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({
@@ -228,13 +276,13 @@ describe("updateRoomSettings", () => {
 
     await expect(
       updateRoomSettings({
-      roomId: "ROOM1",
-      uid: "host",
-      settings: {
-        gameMode: "memory",
-        totalRounds: 2,
-        roundSeconds: 30,
-        cpuCount: 0,
+        roomId: "ROOM1",
+        uid: "host",
+        settings: {
+          gameMode: "memory",
+          totalRounds: 2,
+          roundSeconds: 30,
+          cpuCount: 0,
         },
       }),
     ).rejects.toMatchObject({
