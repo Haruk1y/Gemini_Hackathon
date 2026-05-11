@@ -37,6 +37,7 @@ describe("HomePageClient", () => {
   beforeEach(() => {
     apiPostMock.mockReset();
     pushMock.mockReset();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -110,5 +111,30 @@ describe("HomePageClient", () => {
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM123");
     });
+  });
+
+  it("lets completed daily quests pay out coins once", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <HomePageClient
+          initialImageModel="gemini"
+          initialPromptModel="flash"
+          initialJudgeModel="flash"
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("120 coins")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Claim 80 coins" }));
+
+    expect(screen.getByText("200 coins")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Claimed" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(window.localStorage.getItem("pmb:coins")).toBe("200");
   });
 });

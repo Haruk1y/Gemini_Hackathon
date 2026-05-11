@@ -9,6 +9,7 @@ import type {
   RoundPublicDoc,
   RoomDoc,
   ScoreDoc,
+  StampEventDoc,
 } from "@/lib/types/game";
 import { AppError } from "@/lib/utils/errors";
 import { parseDate } from "@/lib/utils/time";
@@ -30,6 +31,7 @@ export interface RoomState {
   attempts: Record<string, Record<string, AttemptsPrivateDoc>>;
   scores: Record<string, Record<string, ScoreDoc>>;
   preparedRound: PreparedRoundDoc | null;
+  recentStamps: StampEventDoc[];
   roundSequence: number;
   version: number;
 }
@@ -61,7 +63,10 @@ function sleep(ms: number) {
 }
 
 function getExpiryMs(state: RoomState): number {
-  return parseDate(state.room.expiresAt)?.getTime() ?? Date.now() + ROOM_STATE_TTL_SECONDS * 1000;
+  return (
+    parseDate(state.room.expiresAt)?.getTime() ??
+    Date.now() + ROOM_STATE_TTL_SECONDS * 1000
+  );
 }
 
 function serializeState(state: RoomState): string {
@@ -195,11 +200,15 @@ function getRedisClient(): Redis | null {
   }
 
   const config = resolveRedisConfig();
-  redisClient = config ? new Redis({ url: config.url, token: config.token }) : null;
+  redisClient = config
+    ? new Redis({ url: config.url, token: config.token })
+    : null;
   return redisClient;
 }
 
-function isDevelopmentMemoryFallbackEnabled(env: NodeJS.ProcessEnv = process.env) {
+function isDevelopmentMemoryFallbackEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+) {
   return env.NODE_ENV !== "production";
 }
 
@@ -237,13 +246,17 @@ function mirrorMemoryValue(key: string, value: string, expiresAtMs: number) {
 }
 
 function mirrorExpiringRoom(roomId: string, expiresAtMs: number) {
-  const current = memorySorted.get(ROOM_EXPIRING_KEY) ?? new Map<string, number>();
+  const current =
+    memorySorted.get(ROOM_EXPIRING_KEY) ?? new Map<string, number>();
   current.set(roomId, expiresAtMs);
   memorySorted.set(ROOM_EXPIRING_KEY, current);
 }
 
 function activateRedisMemoryFallback(error: unknown): boolean {
-  if (!isDevelopmentMemoryFallbackEnabled() || !isUpstashRequestLimitError(error)) {
+  if (
+    !isDevelopmentMemoryFallbackEnabled() ||
+    !isUpstashRequestLimitError(error)
+  ) {
     return false;
   }
 
@@ -277,7 +290,11 @@ async function getValue(key: string): Promise<unknown | null> {
   return memoryKv.get(key)?.value ?? null;
 }
 
-async function setValue(key: string, value: string, expiresAtMs: number): Promise<void> {
+async function setValue(
+  key: string,
+  value: string,
+  expiresAtMs: number,
+): Promise<void> {
   const redis = getRedisClient();
   const ttlSeconds = Math.max(60, Math.ceil((expiresAtMs - Date.now()) / 1000));
 
@@ -313,11 +330,17 @@ async function deleteValue(key: string): Promise<void> {
   memoryKv.delete(key);
 }
 
-async function addExpiringRoom(roomId: string, expiresAtMs: number): Promise<void> {
+async function addExpiringRoom(
+  roomId: string,
+  expiresAtMs: number,
+): Promise<void> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      await redis.zadd(ROOM_EXPIRING_KEY, { score: expiresAtMs, member: roomId });
+      await redis.zadd(ROOM_EXPIRING_KEY, {
+        score: expiresAtMs,
+        member: roomId,
+      });
       if (isDevelopmentMemoryFallbackEnabled()) {
         mirrorExpiringRoom(roomId, expiresAtMs);
       }
@@ -347,7 +370,10 @@ async function removeExpiringRoom(roomId: string): Promise<void> {
   memorySorted.get(ROOM_EXPIRING_KEY)?.delete(roomId);
 }
 
-export async function listExpiredRoomIds(limit: number, now = new Date()): Promise<string[]> {
+export async function listExpiredRoomIds(
+  limit: number,
+  now = new Date(),
+): Promise<string[]> {
   const redis = getRedisClient();
   if (redis) {
     try {
@@ -403,7 +429,12 @@ async function acquireLock(key: string, ttlMs: number): Promise<string> {
     await sleep(LOCK_RETRY_MS);
   }
 
-  throw new AppError("RATE_LIMIT", "処理が混み合っています。少し待ってから再試行してください。", true, 429);
+  throw new AppError(
+    "RATE_LIMIT",
+    "処理が混み合っています。少し待ってから再試行してください。",
+    true,
+    429,
+  );
 }
 
 async function releaseLock(key: string, token: string): Promise<void> {
@@ -429,7 +460,11 @@ async function releaseLock(key: string, token: string): Promise<void> {
   }
 }
 
-async function withLock<T>(key: string, fn: () => Promise<T>, ttlMs = DEFAULT_LOCK_TTL_MS): Promise<T> {
+async function withLock<T>(
+  key: string,
+  fn: () => Promise<T>,
+  ttlMs = DEFAULT_LOCK_TTL_MS,
+): Promise<T> {
   const token = await acquireLock(key, ttlMs);
   try {
     return await fn();
@@ -438,7 +473,10 @@ async function withLock<T>(key: string, fn: () => Promise<T>, ttlMs = DEFAULT_LO
   }
 }
 
-export async function withRoomLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+export async function withRoomLock<T>(
+  roomId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   return withLock(lockKey(roomId), fn);
 }
 
@@ -460,6 +498,7 @@ export function createRoomState(room: RoomDoc): RoomState {
     attempts: {},
     scores: {},
     preparedRound: null,
+    recentStamps: [],
     roundSequence: 0,
     version: 1,
   };
@@ -477,7 +516,11 @@ export async function loadRoomState(roomId: string): Promise<RoomState | null> {
 
 export async function saveRoomState(state: RoomState): Promise<void> {
   const expiresAtMs = getExpiryMs(state);
-  await setValue(stateKey(state.room.roomId), serializeState(state), expiresAtMs);
+  await setValue(
+    stateKey(state.room.roomId),
+    serializeState(state),
+    expiresAtMs,
+  );
   await addExpiringRoom(state.room.roomId, expiresAtMs);
 }
 

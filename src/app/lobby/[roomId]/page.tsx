@@ -49,6 +49,7 @@ import {
   normalizeRoundSecondsForMode,
   STANDARD_ROUND_SECONDS_OPTIONS,
 } from "@/lib/game/modes";
+import { getMaxCpuPlayersForMode } from "@/lib/game/cpu";
 import type { GameMode } from "@/lib/types/game";
 
 type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
@@ -386,7 +387,13 @@ export default function LobbyPage() {
     (player) => player.kind === "human",
   ).length;
   const maxPlayers = room?.settings?.maxPlayers ?? 8;
-  const maxCpuCount = Math.max(0, Math.min(6, maxPlayers - humanPlayerCount));
+  const maxCpuCount = Math.max(
+    0,
+    Math.min(
+      getMaxCpuPlayersForMode(draftGameMode),
+      maxPlayers - humanPlayerCount,
+    ),
+  );
   const cpuOptions = Array.from({ length: maxCpuCount + 1 }, (_, index) => ({
     value: index,
     label: String(index),
@@ -406,7 +413,7 @@ export default function LobbyPage() {
     draftGameMode,
     draftTotalRounds,
     draftRoundSeconds,
-    draftGameMode === "impostor" ? draftCpuCount : 0,
+    draftGameMode === "change" ? 0 : draftCpuCount,
   );
   const settingsDirty = currentSettingsKey !== draftSettingsKey;
   const settingsPending = settingsDirty || settingsStatus === "saving";
@@ -491,12 +498,12 @@ export default function LobbyPage() {
     const sequence = ++saveSequenceRef.current;
     const timerId = window.setTimeout(() => {
       void apiPost("/api/rooms/settings", {
-          roomId,
+        roomId,
         settings: {
           gameMode: draftGameMode,
           totalRounds: draftTotalRounds,
           roundSeconds: draftRoundSeconds,
-          cpuCount: draftGameMode === "impostor" ? draftCpuCount : 0,
+          cpuCount: draftGameMode === "change" ? 0 : draftCpuCount,
         },
       })
         .then(() => {
@@ -567,7 +574,10 @@ export default function LobbyPage() {
     enabled: Boolean(room && user) && !isLeaving,
   });
 
-  const updateReady = async (nextReady: boolean, options?: { silent?: boolean }) => {
+  const updateReady = async (
+    nextReady: boolean,
+    options?: { silent?: boolean },
+  ) => {
     setActionBusy("ready");
     if (!options?.silent) {
       setActionError(null);
@@ -948,7 +958,7 @@ export default function LobbyPage() {
                     }`
                   : `${displayRoundSeconds} ${copy.common.seconds}`}
               </Badge>
-              {displayGameMode === "impostor" ? (
+              {displayGameMode !== "change" ? (
                 <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
                   {displayCpuCount} {copy.common.cpu}
                 </Badge>
@@ -1058,7 +1068,7 @@ export default function LobbyPage() {
               onChange={setDraftRoundSeconds}
               disabled={!hostCanEdit}
             />
-            {draftGameMode === "impostor" ? (
+            {draftGameMode !== "change" ? (
               <SwipeValuePicker
                 label="CPU"
                 options={cpuOptions}

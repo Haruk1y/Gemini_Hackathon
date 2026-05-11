@@ -1,4 +1,5 @@
 import type { CaptionSchema } from "@/lib/gemini/schemas";
+import { normalizeCpuCountForMode } from "@/lib/game/cpu";
 import type { RoomState } from "@/lib/server/room-state";
 import type {
   ImpostorRole,
@@ -10,7 +11,6 @@ import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 export const IMPOSTOR_SIMILARITY_THRESHOLD = 70;
 export const IMPOSTOR_TIMEOUT_PROMPT = "unclear dreamlike scene";
-export const MAX_CPU_PLAYERS = 6;
 
 const CPU_UID_PREFIX = "cpu-";
 const TOKEN_STOPWORDS = new Set(["a", "an", "the"]);
@@ -80,7 +80,8 @@ export function chooseImpostorAssignments(players: PlayerDoc[]): {
   rolesByUid: Record<string, ImpostorRole>;
 } {
   const turnOrder = players.map((player) => player.uid);
-  const impostorUid = turnOrder[Math.floor(Math.random() * turnOrder.length)] ?? turnOrder[0];
+  const impostorUid =
+    turnOrder[Math.floor(Math.random() * turnOrder.length)] ?? turnOrder[0];
 
   return {
     turnOrder,
@@ -90,14 +91,19 @@ export function chooseImpostorAssignments(players: PlayerDoc[]): {
   };
 }
 
-function desiredCpuCount(settings: RoomSettings, players: Record<string, PlayerDoc>) {
-  if (settings.gameMode !== "impostor") {
-    return 0;
-  }
-
-  const humanCount = Object.values(players).filter((player) => player.kind === "human").length;
+function desiredCpuCount(
+  settings: RoomSettings,
+  players: Record<string, PlayerDoc>,
+) {
+  const humanCount = Object.values(players).filter(
+    (player) => player.kind === "human",
+  ).length;
   const availableSlots = Math.max(0, settings.maxPlayers - humanCount);
-  return Math.max(0, Math.min(settings.cpuCount, availableSlots, MAX_CPU_PLAYERS));
+  return normalizeCpuCountForMode({
+    gameMode: settings.gameMode,
+    cpuCount: settings.cpuCount,
+    availableSlots,
+  });
 }
 
 function buildCpuPlayer(index: number): PlayerDoc {
@@ -135,18 +141,26 @@ export function sortPlayersBySeatOrder(players: PlayerDoc[]): PlayerDoc[] {
 }
 
 export function nextSeatOrder(players: Record<string, PlayerDoc>): number {
-  return Object.values(players).reduce((max, player) => {
-    if (typeof player.seatOrder !== "number" || !Number.isFinite(player.seatOrder)) {
-      return max;
-    }
-    return Math.max(max, player.seatOrder);
-  }, -1) + 1;
+  return (
+    Object.values(players).reduce((max, player) => {
+      if (
+        typeof player.seatOrder !== "number" ||
+        !Number.isFinite(player.seatOrder)
+      ) {
+        return max;
+      }
+      return Math.max(max, player.seatOrder);
+    }, -1) + 1
+  );
 }
 
 export function syncCpuPlayers(state: RoomState): number {
   const nextCpuCount = desiredCpuCount(state.room.settings, state.players);
   const desiredCpuUids = new Set(
-    Array.from({ length: nextCpuCount }, (_, index) => `${CPU_UID_PREFIX}${index + 1}`),
+    Array.from(
+      { length: nextCpuCount },
+      (_, index) => `${CPU_UID_PREFIX}${index + 1}`,
+    ),
   );
 
   for (const player of Object.values(state.players)) {
@@ -177,7 +191,9 @@ export function syncCpuPlayers(state: RoomState): number {
   return nextCpuCount;
 }
 
-export function resetPlayerReadinessForLobby(players: Record<string, PlayerDoc>) {
+export function resetPlayerReadinessForLobby(
+  players: Record<string, PlayerDoc>,
+) {
   for (const player of Object.values(players)) {
     player.ready = true;
     player.totalScore = 0;
@@ -222,7 +238,9 @@ export function chooseCpuVote(params: {
   turnRecords: ImpostorTurnRecord[];
   rolesByUid: Record<string, ImpostorRole>;
 }): { targetUid: string | null; reason: string } {
-  const candidates = params.turnOrder.filter((candidateUid) => candidateUid !== params.uid);
+  const candidates = params.turnOrder.filter(
+    (candidateUid) => candidateUid !== params.uid,
+  );
   if (candidates.length === 0) {
     return {
       targetUid: null,
@@ -231,9 +249,12 @@ export function chooseCpuVote(params: {
   }
 
   if (params.role === "agent") {
-    const records = params.turnRecords.filter((record) => record.uid !== params.uid);
+    const records = params.turnRecords.filter(
+      (record) => record.uid !== params.uid,
+    );
     const mostSuspicious =
-      [...records].sort((a, b) => a.similarityScore - b.similarityScore)[0]?.uid ?? candidates[0];
+      [...records].sort((a, b) => a.similarityScore - b.similarityScore)[0]
+        ?.uid ?? candidates[0];
 
     return {
       targetUid: mostSuspicious,
@@ -242,8 +263,9 @@ export function chooseCpuVote(params: {
   }
 
   const safeTarget =
-    candidates.find((candidateUid) => params.rolesByUid[candidateUid] !== "impostor") ??
-    candidates[0];
+    candidates.find(
+      (candidateUid) => params.rolesByUid[candidateUid] !== "impostor",
+    ) ?? candidates[0];
 
   return {
     targetUid: safeTarget,
