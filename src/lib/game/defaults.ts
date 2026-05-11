@@ -5,6 +5,7 @@ import {
   type RoomSettings,
   type TextModelVariant,
 } from "@/lib/types/game";
+import { normalizeCpuCountForMode } from "@/lib/game/cpu";
 import { normalizeRoundSecondsForMode } from "@/lib/game/modes";
 
 export function resolveDefaultImageModel(): ImageModel {
@@ -12,11 +13,17 @@ export function resolveDefaultImageModel(): ImageModel {
 }
 
 export function resolveDefaultPromptModel(): TextModelVariant {
-  return normalizeTextModelVariant(process.env.GEMINI_PROMPT_MODEL_DEFAULT, "flash-lite");
+  return normalizeTextModelVariant(
+    process.env.GEMINI_PROMPT_MODEL_DEFAULT,
+    "flash-lite",
+  );
 }
 
 export function resolveDefaultJudgeModel(): TextModelVariant {
-  return normalizeTextModelVariant(process.env.GEMINI_JUDGE_MODEL_DEFAULT, "flash-lite");
+  return normalizeTextModelVariant(
+    process.env.GEMINI_JUDGE_MODEL_DEFAULT,
+    "flash-lite",
+  );
 }
 
 export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
@@ -47,13 +54,19 @@ export function mergeRoomSettings(input?: Partial<RoomSettings>): RoomSettings {
     aspectRatio:
       gameMode === "change"
         ? "16:9"
-        : input?.aspectRatio ?? DEFAULT_ROOM_SETTINGS.aspectRatio,
+        : (input?.aspectRatio ?? DEFAULT_ROOM_SETTINGS.aspectRatio),
     imageModel: normalizeImageModel(input?.imageModel, defaultImageModel),
-    promptModel: normalizeTextModelVariant(input?.promptModel, defaultPromptModel),
+    promptModel: normalizeTextModelVariant(
+      input?.promptModel,
+      defaultPromptModel,
+    ),
     judgeModel: normalizeTextModelVariant(input?.judgeModel, defaultJudgeModel),
     hintLimit: DEFAULT_ROOM_SETTINGS.hintLimit,
     gameMode,
-    cpuCount: gameMode === "change" ? 0 : input?.cpuCount ?? DEFAULT_ROOM_SETTINGS.cpuCount,
+    cpuCount: normalizeCpuCountForMode({
+      gameMode,
+      cpuCount: input?.cpuCount ?? DEFAULT_ROOM_SETTINGS.cpuCount,
+    }),
   };
 }
 

@@ -35,8 +35,10 @@ import {
 } from "@/lib/game/impostor";
 import {
   reserveClassicRoundAttemptInState,
+  submitClassicRoundAttempt,
   submitClassicRoundAttemptWithReservation,
 } from "@/lib/game/classic-submit";
+import { buildStandardCpuPrompt } from "@/lib/game/cpu";
 import {
   getRoundSchedule,
   getRoundSubmissionDeadline,
@@ -65,6 +67,7 @@ import {
   buildRoundTargetImagePath,
 } from "@/lib/storage/paths";
 import { uploadImageToStorage } from "@/lib/storage/upload-image";
+import type { CaptionSchema } from "@/lib/gemini/schemas";
 import {
   listApprovedAhaChanges,
   markAhaChangeUsed,
@@ -1376,6 +1379,176 @@ export async function runImpostorCpuTurns(params: {
   }
 }
 
+function isStandardCpuMode(settings: RoomSettings) {
+  return settings.gameMode === "classic" || settings.gameMode === "memory";
+}
+
+async function waitForPromptStart(round: RoundPublicDoc) {
+  const promptStartsAt = parseDate(round.promptStartsAt);
+  const delayMs = promptStartsAt
+    ? Math.max(0, promptStartsAt.getTime() - Date.now())
+    : 0;
+
+  if (delayMs > 0) {
+    await sleep(delayMs);
+  }
+}
+
+async function resolveStandardCpuBasePrompt(params: {
+  room: RoomState["room"];
+  round: RoundPublicDoc;
+  roundPrivate: RoundPrivateDoc;
+}): Promise<{ basePrompt: string; caption?: CaptionSchema }> {
+  const fallbackPrompt =
+    params.roundPrivate.gmPrompt.trim() ||
+    params.round.gmTitle.trim() ||
+    "a colorful illustrated scene, clear main subject, no text, no watermark";
+  const targetImage = await fetchImageBytes(params.round.targetImageUrl);
+
+  if (!targetImage?.base64Data) {
+    return { basePrompt: fallbackPrompt };
+  }
+
+  try {
+    const caption = await captionFromImage(targetImage, fallbackPrompt, {
+      promptModel: params.room.settings.promptModel,
+    });
+    const reconstructedPrompt = reconstructPromptFromCaption(caption);
+
+    return {
+      basePrompt: reconstructedPrompt,
+      caption,
+    };
+  } catch (error) {
+    console.warn("Standard CPU prompt reconstruction failed", {
+      roomId: params.room.roomId,
+      roundId: params.round.roundId,
+      error,
+    });
+    return { basePrompt: fallbackPrompt };
+  }
+}
+
+function shouldIgnoreStandardCpuAttemptError(error: unknown) {
+  return (
+    error instanceof AppError &&
+    (error.code === "MAX_ATTEMPTS_REACHED" || error.code === "ROUND_CLOSED")
+  );
+}
+
+export async function runClassicCpuAttempts(params: {
+  roomId: string;
+  roundId: string;
+}): Promise<void> {
+  const initialState = await loadRoomState(params.roomId);
+  const initialRoom = initialState?.room;
+  const initialRound = initialState?.rounds[params.roundId];
+
+  if (
+    !initialState ||
+    !initialRoom ||
+    !initialRound ||
+    !isStandardCpuMode(initialRoom.settings)
+  ) {
+    return;
+  }
+
+  await waitForPromptStart(initialRound);
+
+  const state = await loadRoomState(params.roomId);
+  const room = state?.room;
+  const round = state?.rounds[params.roundId];
+  const roundPrivate = state?.roundPrivates[params.roundId];
+
+  if (
+    !state ||
+    !room ||
+    !round ||
+    !roundPrivate ||
+    !isStandardCpuMode(room.settings) ||
+    room.status !== "IN_ROUND" ||
+    room.currentRoundId !== params.roundId ||
+    round.status !== "IN_ROUND"
+  ) {
+    return;
+  }
+
+  const cpuPlayers = sortPlayersBySeatOrder(
+    Object.values(state.players),
+  ).filter(
+    (player) =>
+      player.kind === "cpu" &&
+      (state.attempts[params.roundId]?.[player.uid]?.attemptsUsed ?? 0) <
+        room.settings.maxAttempts,
+  );
+
+  if (cpuPlayers.length === 0) {
+    return;
+  }
+
+  const promptSource = await resolveStandardCpuBasePrompt({
+    room,
+    round,
+    roundPrivate,
+  });
+
+  const results = await Promise.allSettled(
+    cpuPlayers.map(async (player, index) => {
+      await sleep(index * 250 + Math.floor(Math.random() * 500));
+      await submitClassicRoundAttempt({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid: player.uid,
+        prompt: buildStandardCpuPrompt({
+          basePrompt: promptSource.basePrompt,
+          caption: promptSource.caption,
+          cpuIndex: index + 1,
+        }),
+        language: DEFAULT_LANGUAGE,
+      });
+    }),
+  );
+
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      return;
+    }
+    if (shouldIgnoreStandardCpuAttemptError(result.reason)) {
+      return;
+    }
+    console.error("Standard CPU attempt failed", {
+      roomId: params.roomId,
+      roundId: params.roundId,
+      uid: cpuPlayers[index]?.uid,
+      error: result.reason,
+    });
+  });
+}
+
+async function scheduleStandardCpuAttemptsIfNeeded(params: {
+  roomId: string;
+  roundId: string;
+  settings: RoomSettings;
+  scheduleCpuAttempts?: CpuTurnScheduler;
+}) {
+  if (!isStandardCpuMode(params.settings) || params.settings.cpuCount < 1) {
+    return;
+  }
+
+  if (params.scheduleCpuAttempts) {
+    await params.scheduleCpuAttempts({
+      roomId: params.roomId,
+      roundId: params.roundId,
+    });
+    return;
+  }
+
+  await runClassicCpuAttempts({
+    roomId: params.roomId,
+    roundId: params.roundId,
+  });
+}
+
 export async function voteInRound(params: {
   roomId: string;
   roundId: string;
@@ -1887,6 +2060,7 @@ export async function startRound(params: {
   roomId: string;
   uid: string;
   scheduleCpuTurns?: CpuTurnScheduler;
+  scheduleCpuAttempts?: CpuTurnScheduler;
 }): Promise<{ roundId: string; roundIndex: number }> {
   const reservation = await withRoomLock(params.roomId, async () => {
     const state = await loadRoomState(params.roomId);
@@ -2000,6 +2174,12 @@ export async function startRound(params: {
         scheduleCpuTurns: params.scheduleCpuTurns,
       });
     }
+    await scheduleStandardCpuAttemptsIfNeeded({
+      roomId: params.roomId,
+      roundId: reservation.roundId,
+      settings: reservation.settings,
+      scheduleCpuAttempts: params.scheduleCpuAttempts,
+    });
 
     return {
       roundId: reservation.roundId,
@@ -2065,6 +2245,12 @@ export async function startRound(params: {
             scheduleCpuTurns: params.scheduleCpuTurns,
           });
         }
+        await scheduleStandardCpuAttemptsIfNeeded({
+          roomId: params.roomId,
+          roundId: materialized.roundId,
+          settings: reservation.settings,
+          scheduleCpuAttempts: params.scheduleCpuAttempts,
+        });
 
         return materialized;
       }
@@ -2079,6 +2265,7 @@ export async function startRound(params: {
       reservation: nextReservation,
       roomId: params.roomId,
       scheduleCpuTurns: params.scheduleCpuTurns,
+      scheduleCpuAttempts: params.scheduleCpuAttempts,
     });
   }
 
@@ -2086,6 +2273,7 @@ export async function startRound(params: {
     reservation,
     roomId: params.roomId,
     scheduleCpuTurns: params.scheduleCpuTurns,
+    scheduleCpuAttempts: params.scheduleCpuAttempts,
   });
 }
 
@@ -2104,6 +2292,7 @@ async function startRoundWithReservedGeneration(params: {
   };
   roomId: string;
   scheduleCpuTurns?: CpuTurnScheduler;
+  scheduleCpuAttempts?: CpuTurnScheduler;
 }): Promise<{ roundId: string; roundIndex: number }> {
   const reservation = params.reservation;
 
@@ -2184,6 +2373,12 @@ async function startRoundWithReservedGeneration(params: {
         scheduleCpuTurns: params.scheduleCpuTurns,
       });
     }
+    await scheduleStandardCpuAttemptsIfNeeded({
+      roomId: params.roomId,
+      roundId: reservation.roundId,
+      settings: reservation.settings,
+      scheduleCpuAttempts: params.scheduleCpuAttempts,
+    });
 
     return { roundId: reservation.roundId, roundIndex: reservation.roundIndex };
   } catch (error) {
