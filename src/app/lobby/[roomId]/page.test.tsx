@@ -200,7 +200,9 @@ describe("LobbyPage", () => {
     expect(
       screen
         .getByRole("button", { name: "Copy room code" })
-        .parentElement?.querySelector('[role="group"][aria-label="Display language"]'),
+        .parentElement?.querySelector(
+          '[role="group"][aria-label="Display language"]',
+        ),
     ).not.toBeNull();
     expect(screen.getAllByText("READY").length).toBeGreaterThan(0);
     expect(apiPostMock).not.toHaveBeenCalledWith("/api/rooms/ready", {
@@ -438,6 +440,41 @@ describe("LobbyPage", () => {
         settings: expect.objectContaining({
           gameMode: "change",
           roundSeconds: 65,
+        }),
+      });
+    });
+  });
+
+  it("allows classic mode to save up to three CPU players", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        includeGuest: false,
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const cpuPicker = screen.getByRole("spinbutton", {
+      name: "Change CPU",
+    });
+    expect(cpuPicker.getAttribute("aria-valuemax")).toBe("3");
+
+    cpuPicker.focus();
+    await user.keyboard("{End}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          cpuCount: 3,
         }),
       });
     });

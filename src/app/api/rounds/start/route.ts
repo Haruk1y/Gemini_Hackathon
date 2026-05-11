@@ -4,6 +4,7 @@ import { roomOnlySchema } from "@/lib/api/schemas";
 import { withPostHandler, ok } from "@/lib/api/handler";
 import {
   ensurePreparedRound,
+  runClassicCpuAttempts,
   runImpostorCpuTurns,
   startRound,
 } from "@/lib/game/round-service";
@@ -21,7 +22,22 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
         try {
           await runImpostorCpuTurns({ roomId, roundId });
         } catch (error) {
-          console.error("Deferred CPU turn execution failed after round start", error);
+          console.error(
+            "Deferred CPU turn execution failed after round start",
+            error,
+          );
+        }
+      });
+    },
+    scheduleCpuAttempts: ({ roomId, roundId }) => {
+      after(async () => {
+        try {
+          await runClassicCpuAttempts({ roomId, roundId });
+        } catch (error) {
+          console.error(
+            "Deferred standard CPU attempts failed after round start",
+            error,
+          );
         }
       });
     },
@@ -30,7 +46,10 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
     try {
       await ensurePreparedRound({ roomId: body.roomId });
     } catch (error) {
-      console.error("Deferred round preparation failed after round start", error);
+      console.error(
+        "Deferred round preparation failed after round start",
+        error,
+      );
     }
   });
   return ok({ roundId: result.roundId, roundIndex: result.roundIndex });

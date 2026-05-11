@@ -26,6 +26,11 @@ test-results/
 .DS_Store
 *.pem
 
+# application / IP360 working files
+/docs/application/
+/outputs/
+/scripts/application/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
