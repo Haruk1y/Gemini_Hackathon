@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiPost } from "@/lib/client/api";
+import { ApiClientError, apiPost } from "@/lib/client/api";
 import { createEndRoundRetrier } from "@/lib/client/end-round-retry";
 import {
   mapContainedFramePointToImagePoint,
@@ -55,7 +55,7 @@ import { formatSeconds, millisecondsLeft, parseDate } from "@/lib/utils/time";
 
 type SubmitResponse = Record<string, unknown> & {
   ok: true;
-  score: number;
+  score: number | null;
   imageUrl: string;
 };
 
@@ -76,6 +76,10 @@ type EndRoundResponse = {
 
 type GeneratedImagePhase = "IDLE" | "GENERATING" | "SCORING" | "DONE";
 type ChangeTimelinePhase = "waiting" | "changing" | "answer";
+
+function isScorePollingContention(error: unknown) {
+  return error instanceof ApiClientError && error.code === "RATE_LIMIT";
+}
 
 function resolveAspectRatioValue(aspectRatio?: "1:1" | "16:9" | "9:16") {
   if (aspectRatio === "16:9") return 16 / 9;
@@ -271,6 +275,11 @@ export default function RoundPage() {
   const changeStageContainerRef = useRef<HTMLDivElement | null>(null);
   const changeStageRef = useRef<HTMLDivElement | null>(null);
   const resultCountdownFallbackTargetRef = useRef<number | null>(null);
+  const cpuTurnFiredRef = useRef<string | null>(null);
+  const draftSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastDraftSyncedRef = useRef<string | null>(null);
   const endRoundRetrier = useRef<ReturnType<
     typeof createEndRoundRetrier
   > | null>(null);
@@ -357,7 +366,17 @@ export default function RoundPage() {
       ? (impostorModeState.currentTurnIndex ?? 0)
       : (impostorModeState?.turnOrder?.length ?? 0);
   const turnTotal = impostorModeState?.turnOrder?.length ?? 0;
+  const myTurnRecord = snapshot.myTurnRecord ?? null;
+  const isImpostorScoringPhase = Boolean(
+    isImpostorMode &&
+    room?.status === "IN_ROUND" &&
+    impostorModeState?.phase === "SCORING",
+  );
   const roundSeconds = room?.settings?.roundSeconds ?? 60;
+  const roomStatus = room?.status ?? null;
+  const roundStatus = round?.status ?? null;
+  const activeRoundId = round?.roundId ?? null;
+  const roundEndsAt = round?.endsAt ?? null;
   const changeSubmittedCount = changeModeState?.submittedCount ?? 0;
   const changeCorrectCount = changeModeState?.correctCount ?? 0;
   const changeStageAspectRatio =
@@ -375,7 +394,7 @@ export default function RoundPage() {
       isImpostorMode &&
       room.status === "IN_ROUND" &&
       round.status === "IN_ROUND" &&
-      isCpuTurn
+      (isCpuTurn || impostorModeState?.phase === "SCORING")
     ) {
       setSecondsLeft(0);
       setPreviewSecondsLeft(null);
@@ -416,13 +435,22 @@ export default function RoundPage() {
     update();
     const id = setInterval(update, 250);
     return () => clearInterval(id);
-  }, [currentGameMode, isCpuTurn, isImpostorMode, round, room, roundSeconds]);
+  }, [
+    currentGameMode,
+    impostorModeState?.phase,
+    isCpuTurn,
+    isImpostorMode,
+    round,
+    room,
+    roundSeconds,
+  ]);
 
   useEffect(() => {
     endCalled.current = false;
     endRoundRetrier.current?.cancel();
     endRoundRetrier.current = null;
     resultCountdownFallbackTargetRef.current = null;
+    lastDraftSyncedRef.current = null;
     setLocalSelectedPoint(null);
     setChangeClickFrameSize(null);
   }, [currentTurnUid, round?.endsAt, round?.roundId, room?.status]);
@@ -430,6 +458,130 @@ export default function RoundPage() {
   useEffect(() => {
     setChangeImageAspectRatio(null);
   }, [changeModeState?.changedImageUrl, round?.roundId, round?.targetImageUrl]);
+
+  useEffect(() => {
+    if (draftSyncTimeoutRef.current) {
+      clearTimeout(draftSyncTimeoutRef.current);
+      draftSyncTimeoutRef.current = null;
+    }
+
+    if (
+      !isImpostorMode ||
+      !isMyTurn ||
+      !room ||
+      !round ||
+      room.status !== "IN_ROUND" ||
+      round.status !== "IN_ROUND" ||
+      isCpuTurn ||
+      impostorModeState?.phase !== "CHAIN"
+    ) {
+      return;
+    }
+
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt === (lastDraftSyncedRef.current ?? "")) {
+      return;
+    }
+
+    draftSyncTimeoutRef.current = setTimeout(() => {
+      draftSyncTimeoutRef.current = null;
+      void apiPost("/api/rounds/save-draft", {
+        roomId,
+        roundId: round.roundId,
+        prompt,
+      })
+        .then(() => {
+          lastDraftSyncedRef.current = trimmedPrompt;
+        })
+        .catch((error) => {
+          console.warn("save draft failed", error);
+        });
+    }, 250);
+
+    return () => {
+      if (draftSyncTimeoutRef.current) {
+        clearTimeout(draftSyncTimeoutRef.current);
+        draftSyncTimeoutRef.current = null;
+      }
+    };
+  }, [
+    impostorModeState?.phase,
+    isCpuTurn,
+    isImpostorMode,
+    isMyTurn,
+    prompt,
+    room,
+    roomId,
+    round,
+  ]);
+
+  useEffect(() => {
+    const roundIdValue = round?.roundId;
+    const fireKey = `${roundIdValue}:${currentTurnUid}`;
+
+    if (
+      !isCpuTurn ||
+      !roundIdValue ||
+      impostorModeState?.phase !== "CHAIN" ||
+      room?.status !== "IN_ROUND"
+    ) {
+      return;
+    }
+
+    if (cpuTurnFiredRef.current === fireKey) return;
+    cpuTurnFiredRef.current = fireKey;
+
+    void apiPost("/api/rounds/cpu-turn", {
+      roomId,
+      roundId: roundIdValue,
+    }).catch((error) => {
+      console.warn("CPU turn trigger failed", error);
+      cpuTurnFiredRef.current = null;
+    });
+  }, [
+    currentTurnUid,
+    impostorModeState?.phase,
+    isCpuTurn,
+    room?.status,
+    roomId,
+    round?.roundId,
+  ]);
+
+  useEffect(() => {
+    if (!isImpostorScoringPhase || !round) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const trigger = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await apiPost("/api/rounds/score-pending", {
+          roomId,
+          roundId: round.roundId,
+        });
+      } catch (error) {
+        if (!cancelled && !isScorePollingContention(error)) {
+          console.error("round scoring pending failed", error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void trigger();
+    const intervalId = window.setInterval(() => {
+      void trigger();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isImpostorScoringPhase, roomId, round]);
 
   useEffect(() => {
     if (!isChangeMode) {
@@ -490,23 +642,23 @@ export default function RoundPage() {
   }, [changeStageAspectRatio, isChangeMode, round?.roundId]);
 
   useEffect(() => {
-    if (!room || !round) return;
+    if (!roomStatus || !roundStatus) return;
 
-    if (room.status === "RESULTS") {
+    if (roomStatus === "RESULTS") {
       router.replace(buildCurrentAppPath(`/results/${roomId}`));
       return;
     }
 
-    if (room.status === "LOBBY") {
+    if (roomStatus === "LOBBY") {
       router.replace(buildCurrentAppPath(`/lobby/${roomId}`));
       return;
     }
 
-    if (room.status === "FINISHED") {
+    if (roomStatus === "FINISHED") {
       router.replace(buildCurrentAppPath("/"));
       return;
     }
-  }, [room?.status, round?.status, roomId, router]);
+  }, [roomStatus, roundStatus, roomId, router]);
 
   const latestAttempt =
     attempts?.attempts?.[attempts.attempts.length - 1] ?? null;
@@ -532,7 +684,8 @@ export default function RoundPage() {
   );
   const isRoundLive =
     room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
-  const isBusy = submitPending || manualResultsPending;
+  const isBusy =
+    submitPending || manualResultsPending || isImpostorScoringPhase;
 
   useEffect(() => {
     if (!isChangeMode || !isRoundLive) {
@@ -592,11 +745,19 @@ export default function RoundPage() {
         : "bg-[var(--pmb-green)]";
   const impostorReferenceImageUrl =
     impostorModeState?.chainImageUrl || round?.targetImageUrl || "";
+  const impostorPreviousImageUrl =
+    snapshot.myReferenceImageUrl || (isMyTurn ? impostorReferenceImageUrl : "");
+  const myTurnRecordScoring = Boolean(
+    myTurnRecord &&
+    myTurnRecord.imageUrl.trim().length > 0 &&
+    myTurnRecord.similarityScore == null,
+  );
 
   useEffect(() => {
-    if (!room || !round) return;
-    if (room.status !== "IN_ROUND" || round.status !== "IN_ROUND") return;
-    if (isCpuTurn || !round.endsAt) return;
+    if (!activeRoundId) return;
+    if (roomStatus !== "IN_ROUND" || roundStatus !== "IN_ROUND") return;
+    if (isImpostorScoringPhase) return;
+    if (isCpuTurn || !roundEndsAt) return;
     if ((!postDeadlineGraceActive && !roundEndReached) || endCalled.current) {
       return;
     }
@@ -608,7 +769,7 @@ export default function RoundPage() {
       runEndIfNeeded: () =>
         apiPost<EndRoundResponse>("/api/rounds/endIfNeeded", {
           roomId,
-          roundId: round.roundId,
+          roundId: activeRoundId,
           ...(timeoutDraftPrompt ? { draftPrompt: timeoutDraftPrompt } : {}),
         }).then((result) => {
           if (result.consumedDraft) {
@@ -635,12 +796,13 @@ export default function RoundPage() {
     };
   }, [
     isCpuTurn,
+    isImpostorScoringPhase,
     postDeadlineGraceActive,
     roundEndReached,
-    room?.status,
-    round?.status,
-    round?.endsAt,
-    round?.roundId,
+    roomStatus,
+    roundStatus,
+    roundEndsAt,
+    activeRoundId,
     roomId,
     prompt,
     submitPending,
@@ -696,7 +858,9 @@ export default function RoundPage() {
   });
 
   const submitPrompt = async () => {
-    if (!round || !prompt.trim() || promptLocked) return;
+    if (!round || !prompt.trim() || promptLocked || isImpostorScoringPhase) {
+      return;
+    }
 
     setSubmitPending(true);
     setFeedback(null);
@@ -1104,11 +1268,11 @@ export default function RoundPage() {
   }
 
   if (isImpostorMode) {
-    const primaryImageUrl = isMyTurn ? impostorReferenceImageUrl : "";
-    const primaryImageHeading = isMyTurn
+    const primaryImageUrl = impostorPreviousImageUrl;
+    const primaryImageHeading = primaryImageUrl
       ? copy.round.referenceImage
       : copy.round.hidden;
-    const primaryImageDescription = isMyTurn
+    const primaryImageDescription = primaryImageUrl
       ? copy.round.referenceDescription
       : isCpuTurn
         ? copy.round.cpuPassMessage
@@ -1119,7 +1283,7 @@ export default function RoundPage() {
         <StampDock
           roomId={roomId}
           recentStamps={recentStamps}
-          disabled={!isRoundLive || isCpuTurn}
+          disabled={!isRoundLive || isCpuTurn || isImpostorScoringPhase}
         />
         <Card className="bg-white p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1152,7 +1316,13 @@ export default function RoundPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {isCpuTurn ? (
+              {isImpostorScoringPhase ? (
+                <Card className="bg-[var(--pmb-yellow)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                  <p className="text-xs font-black tracking-[0.18em] uppercase">
+                    {copy.round.scoring}
+                  </p>
+                </Card>
+              ) : isCpuTurn ? (
                 <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
                   <p className="text-xs font-black tracking-[0.18em] uppercase">
                     CPU Generating
@@ -1205,9 +1375,11 @@ export default function RoundPage() {
               )}
               {submitPending
                 ? copy.round.evaluating
-                : isMyTurn
-                  ? copy.round.generateNextImage
-                  : copy.round.waitingTurn}
+                : isImpostorScoringPhase
+                  ? copy.results.waitingScoring
+                  : isMyTurn
+                    ? copy.round.generateNextImage
+                    : copy.round.waitingTurn}
             </Button>
             <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
               {copy.common.currentTurn(
@@ -1222,7 +1394,7 @@ export default function RoundPage() {
           ) : null}
         </Card>
 
-        <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_0.95fr]">
+        <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_0.95fr]">
           <Card className="bg-white p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base">{primaryImageHeading}</h3>
@@ -1274,6 +1446,83 @@ export default function RoundPage() {
                 </p>
               ) : null}
             </div>
+          </Card>
+
+          <Card className="bg-white p-3">
+            <h3 className="mb-2 text-base">{copy.round.generatedImage}</h3>
+            {myTurnRecord ? (
+              <div className="space-y-2">
+                <div className={imageFrameClass}>
+                  {myTurnRecord.imageUrl ? (
+                    <img
+                      src={myTurnRecord.imageUrl}
+                      alt={copy.round.generatedImage}
+                      className="h-full w-full object-contain p-1"
+                      onError={(event) =>
+                        applyImageFallback(
+                          event.currentTarget,
+                          copy.round.generatedImage,
+                        )
+                      }
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-[var(--pmb-base)] p-4 text-center text-sm font-semibold">
+                      {copy.round.noImageYet}
+                    </div>
+                  )}
+                  {myTurnRecordScoring ? (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+                      <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        {copy.round.scoring}
+                      </p>
+                    </div>
+                  ) : null}
+                  {!myTurnRecordScoring &&
+                  typeof myTurnRecord.similarityScore === "number" ? (
+                    <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-right font-mono text-sm font-black">
+                      {myTurnRecord.similarityScore} pts
+                    </p>
+                  ) : null}
+                </div>
+                <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                  <p>{copy.common.judgeNote}</p>
+                  {!myTurnRecordScoring &&
+                  myTurnRecord.matchedElements?.length ? (
+                    <p className="mt-1 text-[var(--pmb-green)]">
+                      {copy.common.matched(
+                        myTurnRecord.matchedElements.join(" / "),
+                      )}
+                    </p>
+                  ) : null}
+                  {!myTurnRecordScoring &&
+                  myTurnRecord.missingElements?.length ? (
+                    <p className="mt-1 text-[var(--pmb-red)]">
+                      {copy.common.missing(
+                        myTurnRecord.missingElements.join(" / "),
+                      )}
+                    </p>
+                  ) : null}
+                  {!myTurnRecordScoring && myTurnRecord.judgeNote ? (
+                    <p className="mt-1">{myTurnRecord.judgeNote}</p>
+                  ) : null}
+                  {myTurnRecordScoring ? (
+                    <p className="mt-1">{copy.round.judgeNotesAfterScoring}</p>
+                  ) : null}
+                </Card>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div
+                  className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}
+                >
+                  {copy.round.noImageYet}
+                </div>
+                <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
+                  <p>{copy.common.judgeNote}</p>
+                </Card>
+              </div>
+            )}
           </Card>
 
           <div className="flex min-h-0 flex-col gap-3">

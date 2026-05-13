@@ -26,7 +26,6 @@ import {
   chooseCpuVote,
   chooseImpostorAssignments,
   IMPOSTOR_SIMILARITY_THRESHOLD,
-  IMPOSTOR_TIMEOUT_PROMPT,
   reconstructPromptFromCaption,
   resetPlayerReadinessForLobby,
   resolveVoteTarget,
@@ -100,6 +99,7 @@ type CpuTurnScheduler = (params: {
 const PREPARED_ROUND_POLL_INTERVAL_MS = 120;
 const PREPARED_ROUND_WAIT_TIMEOUT_MS = 45_000;
 const PREPARED_ROUND_STALE_MS = 45_000;
+const TIMED_OUT_SUBMIT_GRACE_MS = 5_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -1078,6 +1078,39 @@ function applyCpuVotes(params: {
   }
 }
 
+function finalizeImpostorRoundResults(params: {
+  state: NonNullable<Awaited<ReturnType<typeof loadRoomState>>>;
+  room: ReturnType<typeof requireRoom>;
+  round: RoundPublicDoc & { modeState: ImpostorRoundModeState };
+  roundPrivate: RoundPrivateDoc & { modeState: ImpostorRoundPrivateState };
+  completedAt: Date;
+}) {
+  params.round.status = "RESULTS";
+  params.round.modeState.phase = "VOTING";
+  params.round.modeState.currentTurnIndex =
+    params.round.modeState.turnOrder.length;
+  params.round.modeState.currentTurnUid = null;
+  params.round.modeState.revealedTurns = 0;
+  params.round.modeState.voteCount = 0;
+  params.round.modeState.voteTarget = null;
+  params.round.reveal = {};
+  params.round.endsAt = params.completedAt;
+  params.round.promptStartsAt = params.completedAt;
+
+  params.room.status = "RESULTS";
+
+  applyCpuVotes({
+    players: params.state.players,
+    round: params.round,
+    roundPrivate: params.roundPrivate,
+  });
+  maybeRevealImpostorRound({
+    players: params.state.players,
+    round: params.round,
+    roundPrivate: params.roundPrivate,
+  });
+}
+
 async function continueImpostorCpuTurns(params: {
   roomId: string;
   roundId: string;
@@ -1136,7 +1169,26 @@ async function executeImpostorTurn(params: {
     }
 
     const turnEndsAt = parseDate(round.endsAt);
-    if (!params.timedOut && turnEndsAt && Date.now() >= turnEndsAt.getTime()) {
+    roundPrivate.modeState.draftsByUid ??= {};
+
+    let prompt =
+      params.submittedPrompt?.trim() ??
+      roundPrivate.modeState.draftsByUid[params.uid]?.trim() ??
+      "";
+    const expiredByMs = turnEndsAt ? Date.now() - turnEndsAt.getTime() : null;
+    const effectiveTimedOut =
+      Boolean(params.timedOut) ||
+      (player.kind === "human" &&
+        prompt.length > 0 &&
+        expiredByMs != null &&
+        expiredByMs >= 0 &&
+        expiredByMs <= TIMED_OUT_SUBMIT_GRACE_MS);
+
+    if (
+      !effectiveTimedOut &&
+      turnEndsAt &&
+      Date.now() >= turnEndsAt.getTime()
+    ) {
       throw new AppError("ROUND_CLOSED", "Turn already ended", false, 409);
     }
 
@@ -1157,7 +1209,8 @@ async function executeImpostorTurn(params: {
       );
     }
 
-    let prompt = params.submittedPrompt?.trim() ?? "";
+    const isHumanTimeoutWithoutPrompt =
+      player.kind === "human" && effectiveTimedOut && prompt.length === 0;
 
     if (player.kind === "cpu") {
       const caption = await captionFromImage(
@@ -1179,8 +1232,92 @@ async function executeImpostorTurn(params: {
           role,
           reconstructedPrompt,
         });
-    } else if (!prompt) {
-      prompt = IMPOSTOR_TIMEOUT_PROMPT;
+    }
+
+    const isLastTurn =
+      round.modeState.currentTurnIndex >= round.modeState.turnOrder.length - 1;
+
+    if (isHumanTimeoutWithoutPrompt) {
+      const createdAt = new Date();
+      const turnRecord: ImpostorTurnRecord = {
+        uid: params.uid,
+        displayName: player.displayName,
+        kind: player.kind,
+        role,
+        prompt: "",
+        imageUrl: "",
+        referenceImageUrl,
+        similarityScore: 0,
+        matchedElements: [],
+        missingElements: ["prompt"],
+        judgeNote: "No prompt was submitted before timeout.",
+        createdAt,
+        timedOut: true,
+      };
+
+      await withRoomLock(params.roomId, async () => {
+        const latestState = await loadRoomState(params.roomId);
+        const latestRoom = requireRoom(latestState?.room);
+        const validated = requireImpostorRoundState(
+          latestState?.rounds[params.roundId],
+          latestState?.roundPrivates[params.roundId],
+        );
+
+        if (
+          latestRoom.currentRoundId !== params.roundId ||
+          latestRoom.status !== "IN_ROUND" ||
+          validated.round.modeState.phase !== "CHAIN" ||
+          validated.round.modeState.currentTurnUid !== params.uid
+        ) {
+          throw new AppError(
+            "ROUND_CLOSED",
+            "Impostor turn state was replaced",
+            false,
+            409,
+          );
+        }
+
+        validated.roundPrivate.modeState.turnRecords.push(turnRecord);
+        delete validated.roundPrivate.modeState.draftsByUid?.[params.uid];
+        validated.round.stats.submissions =
+          validated.roundPrivate.modeState.turnRecords.length;
+
+        if (!isLastTurn) {
+          const nextTurnStartsAt = new Date();
+          validated.round.modeState.currentTurnIndex += 1;
+          validated.round.modeState.currentTurnUid =
+            validated.round.modeState.turnOrder[
+              validated.round.modeState.currentTurnIndex
+            ] ?? null;
+          syncImpostorTurnDeadline({
+            players: latestState!.players,
+            round: validated.round,
+            turnSeconds: latestRoom.settings.roundSeconds,
+            startsAt: nextTurnStartsAt,
+          });
+          await saveRoomState(bumpRoomVersion(latestState!));
+          return;
+        }
+
+        validated.round.modeState.finalSimilarityScore = 0;
+        validated.roundPrivate.modeState.finalJudge = {
+          score: 0,
+          matchedElements: [],
+          missingElements: ["prompt"],
+          note: "No prompt was submitted before timeout.",
+        };
+        finalizeImpostorRoundResults({
+          state: latestState!,
+          room: latestRoom,
+          round: validated.round,
+          roundPrivate: validated.roundPrivate,
+          completedAt: createdAt,
+        });
+
+        await saveRoomState(bumpRoomVersion(latestState!));
+      });
+
+      return;
     }
 
     const generatedImage = await generateImage({
@@ -1188,55 +1325,6 @@ async function executeImpostorTurn(params: {
       aspectRatio: room.settings.aspectRatio,
       imageModel: room.settings.imageModel,
     });
-    const transientImageUrl = imageToPublicUrl(generatedImage) ?? undefined;
-    const attemptImage = await imageForVisualScoring(
-      generatedImage,
-      transientImageUrl,
-    );
-
-    if (!attemptImage?.base64Data) {
-      throw new AppError(
-        "GEMINI_ERROR",
-        "Failed to prepare generated image for scoring",
-        true,
-        502,
-      );
-    }
-
-    const judged = await scoreImageSimilarity({
-      targetImage: referenceImage,
-      attemptImage,
-      judgeModel: room.settings.judgeModel,
-    });
-
-    const isLastTurn =
-      round.modeState.currentTurnIndex >= round.modeState.turnOrder.length - 1;
-    let finalJudge: ImpostorFinalJudge | null = null;
-
-    if (isLastTurn) {
-      const originalTarget = await fetchImageBytes(round.targetImageUrl);
-      if (!originalTarget?.base64Data) {
-        throw new AppError(
-          "GEMINI_ERROR",
-          "Failed to load original image for final judge",
-          true,
-          502,
-        );
-      }
-
-      const finalResult = await scoreImageSimilarity({
-        targetImage: originalTarget,
-        attemptImage,
-        judgeModel: room.settings.judgeModel,
-      });
-
-      finalJudge = {
-        score: finalResult.score,
-        matchedElements: finalResult.matchedElements ?? [],
-        missingElements: finalResult.missingElements ?? [],
-        note: finalResult.note ?? "最終類似度を比較",
-      };
-    }
 
     const createdAt = new Date();
     const imageUrl = await resolveTurnImageUrl({
@@ -1278,24 +1366,22 @@ async function executeImpostorTurn(params: {
         prompt,
         imageUrl,
         referenceImageUrl,
-        similarityScore: judged.score,
-        matchedElements: judged.matchedElements ?? [],
-        missingElements: judged.missingElements ?? [],
-        judgeNote: judged.note ?? "画像の見た目比較で採点",
+        similarityScore: null,
+        matchedElements: [],
+        missingElements: [],
+        judgeNote: "Visual scoring pending.",
         createdAt,
-        timedOut: params.timedOut,
+        timedOut: effectiveTimedOut,
       };
 
       validated.roundPrivate.modeState.turnRecords.push(turnRecord);
+      delete validated.roundPrivate.modeState.draftsByUid?.[params.uid];
       validated.round.modeState.chainImageUrl = imageUrl;
       validated.round.stats.submissions =
         validated.roundPrivate.modeState.turnRecords.length;
-      validated.round.stats.topScore = Math.max(
-        validated.round.stats.topScore ?? 0,
-        judged.score,
-      );
 
       if (!isLastTurn) {
+        const nextTurnStartsAt = new Date();
         validated.round.modeState.currentTurnIndex += 1;
         validated.round.modeState.currentTurnUid =
           validated.round.modeState.turnOrder[
@@ -1305,39 +1391,21 @@ async function executeImpostorTurn(params: {
           players: latestState!.players,
           round: validated.round,
           turnSeconds: latestRoom.settings.roundSeconds,
-          startsAt: createdAt,
+          startsAt: nextTurnStartsAt,
         });
         await saveRoomState(bumpRoomVersion(latestState!));
         return;
       }
 
-      validated.round.status = "RESULTS";
-      validated.round.modeState.phase = "VOTING";
+      validated.round.modeState.phase = "SCORING";
       validated.round.modeState.currentTurnIndex =
         validated.round.modeState.turnOrder.length;
       validated.round.modeState.currentTurnUid = null;
-      validated.round.modeState.finalSimilarityScore =
-        finalJudge?.score ?? judged.score;
-      validated.round.modeState.revealedTurns = 0;
-      validated.round.modeState.voteCount = 0;
-      validated.round.modeState.voteTarget = null;
+      validated.round.modeState.finalSimilarityScore = null;
       validated.round.reveal = {};
-      validated.roundPrivate.modeState.finalJudge = finalJudge;
-      validated.round.endsAt = createdAt;
-      validated.round.promptStartsAt = createdAt;
-
-      latestRoom.status = "RESULTS";
-
-      applyCpuVotes({
-        players: latestState!.players,
-        round: validated.round,
-        roundPrivate: validated.roundPrivate,
-      });
-      maybeRevealImpostorRound({
-        players: latestState!.players,
-        round: validated.round,
-        roundPrivate: validated.roundPrivate,
-      });
+      validated.roundPrivate.modeState.finalJudge = null;
+      validated.round.endsAt = null;
+      validated.round.promptStartsAt = null;
 
       await saveRoomState(bumpRoomVersion(latestState!));
     });
@@ -1371,11 +1439,18 @@ export async function runImpostorCpuTurns(params: {
       return;
     }
 
-    await executeImpostorTurn({
-      roomId: params.roomId,
-      roundId: params.roundId,
-      uid: player.uid,
-    });
+    try {
+      await executeImpostorTurn({
+        roomId: params.roomId,
+        roundId: params.roundId,
+        uid: player.uid,
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === "ROUND_CLOSED") {
+        return;
+      }
+      throw error;
+    }
   }
 }
 
@@ -1839,7 +1914,13 @@ function applyMaterializedRound(params: {
     };
     roundPrivate.modeState = {
       rolesByUid: assignment.rolesByUid,
+      roleConfirmedByUid: Object.fromEntries(
+        players
+          .filter((player) => player.kind === "cpu")
+          .map((player) => [player.uid, true] as const),
+      ),
       turnRecords: [],
+      draftsByUid: {},
       votesByUid: {},
       finalJudge: null,
       cpuVoteMeta: [],
@@ -2813,6 +2894,7 @@ export async function submitImpostorTurn(params: {
   roundId: string;
   uid: string;
   prompt: string;
+  timedOut?: boolean;
   scheduleCpuTurns?: CpuTurnScheduler;
 }): Promise<void> {
   await executeImpostorTurn({
@@ -2820,12 +2902,321 @@ export async function submitImpostorTurn(params: {
     roundId: params.roundId,
     uid: params.uid,
     submittedPrompt: params.prompt,
+    timedOut: params.timedOut,
   });
   await continueImpostorCpuTurns({
     roomId: params.roomId,
     roundId: params.roundId,
     scheduleCpuTurns: params.scheduleCpuTurns,
   });
+}
+
+export async function updateImpostorDraft(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+  prompt: string;
+}): Promise<void> {
+  await withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = state?.room;
+    const round = state?.rounds[params.roundId];
+    const roundPrivate = state?.roundPrivates[params.roundId];
+
+    if (
+      !state ||
+      !room ||
+      !round ||
+      !roundPrivate ||
+      room.status !== "IN_ROUND" ||
+      room.currentRoundId !== params.roundId ||
+      round.status !== "IN_ROUND" ||
+      round.modeState?.kind !== "impostor" ||
+      round.modeState.phase !== "CHAIN" ||
+      round.modeState.currentTurnUid !== params.uid ||
+      !roundPrivate.modeState
+    ) {
+      return;
+    }
+
+    const modeState = roundPrivate.modeState as ImpostorRoundPrivateState;
+    modeState.draftsByUid ??= {};
+    const nextPrompt = params.prompt.trim();
+
+    if (!nextPrompt) {
+      if (!modeState.draftsByUid[params.uid]) {
+        return;
+      }
+      delete modeState.draftsByUid[params.uid];
+      await saveRoomState(bumpRoomVersion(state));
+      return;
+    }
+
+    if (modeState.draftsByUid[params.uid] === nextPrompt) {
+      return;
+    }
+
+    modeState.draftsByUid[params.uid] = nextPrompt;
+    await saveRoomState(bumpRoomVersion(state));
+  });
+}
+
+export async function confirmImpostorRole(params: {
+  roomId: string;
+  roundId: string;
+  uid: string;
+}): Promise<void> {
+  await withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const round = state?.rounds[params.roundId];
+    const roundPrivate = state?.roundPrivates[params.roundId];
+
+    if (
+      room.currentRoundId !== params.roundId ||
+      room.status !== "IN_ROUND" ||
+      round?.modeState?.kind !== "impostor" ||
+      !roundPrivate?.modeState
+    ) {
+      throw new AppError(
+        "ROUND_CLOSED",
+        "This round is not active",
+        false,
+        409,
+      );
+    }
+
+    const modeState = roundPrivate.modeState as ImpostorRoundPrivateState;
+    modeState.roleConfirmedByUid ??= {};
+    if (modeState.roleConfirmedByUid[params.uid]) {
+      return;
+    }
+
+    modeState.roleConfirmedByUid[params.uid] = true;
+    await saveRoomState(bumpRoomVersion(state!));
+  });
+}
+
+export async function scoreNextPendingImpostorTurn(params: {
+  roomId: string;
+  roundId: string;
+}): Promise<{ processedUid: string | null; remaining: number }> {
+  const state = await loadRoomState(params.roomId);
+  const room = requireRoom(state?.room);
+  const validated = requireImpostorRoundState(
+    state?.rounds[params.roundId],
+    state?.roundPrivates[params.roundId],
+  );
+
+  if (
+    room.currentRoundId !== params.roundId ||
+    !["IN_ROUND", "RESULTS"].includes(room.status) ||
+    !["SCORING", "VOTING", "REVEAL"].includes(validated.round.modeState.phase)
+  ) {
+    return { processedUid: null, remaining: 0 };
+  }
+
+  const pendingRecord = validated.roundPrivate.modeState.turnRecords.find(
+    (record) =>
+      record.similarityScore == null && record.imageUrl.trim().length > 0,
+  );
+
+  if (!pendingRecord) {
+    if (
+      room.status === "IN_ROUND" &&
+      validated.round.modeState.phase === "SCORING"
+    ) {
+      return withRoomLock(params.roomId, async () => {
+        const latestState = await loadRoomState(params.roomId);
+        const latestRoom = requireRoom(latestState?.room);
+        const latestValidated = requireImpostorRoundState(
+          latestState?.rounds[params.roundId],
+          latestState?.roundPrivates[params.roundId],
+        );
+
+        const stillPending =
+          latestValidated.roundPrivate.modeState.turnRecords.some(
+            (entry) =>
+              entry.similarityScore == null && entry.imageUrl.trim().length > 0,
+          );
+        if (
+          latestRoom.currentRoundId !== params.roundId ||
+          latestRoom.status !== "IN_ROUND" ||
+          latestValidated.round.modeState.phase !== "SCORING" ||
+          stillPending
+        ) {
+          return { processedUid: null, remaining: stillPending ? 1 : 0 };
+        }
+
+        finalizeImpostorRoundResults({
+          state: latestState!,
+          room: latestRoom,
+          round: latestValidated.round,
+          roundPrivate: latestValidated.roundPrivate,
+          completedAt: new Date(),
+        });
+        await saveRoomState(bumpRoomVersion(latestState!));
+
+        return { processedUid: null, remaining: 0 };
+      });
+    }
+
+    return { processedUid: null, remaining: 0 };
+  }
+
+  return withSubmitLock(
+    params.roomId,
+    params.roundId,
+    pendingRecord.uid,
+    async () => {
+      const scoringState = await loadRoomState(params.roomId);
+      const scoringRoom = requireRoom(scoringState?.room);
+      const scoringValidated = requireImpostorRoundState(
+        scoringState?.rounds[params.roundId],
+        scoringState?.roundPrivates[params.roundId],
+      );
+      const record = scoringValidated.roundPrivate.modeState.turnRecords.find(
+        (entry) => entry.uid === pendingRecord.uid,
+      );
+
+      if (
+        !record ||
+        record.similarityScore != null ||
+        record.imageUrl.trim().length === 0
+      ) {
+        const remaining =
+          scoringValidated.roundPrivate.modeState.turnRecords.filter(
+            (entry) =>
+              entry.similarityScore == null && entry.imageUrl.trim().length > 0,
+          ).length;
+        return { processedUid: null, remaining };
+      }
+
+      const [referenceImage, attemptImage] = await Promise.all([
+        fetchImageBytes(record.referenceImageUrl),
+        fetchImageBytes(record.imageUrl),
+      ]);
+
+      if (!referenceImage?.base64Data || !attemptImage?.base64Data) {
+        throw new AppError(
+          "GEMINI_ERROR",
+          "Failed to load images for visual scoring",
+          true,
+          502,
+        );
+      }
+
+      const judged = await scoreImageSimilarity({
+        targetImage: referenceImage,
+        attemptImage,
+        judgeModel: scoringRoom.settings.judgeModel,
+      });
+
+      const lastTurnUid =
+        scoringValidated.round.modeState.turnOrder[
+          scoringValidated.round.modeState.turnOrder.length - 1
+        ] ?? null;
+      const shouldScoreFinalJudge =
+        record.uid === lastTurnUid &&
+        scoringValidated.roundPrivate.modeState.finalJudge == null;
+
+      let finalJudge: ImpostorFinalJudge | null = null;
+      if (shouldScoreFinalJudge) {
+        const originalTarget = await fetchImageBytes(
+          scoringValidated.round.targetImageUrl,
+        );
+        if (!originalTarget?.base64Data) {
+          throw new AppError(
+            "GEMINI_ERROR",
+            "Failed to load original image for final judge",
+            true,
+            502,
+          );
+        }
+
+        const finalResult = await scoreImageSimilarity({
+          targetImage: originalTarget,
+          attemptImage,
+          judgeModel: scoringRoom.settings.judgeModel,
+        });
+
+        finalJudge = {
+          score: finalResult.score,
+          matchedElements: finalResult.matchedElements ?? [],
+          missingElements: finalResult.missingElements ?? [],
+          note: finalResult.note ?? "最終類似度を比較",
+        };
+      }
+
+      return withRoomLock(params.roomId, async () => {
+        const latestState = await loadRoomState(params.roomId);
+        const latestRoom = requireRoom(latestState?.room);
+        const latestValidated = requireImpostorRoundState(
+          latestState?.rounds[params.roundId],
+          latestState?.roundPrivates[params.roundId],
+        );
+        const latestRecord =
+          latestValidated.roundPrivate.modeState.turnRecords.find(
+            (entry) => entry.uid === pendingRecord.uid,
+          );
+
+        if (!latestRecord || latestRecord.similarityScore != null) {
+          const remaining =
+            latestValidated.roundPrivate.modeState.turnRecords.filter(
+              (entry) =>
+                entry.similarityScore == null &&
+                entry.imageUrl.trim().length > 0,
+            ).length;
+          return { processedUid: null, remaining };
+        }
+
+        latestRecord.similarityScore = judged.score;
+        latestRecord.matchedElements = judged.matchedElements ?? [];
+        latestRecord.missingElements = judged.missingElements ?? [];
+        latestRecord.judgeNote = judged.note ?? "画像の見た目比較で採点";
+        latestValidated.round.stats.topScore = Math.max(
+          latestValidated.round.stats.topScore ?? 0,
+          judged.score,
+        );
+
+        if (
+          finalJudge &&
+          latestValidated.roundPrivate.modeState.finalJudge == null
+        ) {
+          latestValidated.roundPrivate.modeState.finalJudge = finalJudge;
+          latestValidated.round.modeState.finalSimilarityScore =
+            finalJudge.score;
+        }
+
+        const remaining =
+          latestValidated.roundPrivate.modeState.turnRecords.filter(
+            (entry) =>
+              entry.similarityScore == null && entry.imageUrl.trim().length > 0,
+          ).length;
+
+        if (
+          remaining === 0 &&
+          latestRoom.status === "IN_ROUND" &&
+          latestValidated.round.modeState.phase === "SCORING"
+        ) {
+          finalizeImpostorRoundResults({
+            state: latestState!,
+            room: latestRoom,
+            round: latestValidated.round,
+            roundPrivate: latestValidated.roundPrivate,
+            completedAt: new Date(),
+          });
+        }
+
+        await saveRoomState(bumpRoomVersion(latestState!));
+
+        return {
+          processedUid: latestRecord.uid,
+          remaining,
+        };
+      });
+    },
+  );
 }
 
 export const __test__ = {

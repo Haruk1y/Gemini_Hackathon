@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHANGE_DEFAULT_ROUND_SECONDS,
   getGameModeDefinition,
+  getGameModeOptions,
   getRoundSchedule,
   getRoundSubmissionDeadline,
   isPostDeadlineGraceActive,
@@ -94,6 +95,15 @@ describe("game modes", () => {
     expect(getGameModeDefinition("change", "ja").label).toBe("アハ体験");
     expect(getGameModeDefinition("change", "en").label).toBe("Aha Moment");
     expect(getGameModeDefinition("impostor", "en").shortLabel).toBe("Impostor");
+  });
+
+  it("includes Art Impostor in selectable game modes", () => {
+    expect(getGameModeOptions("en").map((option) => option.mode)).toEqual([
+      "classic",
+      "memory",
+      "change",
+      "impostor",
+    ]);
   });
 
   it("validates change-mode round durations separately", () => {

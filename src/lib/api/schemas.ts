@@ -70,6 +70,13 @@ export const submitSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
   prompt: z.string().trim().min(1).max(600),
+  timedOut: z.boolean().optional(),
+});
+
+export const draftSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
+  prompt: z.string().max(600),
 });
 
 export const roundSchema = z.object({
@@ -95,4 +102,9 @@ export const voteSchema = z.object({
   roomId: z.string().trim().min(1),
   roundId: z.string().trim().min(1),
   targetUid: z.string().trim().min(1),
+});
+
+export const roleConfirmSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
 });

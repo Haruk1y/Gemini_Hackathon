@@ -42,7 +42,8 @@ const {
 });
 
 vi.mock("next/server", async () => {
-  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  const actual =
+    await vi.importActual<typeof import("next/server")>("next/server");
   return {
     ...actual,
     after: mockAfter,
@@ -93,7 +94,7 @@ function hostRoomState(params?: { roundIndex?: number; totalRounds?: number }) {
       },
     },
     players: {
-      "anon_1": {
+      anon_1: {
         uid: "anon_1",
         isHost: true,
       },
@@ -128,9 +129,11 @@ describe("prewarm after() scheduling routes", () => {
     expect(response.status).toBe(200);
     expect(mockSaveRoomState).toHaveBeenCalledTimes(1);
     expect(
-      (mockSaveRoomState.mock.calls[0]?.[0] as {
-        players: Record<string, { ready?: boolean }>;
-      }).players.anon_1?.ready,
+      (
+        mockSaveRoomState.mock.calls[0]?.[0] as {
+          players: Record<string, { ready?: boolean }>;
+        }
+      ).players.anon_1?.ready,
     ).toBe(true);
     expect(mockAfter).toHaveBeenCalledTimes(1);
 
@@ -163,7 +166,9 @@ describe("prewarm after() scheduling routes", () => {
   });
 
   it("schedules the next round prewarm after starting another round", async () => {
-    mockLoadRoomState.mockResolvedValue(hostRoomState({ roundIndex: 1, totalRounds: 3 }));
+    mockLoadRoomState.mockResolvedValue(
+      hostRoomState({ roundIndex: 1, totalRounds: 3 }),
+    );
     mockStartRound.mockResolvedValue({
       roundId: "round-2",
       roundIndex: 2,
@@ -177,10 +182,12 @@ describe("prewarm after() scheduling routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockStartRound).toHaveBeenCalledWith({
-      roomId: "ROOM1",
-      uid: "anon_1",
-    });
+    expect(mockStartRound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roomId: "ROOM1",
+        uid: "anon_1",
+      }),
+    );
     expect(mockAfter).toHaveBeenCalledTimes(1);
 
     await Promise.all(scheduledTasks.map((task) => task?.()));
@@ -191,7 +198,9 @@ describe("prewarm after() scheduling routes", () => {
   });
 
   it("schedules replay prewarm after the final round resets the room", async () => {
-    mockLoadRoomState.mockResolvedValue(hostRoomState({ roundIndex: 3, totalRounds: 3 }));
+    mockLoadRoomState.mockResolvedValue(
+      hostRoomState({ roundIndex: 3, totalRounds: 3 }),
+    );
 
     const { POST } = await import("@/app/api/rounds/next/route");
     const response = await POST(

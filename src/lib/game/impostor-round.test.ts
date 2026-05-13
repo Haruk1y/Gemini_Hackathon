@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { IMPOSTOR_TIMEOUT_PROMPT } from "@/lib/game/impostor";
-import { createRoomState, loadRoomState, saveRoomState, __test__ as roomStateTest } from "@/lib/server/room-state";
+import {
+  createRoomState,
+  loadRoomState,
+  saveRoomState,
+  __test__ as roomStateTest,
+} from "@/lib/server/room-state";
 import { dateAfterHours, parseDate } from "@/lib/utils/time";
 
 const mockGenerateGmPrompt = vi.fn();
@@ -20,7 +24,9 @@ vi.mock("@/lib/gemini/client", () => ({
 vi.mock("@/lib/images", () => ({
   generateImage: mockGenerateImage,
   imageToBuffer: vi.fn(() => null),
-  imageToPublicUrl: vi.fn((image: { directUrl?: string }) => image.directUrl ?? null),
+  imageToPublicUrl: vi.fn(
+    (image: { directUrl?: string }) => image.directUrl ?? null,
+  ),
 }));
 
 function dataUrl(label: string) {
@@ -137,10 +143,12 @@ describe("impostor round lifecycle", () => {
       mustInclude: [],
       mustAvoid: [],
     });
-    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => ({
-      mimeType: "image/png",
-      directUrl: dataUrl(prompt),
-    }));
+    mockGenerateImage.mockImplementation(
+      async ({ prompt }: { prompt: string }) => ({
+        mimeType: "image/png",
+        directUrl: dataUrl(prompt),
+      }),
+    );
     mockCaptionFromImage.mockResolvedValue({
       scene: "image scene",
       mainSubjects: ["subject"],
@@ -150,7 +158,9 @@ describe("impostor round lifecycle", () => {
       composition: "balanced composition",
       textInImage: null,
     });
-    mockRewriteCpuPrompt.mockResolvedValue("cpu rewritten prompt with moderate human drift");
+    mockRewriteCpuPrompt.mockResolvedValue(
+      "cpu rewritten prompt with moderate human drift",
+    );
     mockScoreImageSimilarity.mockResolvedValue({
       score: 58,
       matchedElements: ["subject"],
@@ -170,7 +180,8 @@ describe("impostor round lifecycle", () => {
     const distinctivePrompt =
       "neon koi swimming through a glass subway tunnel under tokyo, cinematic rain, ultra detailed";
 
-    const { startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    const { startRound, submitImpostorTurn } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -184,7 +195,8 @@ describe("impostor round lifecycle", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
+    const turnRecord =
+      state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
 
     expect(mockGenerateImage).toHaveBeenCalledTimes(2);
     expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
@@ -195,14 +207,15 @@ describe("impostor round lifecycle", () => {
     expect(turnRecord?.prompt).toBe(distinctivePrompt);
     expect(turnRecord?.imageUrl).toBe(dataUrl(distinctivePrompt));
     expect(turnRecord?.timedOut).not.toBe(true);
-    expect(turnRecord?.prompt).not.toBe(IMPOSTOR_TIMEOUT_PROMPT);
+    expect(turnRecord?.prompt).not.toBe("");
   });
 
-  it("uses the dreamlike fallback only when a human turn times out", async () => {
+  it("records a timeout without generating a fallback image when a human turn times out", async () => {
     const lobbyState = createLobbyState(0);
     await saveRoomState(lobbyState);
 
-    const { endRoundIfNeeded, startRound } = await import("@/lib/game/round-service");
+    const { endRoundIfNeeded, startRound } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -225,30 +238,39 @@ describe("impostor round lifecycle", () => {
     });
 
     const nextState = await loadRoomState("ROOM1");
-    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
+    const turnRecord =
+      nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const round = nextState?.rounds["round-1"];
 
     expect(result.status).toBe("IN_ROUND");
-    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
-    expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
-      prompt: IMPOSTOR_TIMEOUT_PROMPT,
-      aspectRatio: "1:1",
-    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
     expect(turnRecord?.uid).toBe("host");
-    expect(turnRecord?.prompt).toBe(IMPOSTOR_TIMEOUT_PROMPT);
-    expect(turnRecord?.imageUrl).toBe(dataUrl(IMPOSTOR_TIMEOUT_PROMPT));
+    expect(turnRecord?.prompt).toBe("");
+    expect(turnRecord?.imageUrl).toBe("");
+    expect(turnRecord?.similarityScore).toBe(0);
     expect(turnRecord?.timedOut).toBe(true);
+    expect(turnRecord?.judgeNote).toBe(
+      "No prompt was submitted before timeout.",
+    );
     expect(round?.modeState?.currentTurnUid).toBe("guest");
   });
 
-  it("uses the current human draft when a human turn times out", async () => {
+  it("uses the saved human draft when a human turn times out", async () => {
     const lobbyState = createLobbyState(0);
     await saveRoomState(lobbyState);
 
-    const { endRoundIfNeeded, startRound } = await import("@/lib/game/round-service");
+    const { endRoundIfNeeded, startRound, updateImpostorDraft } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
+    });
+
+    await updateImpostorDraft({
+      roomId: "ROOM1",
+      roundId: "round-1",
+      uid: "host",
+      prompt: "partial timeout draft",
     });
 
     const activeState = await loadRoomState("ROOM1");
@@ -265,18 +287,14 @@ describe("impostor round lifecycle", () => {
     const result = await endRoundIfNeeded({
       roomId: "ROOM1",
       roundId: "round-1",
-      uid: "host",
-      draftPrompt: "partial timeout draft",
     });
 
     const nextState = await loadRoomState("ROOM1");
-    const turnRecord = nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
+    const turnRecord =
+      nextState?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const round = nextState?.rounds["round-1"];
 
-    expect(result).toMatchObject({
-      status: "IN_ROUND",
-      consumedDraft: true,
-    });
+    expect(result.status).toBe("IN_ROUND");
     expect(mockGenerateImage).toHaveBeenCalledTimes(2);
     expect(mockGenerateImage.mock.calls[1]?.[0]).toMatchObject({
       prompt: "partial timeout draft",
@@ -304,7 +322,8 @@ describe("impostor round lifecycle", () => {
     });
 
     const state = await loadRoomState("ROOM1");
-    const turnRecord = state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
+    const turnRecord =
+      state?.roundPrivates["round-1"]?.modeState?.turnRecords?.[0];
     const cpuGenerateCall = mockGenerateImage.mock.calls[1]?.[0];
 
     expect(cpuGenerateCall).toMatchObject({
@@ -322,22 +341,28 @@ describe("impostor round lifecycle", () => {
     seedCpuPlayer(lobbyState, 1, 0);
     await saveRoomState(lobbyState);
 
-    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
+    const deferredCpuImage = createDeferredPromise<{
+      mimeType: string;
+      directUrl: string;
+    }>();
     let imageCallCount = 0;
-    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      imageCallCount += 1;
-      if (imageCallCount === 1) {
-        return {
-          mimeType: "image/png",
-          directUrl: dataUrl(prompt),
-        };
-      }
+    mockGenerateImage.mockImplementation(
+      async ({ prompt }: { prompt: string }) => {
+        imageCallCount += 1;
+        if (imageCallCount === 1) {
+          return {
+            mimeType: "image/png",
+            directUrl: dataUrl(prompt),
+          };
+        }
 
-      return deferredCpuImage.promise;
-    });
+        return deferredCpuImage.promise;
+      },
+    );
 
     const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
-    const { runImpostorCpuTurns, startRound } = await import("@/lib/game/round-service");
+    const { runImpostorCpuTurns, startRound } =
+      await import("@/lib/game/round-service");
     const result = await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -362,7 +387,9 @@ describe("impostor round lifecycle", () => {
 
     expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
     expect(scheduledRound?.endsAt).toBeNull();
-    expect(scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords).toHaveLength(0);
+    expect(
+      scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords,
+    ).toHaveLength(0);
 
     const cpuRunPromise = runImpostorCpuTurns(scheduledRuns[0]!);
 
@@ -376,7 +403,9 @@ describe("impostor round lifecycle", () => {
     const completedRound = completedState?.rounds["round-1"];
 
     expect(completedRound?.modeState?.currentTurnUid).toBe("host");
-    expect(completedState?.roundPrivates["round-1"]?.modeState?.turnRecords).toHaveLength(1);
+    expect(
+      completedState?.roundPrivates["round-1"]?.modeState?.turnRecords,
+    ).toHaveLength(1);
   });
 
   it("auto-runs the first cpu turn and hands the chain to the next human", async () => {
@@ -386,22 +415,29 @@ describe("impostor round lifecycle", () => {
     seedCpuPlayer(lobbyState, 1, 0);
     await saveRoomState(lobbyState);
 
-    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
+    const deferredCpuImage = createDeferredPromise<{
+      mimeType: string;
+      directUrl: string;
+    }>();
     let imageCallCount = 0;
-    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      imageCallCount += 1;
-      if (imageCallCount === 1) {
-        return {
-          mimeType: "image/png",
-          directUrl: dataUrl(prompt),
-        };
-      }
+    mockGenerateImage.mockImplementation(
+      async ({ prompt }: { prompt: string }) => {
+        imageCallCount += 1;
+        if (imageCallCount === 1) {
+          return {
+            mimeType: "image/png",
+            directUrl: dataUrl(prompt),
+          };
+        }
 
-      return deferredCpuImage.promise;
-    });
+        return deferredCpuImage.promise;
+      },
+    );
 
     const sequence = [0.6, 0.1, 0.1];
-    const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => sequence.shift() ?? 0.1);
+    const randomSpy = vi
+      .spyOn(Math, "random")
+      .mockImplementation(() => sequence.shift() ?? 0.1);
 
     const { startRound } = await import("@/lib/game/round-service");
     const startPromise = startRound({
@@ -412,7 +448,9 @@ describe("impostor round lifecycle", () => {
     let cpuTurnObserved = false;
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const activeState = await loadRoomState("ROOM1");
-      if (activeState?.rounds["round-1"]?.modeState?.currentTurnUid === "cpu-1") {
+      if (
+        activeState?.rounds["round-1"]?.modeState?.currentTurnUid === "cpu-1"
+      ) {
         expect(activeState.rounds["round-1"]?.endsAt).toBeNull();
         cpuTurnObserved = true;
         break;
@@ -440,14 +478,18 @@ describe("impostor round lifecycle", () => {
       prompt: "cpu rewritten prompt with moderate human drift",
       aspectRatio: "1:1",
     });
-    expect(mockGenerateImage.mock.calls[1]?.[0]).not.toHaveProperty("sourceImage");
+    expect(mockGenerateImage.mock.calls[1]?.[0]).not.toHaveProperty(
+      "sourceImage",
+    );
     expect(round?.modeState?.kind).toBe("impostor");
     expect(round?.modeState?.turnOrder).toEqual(["cpu-1", "host", "guest"]);
     expect(round?.modeState?.currentTurnIndex).toBe(1);
     expect(round?.modeState?.currentTurnUid).toBe("host");
     expect(roundPrivate?.modeState?.turnRecords).toHaveLength(1);
     expect(roundPrivate?.modeState?.turnRecords?.[0]?.uid).toBe("cpu-1");
-    expect(roundPrivate?.modeState?.turnRecords?.[0]?.prompt).toBe("cpu rewritten prompt with moderate human drift");
+    expect(roundPrivate?.modeState?.turnRecords?.[0]?.prompt).toBe(
+      "cpu rewritten prompt with moderate human drift",
+    );
     expect(parseDate(round?.endsAt)?.getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -458,21 +500,27 @@ describe("impostor round lifecycle", () => {
     await saveRoomState(lobbyState);
 
     let imageCallCount = 0;
-    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
-    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      imageCallCount += 1;
-      if (imageCallCount < 3) {
-        return {
-          mimeType: "image/png",
-          directUrl: dataUrl(prompt),
-        };
-      }
+    const deferredCpuImage = createDeferredPromise<{
+      mimeType: string;
+      directUrl: string;
+    }>();
+    mockGenerateImage.mockImplementation(
+      async ({ prompt }: { prompt: string }) => {
+        imageCallCount += 1;
+        if (imageCallCount < 3) {
+          return {
+            mimeType: "image/png",
+            directUrl: dataUrl(prompt),
+          };
+        }
 
-      return deferredCpuImage.promise;
-    });
+        return deferredCpuImage.promise;
+      },
+    );
 
     const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
-    const { runImpostorCpuTurns, startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    const { runImpostorCpuTurns, startRound, submitImpostorTurn } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -497,7 +545,8 @@ describe("impostor round lifecycle", () => {
 
     const scheduledState = await loadRoomState("ROOM1");
     const scheduledRound = scheduledState?.rounds["round-1"];
-    const scheduledRecords = scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const scheduledRecords =
+      scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
     expect(scheduledRecords).toHaveLength(1);
@@ -513,10 +562,14 @@ describe("impostor round lifecycle", () => {
 
     const completedState = await loadRoomState("ROOM1");
     const completedRound = completedState?.rounds["round-1"];
-    const completedRecords = completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const completedRecords =
+      completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(completedRound?.modeState?.currentTurnUid).toBe("guest");
-    expect(completedRecords.map((record) => record.uid)).toEqual(["host", "cpu-1"]);
+    expect(completedRecords.map((record) => record.uid)).toEqual([
+      "host",
+      "cpu-1",
+    ]);
   });
 
   it("auto-runs the next cpu turn immediately after a human submit", async () => {
@@ -526,9 +579,12 @@ describe("impostor round lifecycle", () => {
     await saveRoomState(lobbyState);
 
     const sequence = [0.5, 0.9, 0.1];
-    const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => sequence.shift() ?? 0.1);
+    const randomSpy = vi
+      .spyOn(Math, "random")
+      .mockImplementation(() => sequence.shift() ?? 0.1);
 
-    const { startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    const { startRound, submitImpostorTurn } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -545,7 +601,8 @@ describe("impostor round lifecycle", () => {
 
     const state = await loadRoomState("ROOM1");
     const round = state?.rounds["round-1"];
-    const turnRecords = state?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const turnRecords =
+      state?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(round?.modeState?.turnOrder).toEqual(["host", "cpu-1", "guest"]);
     expect(round?.modeState?.currentTurnIndex).toBe(2);
@@ -563,21 +620,27 @@ describe("impostor round lifecycle", () => {
     await saveRoomState(lobbyState);
 
     let imageCallCount = 0;
-    const deferredCpuImage = createDeferredPromise<{ mimeType: string; directUrl: string }>();
-    mockGenerateImage.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      imageCallCount += 1;
-      if (imageCallCount < 3) {
-        return {
-          mimeType: "image/png",
-          directUrl: dataUrl(prompt),
-        };
-      }
+    const deferredCpuImage = createDeferredPromise<{
+      mimeType: string;
+      directUrl: string;
+    }>();
+    mockGenerateImage.mockImplementation(
+      async ({ prompt }: { prompt: string }) => {
+        imageCallCount += 1;
+        if (imageCallCount < 3) {
+          return {
+            mimeType: "image/png",
+            directUrl: dataUrl(prompt),
+          };
+        }
 
-      return deferredCpuImage.promise;
-    });
+        return deferredCpuImage.promise;
+      },
+    );
 
     const scheduledRuns: Array<{ roomId: string; roundId: string }> = [];
-    const { endRoundIfNeeded, runImpostorCpuTurns, startRound } = await import("@/lib/game/round-service");
+    const { endRoundIfNeeded, runImpostorCpuTurns, startRound } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -610,11 +673,14 @@ describe("impostor round lifecycle", () => {
 
     const scheduledState = await loadRoomState("ROOM1");
     const scheduledRound = scheduledState?.rounds["round-1"];
-    const scheduledRecords = scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const scheduledRecords =
+      scheduledState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(scheduledRound?.modeState?.currentTurnUid).toBe("cpu-1");
     expect(scheduledRecords).toHaveLength(1);
-    expect(scheduledRecords[0]?.prompt).toBe(IMPOSTOR_TIMEOUT_PROMPT);
+    expect(scheduledRecords[0]?.prompt).toBe("");
+    expect(scheduledRecords[0]?.imageUrl).toBe("");
+    expect(scheduledRecords[0]?.similarityScore).toBe(0);
     expect(scheduledRecords[0]?.timedOut).toBe(true);
 
     const cpuRunPromise = runImpostorCpuTurns(scheduledRuns[0]!);
@@ -627,10 +693,14 @@ describe("impostor round lifecycle", () => {
 
     const completedState = await loadRoomState("ROOM1");
     const completedRound = completedState?.rounds["round-1"];
-    const completedRecords = completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const completedRecords =
+      completedState?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(completedRound?.modeState?.currentTurnUid).toBe("guest");
-    expect(completedRecords.map((record) => record.uid)).toEqual(["host", "cpu-1"]);
+    expect(completedRecords.map((record) => record.uid)).toEqual([
+      "host",
+      "cpu-1",
+    ]);
   });
 
   it("auto-runs consecutive cpu turns without waiting for roundSeconds", async () => {
@@ -641,9 +711,12 @@ describe("impostor round lifecycle", () => {
     await saveRoomState(lobbyState);
 
     const sequence = [0.3, 0.4, 0.9, 0.1];
-    const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => sequence.shift() ?? 0.1);
+    const randomSpy = vi
+      .spyOn(Math, "random")
+      .mockImplementation(() => sequence.shift() ?? 0.1);
 
-    const { startRound, submitImpostorTurn } = await import("@/lib/game/round-service");
+    const { startRound, submitImpostorTurn } =
+      await import("@/lib/game/round-service");
     await startRound({
       roomId: "ROOM1",
       uid: "host",
@@ -660,15 +733,25 @@ describe("impostor round lifecycle", () => {
 
     const state = await loadRoomState("ROOM1");
     const round = state?.rounds["round-1"];
-    const turnRecords = state?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
+    const turnRecords =
+      state?.roundPrivates["round-1"]?.modeState?.turnRecords ?? [];
 
     expect(state?.players["cpu-1"]?.kind).toBe("cpu");
     expect(state?.players["cpu-2"]?.kind).toBe("cpu");
-    expect(round?.modeState?.turnOrder).toEqual(["host", "cpu-1", "cpu-2", "guest"]);
+    expect(round?.modeState?.turnOrder).toEqual([
+      "host",
+      "cpu-1",
+      "cpu-2",
+      "guest",
+    ]);
     expect(round?.modeState?.currentTurnIndex).toBe(3);
     expect(round?.modeState?.currentTurnUid).toBe("guest");
     expect(turnRecords).toHaveLength(3);
-    expect(turnRecords.map((record) => record.uid)).toEqual(["host", "cpu-1", "cpu-2"]);
+    expect(turnRecords.map((record) => record.uid)).toEqual([
+      "host",
+      "cpu-1",
+      "cpu-2",
+    ]);
     expect(parseDate(round?.endsAt)?.getTime()).toBeGreaterThan(Date.now());
   });
 });

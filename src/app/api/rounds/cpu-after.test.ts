@@ -290,4 +290,78 @@ describe("Art Impostor CPU after() scheduling routes", () => {
       roundId: "round-1",
     });
   });
+
+  it("schedules cpu continuations after /api/rounds/next responds", async () => {
+    mockLoadRoomState.mockResolvedValue({
+      room: {
+        roundIndex: 1,
+        settings: {
+          totalRounds: 3,
+        },
+      },
+      players: {
+        anon_1: {
+          uid: "anon_1",
+          isHost: true,
+        },
+      },
+    });
+    mockStartRound.mockImplementation(
+      async (params: {
+        roomId: string;
+        scheduleCpuTurns?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+        scheduleCpuAttempts?: (scheduled: {
+          roomId: string;
+          roundId: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.scheduleCpuTurns?.({
+          roomId: params.roomId,
+          roundId: "round-2",
+        });
+        await params.scheduleCpuAttempts?.({
+          roomId: params.roomId,
+          roundId: "round-2",
+        });
+        return {
+          roundId: "round-2",
+          roundIndex: 2,
+        };
+      },
+    );
+
+    const { POST } = await import("@/app/api/rounds/next/route");
+    const response = await POST(
+      createRequest("http://localhost/api/rounds/next", {
+        roomId: "ROOM1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      finished: false,
+      nextRoundId: "round-2",
+    });
+    expect(mockAfter).toHaveBeenCalledTimes(3);
+    expect(mockRunImpostorCpuTurns).not.toHaveBeenCalled();
+    expect(mockRunClassicCpuAttempts).not.toHaveBeenCalled();
+
+    await Promise.all(scheduledTasks.map((task) => task?.()));
+
+    expect(mockRunImpostorCpuTurns).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+      roundId: "round-2",
+    });
+    expect(mockRunClassicCpuAttempts).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+      roundId: "round-2",
+    });
+    expect(mockEnsurePreparedRound).toHaveBeenCalledWith({
+      roomId: "ROOM1",
+    });
+  });
 });

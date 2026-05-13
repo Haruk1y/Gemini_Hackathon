@@ -253,8 +253,9 @@ export function chooseCpuVote(params: {
       (record) => record.uid !== params.uid,
     );
     const mostSuspicious =
-      [...records].sort((a, b) => a.similarityScore - b.similarityScore)[0]
-        ?.uid ?? candidates[0];
+      [...records].sort(
+        (a, b) => (a.similarityScore ?? 0) - (b.similarityScore ?? 0),
+      )[0]?.uid ?? candidates[0];
 
     return {
       targetUid: mostSuspicious,
