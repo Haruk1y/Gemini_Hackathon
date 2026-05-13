@@ -408,6 +408,68 @@ describe("LobbyPage", () => {
     });
   });
 
+  it("defaults classic and memory back to 60 seconds after leaving Aha Moment", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        gameMode: "change",
+        includeGuest: false,
+        roundSeconds: 30,
+      }),
+    };
+
+    const user = userEvent.setup();
+    const view = render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Memory Match/i }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "memory",
+          roundSeconds: 60,
+        }),
+      });
+    });
+
+    view.unmount();
+    apiPostMock.mockClear();
+
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        gameMode: "change",
+        includeGuest: false,
+        roundSeconds: 30,
+      }),
+    };
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Classic/i }));
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          roundSeconds: 60,
+        }),
+      });
+    });
+  });
+
   it("uses the Aha time picker as a repeat count and saves two views with a reset gap", async () => {
     roomSyncState = {
       ...roomSyncState,

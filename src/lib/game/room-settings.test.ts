@@ -92,6 +92,45 @@ describe("updateRoomSettings", () => {
     expect(settings.hintLimit).toBe(0);
   });
 
+  it("defaults standard modes to 60 seconds when leaving change mode", async () => {
+    const state = createBaseState();
+    state.room.settings.gameMode = "change";
+    state.room.settings.roundSeconds = 30;
+    await saveRoomState(state);
+
+    const memorySettings = await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "memory",
+        totalRounds: 3,
+        roundSeconds: 30,
+        cpuCount: 0,
+      },
+    });
+
+    expect(memorySettings.gameMode).toBe("memory");
+    expect(memorySettings.roundSeconds).toBe(60);
+
+    state.room.settings.gameMode = "change";
+    state.room.settings.roundSeconds = 30;
+    await saveRoomState(state);
+
+    const classicSettings = await updateRoomSettings({
+      roomId: "ROOM1",
+      uid: "host",
+      settings: {
+        gameMode: "classic",
+        totalRounds: 3,
+        roundSeconds: 30,
+        cpuCount: 0,
+      },
+    });
+
+    expect(classicSettings.gameMode).toBe("classic");
+    expect(classicSettings.roundSeconds).toBe(60);
+  });
+
   it("syncs cpu players when impostor mode is enabled", async () => {
     await saveRoomState(createBaseState());
 

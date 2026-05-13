@@ -47,6 +47,7 @@ import {
   getGameModeOptions,
   getChangeViewCountForRoundSeconds,
   normalizeRoundSecondsForMode,
+  STANDARD_DEFAULT_ROUND_SECONDS,
   STANDARD_ROUND_SECONDS_OPTIONS,
 } from "@/lib/game/modes";
 import { getMaxCpuPlayersForMode } from "@/lib/game/cpu";
@@ -1003,14 +1004,20 @@ export default function LobbyPage() {
                     type="button"
                     onClick={() => {
                       if (!hostCanEdit) return;
+                      const enteringChangeMode =
+                        mode.mode === "change" && draftGameMode !== "change";
+                      const leavingChangeMode =
+                        draftGameMode === "change" && mode.mode !== "change";
                       setDraftGameMode(mode.mode);
                       setDraftRoundSeconds(
-                        mode.mode === "change" && draftGameMode !== "change"
+                        enteringChangeMode
                           ? CHANGE_DEFAULT_ROUND_SECONDS
-                          : normalizeRoundSecondsForMode(
-                              mode.mode,
-                              draftRoundSeconds,
-                            ),
+                          : leavingChangeMode
+                            ? STANDARD_DEFAULT_ROUND_SECONDS
+                            : normalizeRoundSecondsForMode(
+                                mode.mode,
+                                draftRoundSeconds,
+                              ),
                       );
                     }}
                     disabled={!hostCanEdit}

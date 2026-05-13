@@ -43,6 +43,7 @@ export const CHANGE_ROUND_SECONDS_OPTIONS = [
   getChangeRoundSecondsForViewCount(3),
 ] as const;
 export const STANDARD_ROUND_SECONDS_OPTIONS = [30, 45, 60] as const;
+export const STANDARD_DEFAULT_ROUND_SECONDS = 60;
 const SECOND_MS = 1000;
 
 interface LocalizedLabel {
@@ -269,7 +270,7 @@ export function normalizeRoundSecondsForMode(
 
   return gameMode === "change"
     ? CHANGE_DEFAULT_ROUND_SECONDS
-    : STANDARD_ROUND_SECONDS_OPTIONS[STANDARD_ROUND_SECONDS_OPTIONS.length - 1];
+    : STANDARD_DEFAULT_ROUND_SECONDS;
 }
 
 export function isMemoryPreviewActive(params: {

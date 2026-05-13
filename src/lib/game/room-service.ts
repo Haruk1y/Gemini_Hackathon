@@ -2,6 +2,7 @@ import { requirePlayer, requireRoom, assertHost } from "@/lib/game/guards";
 import { mergeRoomSettings } from "@/lib/game/defaults";
 import { CHANGE_MIN_PLAYERS } from "@/lib/game/change-mode";
 import { sortPlayersBySeatOrder, syncCpuPlayers } from "@/lib/game/impostor";
+import { STANDARD_DEFAULT_ROUND_SECONDS } from "@/lib/game/modes";
 import {
   bumpRoomVersion,
   loadRoomState,
@@ -57,7 +58,12 @@ export function assertCanStartRound(
   }
 
   if (!players.every((player) => player.ready)) {
-    throw new AppError("VALIDATION_ERROR", "All players must be ready", false, 409);
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "All players must be ready",
+      false,
+      409,
+    );
   }
 }
 
@@ -95,9 +101,18 @@ export async function updateRoomSettings(params: {
       );
     }
 
+    const leavingChangeMode =
+      room.settings.gameMode === "change" &&
+      params.settings.gameMode !== "change";
+    const nextRoundSeconds =
+      leavingChangeMode &&
+      params.settings.roundSeconds === room.settings.roundSeconds
+        ? STANDARD_DEFAULT_ROUND_SECONDS
+        : params.settings.roundSeconds;
     const nextSettings = mergeRoomSettings({
       ...room.settings,
       ...params.settings,
+      roundSeconds: nextRoundSeconds,
     });
     assertModeCompatibleSettings(nextSettings);
     const shouldInvalidatePreparedRound =
@@ -146,7 +161,9 @@ export async function shufflePlayerOrder(params: {
       );
     }
 
-    const orderedPlayers = sortPlayersBySeatOrder(Object.values(state!.players));
+    const orderedPlayers = sortPlayersBySeatOrder(
+      Object.values(state!.players),
+    );
     const shuffledPlayers = shufflePlayers(orderedPlayers);
 
     shuffledPlayers.forEach((candidate, index) => {
