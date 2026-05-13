@@ -21,7 +21,7 @@ export type RoomStatus =
   | "RESULTS"
   | "FINISHED";
 export type RoundStatus = "GENERATING" | "IN_ROUND" | "RESULTS";
-export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
+export type ImpostorRoundPhase = "CHAIN" | "SCORING" | "VOTING" | "REVEAL";
 
 export interface NormalizedPointData {
   x: number;
@@ -166,7 +166,7 @@ export interface TurnTimelineEntry {
   displayName: string;
   kind: PlayerKind;
   imageUrl: string;
-  similarityScore: number;
+  similarityScore: number | null;
   matchedElements?: string[];
   missingElements?: string[];
   judgeNote?: string;
@@ -174,6 +174,20 @@ export interface TurnTimelineEntry {
   role?: ImpostorRole;
   timedOut?: boolean;
   votedForUid?: string | null;
+}
+
+export interface MyTurnRecordData {
+  uid: string;
+  displayName: string;
+  kind: PlayerKind;
+  imageUrl: string;
+  referenceImageUrl: string;
+  similarityScore: number | null;
+  matchedElements?: string[];
+  missingElements?: string[];
+  judgeNote?: string;
+  prompt?: string;
+  timedOut?: boolean;
 }
 
 export interface StampEventData {
@@ -197,6 +211,14 @@ export interface RoomSyncSnapshot {
   myRole?: ImpostorRole | null;
   isMyTurn?: boolean;
   currentTurnUid?: string | null;
+  myReferenceImageUrl?: string;
+  myTurnRecord?: MyTurnRecordData | null;
+  roleConfirmProgress?: {
+    confirmed: number;
+    total: number;
+    meConfirmed: boolean;
+    allConfirmed: boolean;
+  } | null;
   mySubmission?: ChangeSubmissionData | null;
   voteProgress?: {
     submitted: number;
@@ -251,6 +273,9 @@ const EMPTY_SNAPSHOT: RoomSyncSnapshot = {
   myRole: null,
   isMyTurn: false,
   currentTurnUid: null,
+  myReferenceImageUrl: "",
+  myTurnRecord: null,
+  roleConfirmProgress: null,
   mySubmission: null,
   voteProgress: null,
   finalSimilarityScore: null,
@@ -322,7 +347,10 @@ function normalizeImpostorRole(value: unknown): ImpostorRole | null {
 }
 
 function normalizeImpostorPhase(value: unknown): ImpostorRoundPhase | null {
-  return value === "CHAIN" || value === "VOTING" || value === "REVEAL"
+  return value === "CHAIN" ||
+    value === "SCORING" ||
+    value === "VOTING" ||
+    value === "REVEAL"
     ? value
     : null;
 }
@@ -644,6 +672,62 @@ function normalizeVoteProgress(value: unknown) {
   };
 }
 
+function normalizeRoleConfirmProgress(value: unknown) {
+  if (!isRecord(value)) return null;
+  const confirmed = asNumber(value.confirmed);
+  const total = asNumber(value.total);
+  if (confirmed == null || total == null) return null;
+
+  return {
+    confirmed,
+    total,
+    meConfirmed: Boolean(value.meConfirmed),
+    allConfirmed: Boolean(value.allConfirmed),
+  };
+}
+
+function normalizeMyTurnRecord(value: unknown): MyTurnRecordData | null {
+  if (!isRecord(value)) return null;
+  const uid = asString(value.uid);
+  const displayName = asString(value.displayName);
+  if (!uid || !displayName) return null;
+
+  const similarityScore =
+    typeof value.similarityScore === "number"
+      ? value.similarityScore
+      : value.similarityScore === null
+        ? null
+        : null;
+
+  return {
+    uid,
+    displayName,
+    kind: normalizePlayerKind(value.kind) ?? "human",
+    imageUrl:
+      typeof value.imageUrl === "string"
+        ? value.imageUrl
+        : (asString(value.imageUrl) ?? ""),
+    referenceImageUrl:
+      typeof value.referenceImageUrl === "string"
+        ? value.referenceImageUrl
+        : (asString(value.referenceImageUrl) ?? ""),
+    similarityScore,
+    matchedElements: Array.isArray(value.matchedElements)
+      ? value.matchedElements.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : undefined,
+    missingElements: Array.isArray(value.missingElements)
+      ? value.missingElements.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : undefined,
+    judgeNote: asString(value.judgeNote) ?? undefined,
+    prompt: asString(value.prompt) ?? undefined,
+    timedOut: typeof value.timedOut === "boolean" ? value.timedOut : undefined,
+  };
+}
+
 function normalizeTurnTimeline(value: unknown): TurnTimelineEntry[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -653,7 +737,12 @@ function normalizeTurnTimeline(value: unknown): TurnTimelineEntry[] {
       displayName: asString(entry.displayName) ?? "",
       kind: normalizePlayerKind(entry.kind) ?? "human",
       imageUrl: asString(entry.imageUrl) ?? "",
-      similarityScore: asNumber(entry.similarityScore) ?? 0,
+      similarityScore:
+        typeof entry.similarityScore === "number"
+          ? entry.similarityScore
+          : entry.similarityScore === null
+            ? null
+            : null,
       matchedElements: Array.isArray(entry.matchedElements)
         ? entry.matchedElements.filter(
             (item): item is string => typeof item === "string",
@@ -724,6 +813,14 @@ export function normalizeSnapshot(value: unknown): RoomSyncSnapshot {
     myRole: normalizeImpostorRole(value.myRole),
     isMyTurn: Boolean(value.isMyTurn),
     currentTurnUid: asString(value.currentTurnUid),
+    myReferenceImageUrl:
+      typeof value.myReferenceImageUrl === "string"
+        ? value.myReferenceImageUrl
+        : "",
+    myTurnRecord: normalizeMyTurnRecord(value.myTurnRecord),
+    roleConfirmProgress: normalizeRoleConfirmProgress(
+      value.roleConfirmProgress,
+    ),
     mySubmission: normalizeChangeSubmission(value.mySubmission),
     voteProgress: normalizeVoteProgress(value.voteProgress),
     finalSimilarityScore:

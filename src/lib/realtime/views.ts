@@ -284,6 +284,8 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
   let myRole: string | null = null;
   let isMyTurn = false;
   let currentTurnUid: string | null = null;
+  let myReferenceImageUrl = "";
+  let myTurnRecord: ImpostorTurnRecord | null = null;
 
   if (impostor) {
     currentTurnUid = impostor.round.modeState.currentTurnUid;
@@ -291,6 +293,13 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
       impostor.round.modeState.phase === "CHAIN" &&
       impostor.round.modeState.currentTurnUid === uid;
     myRole = impostor.roundPrivate.modeState.rolesByUid[uid] ?? null;
+    myTurnRecord =
+      [...impostor.roundPrivate.modeState.turnRecords]
+        .reverse()
+        .find((record) => record.uid === uid) ?? null;
+    myReferenceImageUrl = isMyTurn
+      ? impostor.round.modeState.chainImageUrl || impostor.round.targetImageUrl
+      : (myTurnRecord?.referenceImageUrl ?? "");
 
     if (!isMyTurn && impostor.round.modeState.phase === "CHAIN") {
       roundData = {
@@ -355,6 +364,8 @@ function buildRoundSnapshot(state: RoomState, uid: string) {
     myRole,
     isMyTurn,
     currentTurnUid,
+    myReferenceImageUrl,
+    myTurnRecord: myTurnRecord ? serializeForClient(myTurnRecord) : null,
     turnTimeline:
       impostor && impostor.round.modeState.phase !== "CHAIN"
         ? serializeForClient(
@@ -466,11 +477,35 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
 
 function buildTransitionSnapshot(state: RoomState, uid: string) {
   const me = state.players[uid] ?? null;
+  const currentRoundId = state.room.currentRoundId;
+  const impostor = getImpostorModeState(state, currentRoundId);
+  const roleConfirmedByUid =
+    impostor?.roundPrivate.modeState.roleConfirmedByUid ?? {};
+  const humanPlayers = getSortedPlayers(state).filter(
+    (player) => player.kind === "human",
+  );
+  const confirmed = humanPlayers.filter(
+    (player) => roleConfirmedByUid[player.uid],
+  ).length;
 
   return {
     room: {
       status: state.room.status,
+      currentRoundId: state.room.currentRoundId,
+      settings: {
+        gameMode: state.room.settings.gameMode,
+      },
     },
     players: me ? [serializeForClient(me)] : [],
+    myRole: impostor?.roundPrivate.modeState.rolesByUid[uid] ?? null,
+    roleConfirmProgress: impostor
+      ? {
+          confirmed,
+          total: humanPlayers.length,
+          meConfirmed: Boolean(roleConfirmedByUid[uid]),
+          allConfirmed:
+            humanPlayers.length > 0 && confirmed >= humanPlayers.length,
+        }
+      : null,
   };
 }

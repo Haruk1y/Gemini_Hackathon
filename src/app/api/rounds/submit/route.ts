@@ -8,7 +8,10 @@ import {
   type ClassicSubmitLogContext,
   type ClassicSubmitStage,
 } from "@/lib/game/classic-submit";
-import { runImpostorCpuTurns, submitImpostorTurn } from "@/lib/game/round-service";
+import {
+  runImpostorCpuTurns,
+  submitImpostorTurn,
+} from "@/lib/game/round-service";
 import { LANGUAGE_COOKIE_NAME, normalizeLanguage } from "@/lib/i18n/language";
 import { loadRoomState } from "@/lib/server/room-state";
 import { AppError } from "@/lib/utils/errors";
@@ -55,68 +58,81 @@ function logSubmitStageFailure(
   });
 }
 
-export const POST = withPostHandler(submitSchema, async ({ body, auth, request }) => {
-  const currentState = await loadRoomState(body.roomId);
-  const currentRoom = currentState?.room;
-  const language = normalizeLanguage(
-    request.cookies.get(LANGUAGE_COOKIE_NAME)?.value,
-  );
-
-  if (currentRoom?.settings.gameMode === "change") {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      "Change mode uses click submissions instead of text prompts.",
-      false,
-      409,
+export const POST = withPostHandler(
+  submitSchema,
+  async ({ body, auth, request }) => {
+    const currentState = await loadRoomState(body.roomId);
+    const currentRoom = currentState?.room;
+    const language = normalizeLanguage(
+      request.cookies.get(LANGUAGE_COOKIE_NAME)?.value,
     );
-  }
 
-  if (currentRoom?.settings.gameMode === "impostor") {
-    await submitImpostorTurn({
+    if (currentRoom?.settings.gameMode === "change") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Change mode uses click submissions instead of text prompts.",
+        false,
+        409,
+      );
+    }
+
+    if (currentRoom?.settings.gameMode === "impostor") {
+      await submitImpostorTurn({
+        roomId: body.roomId,
+        roundId: body.roundId,
+        uid: auth.uid,
+        prompt: body.prompt,
+        timedOut: body.timedOut,
+        scheduleCpuTurns: ({ roomId, roundId }) => {
+          after(async () => {
+            try {
+              await runImpostorCpuTurns({ roomId, roundId });
+            } catch (error) {
+              console.error(
+                "Deferred CPU turn execution failed after player submit",
+                error,
+              );
+            }
+          });
+        },
+      });
+
+      const updatedState = await loadRoomState(body.roomId);
+      const turnRecords =
+        updatedState?.roundPrivates[body.roundId]?.modeState?.turnRecords ?? [];
+      const turnRecord = [...turnRecords]
+        .reverse()
+        .find((record) => record.uid === auth.uid);
+
+      if (!turnRecord) {
+        throw new AppError(
+          "INTERNAL_ERROR",
+          "Failed to resolve impostor turn result",
+          true,
+          500,
+        );
+      }
+
+      return ok({
+        attemptNo: 1,
+        score: turnRecord.similarityScore,
+        imageUrl: turnRecord.imageUrl,
+        bestScore: turnRecord.similarityScore ?? 0,
+        matchedElements: turnRecord.matchedElements,
+        missingElements: turnRecord.missingElements,
+        judgeNote: turnRecord.judgeNote,
+      });
+    }
+
+    const result: ClassicRoundSubmitResult = await submitClassicRoundAttempt({
       roomId: body.roomId,
       roundId: body.roundId,
       uid: auth.uid,
       prompt: body.prompt,
-      scheduleCpuTurns: ({ roomId, roundId }) => {
-        after(async () => {
-          try {
-            await runImpostorCpuTurns({ roomId, roundId });
-          } catch (error) {
-            console.error("Deferred CPU turn execution failed after player submit", error);
-          }
-        });
-      },
+      language,
+      logStageFailure: logSubmitStageFailure,
     });
 
-    const updatedState = await loadRoomState(body.roomId);
-    const turnRecords = updatedState?.roundPrivates[body.roundId]?.modeState?.turnRecords ?? [];
-    const turnRecord = [...turnRecords]
-      .reverse()
-      .find((record) => record.uid === auth.uid);
-
-    if (!turnRecord) {
-      throw new AppError("INTERNAL_ERROR", "Failed to resolve impostor turn result", true, 500);
-    }
-
-    return ok({
-      attemptNo: 1,
-      score: turnRecord.similarityScore,
-      imageUrl: turnRecord.imageUrl,
-      bestScore: turnRecord.similarityScore,
-      matchedElements: turnRecord.matchedElements,
-      missingElements: turnRecord.missingElements,
-      judgeNote: turnRecord.judgeNote,
-    });
-  }
-
-  const result: ClassicRoundSubmitResult = await submitClassicRoundAttempt({
-    roomId: body.roomId,
-    roundId: body.roundId,
-    uid: auth.uid,
-    prompt: body.prompt,
-    language,
-    logStageFailure: logSubmitStageFailure,
-  });
-
-  return ok(result);
-});
+    return ok(result);
+  },
+);

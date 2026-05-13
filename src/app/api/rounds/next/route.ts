@@ -5,6 +5,8 @@ import { withPostHandler, ok } from "@/lib/api/handler";
 import { requirePlayer, requireRoom } from "@/lib/game/guards";
 import {
   ensurePreparedRound,
+  runClassicCpuAttempts,
+  runImpostorCpuTurns,
   resetRoomForReplay,
   startRound,
 } from "@/lib/game/round-service";
@@ -21,7 +23,12 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
   const player = requirePlayer(state?.players[auth.uid]);
 
   if (!player.isHost) {
-    throw new AppError("NOT_HOST", "Only host can start next round", false, 403);
+    throw new AppError(
+      "NOT_HOST",
+      "Only host can start next round",
+      false,
+      403,
+    );
   }
 
   if (room.roundIndex >= room.settings.totalRounds) {
@@ -30,18 +37,51 @@ export const POST = withPostHandler(roomOnlySchema, async ({ body, auth }) => {
       try {
         await ensurePreparedRound({ roomId: body.roomId });
       } catch (error) {
-        console.error("Deferred round preparation failed after replay reset", error);
+        console.error(
+          "Deferred round preparation failed after replay reset",
+          error,
+        );
       }
     });
     return ok({ finished: true, nextRoundId: null });
   }
 
-  const result = await startRound({ roomId: body.roomId, uid: auth.uid });
+  const result = await startRound({
+    roomId: body.roomId,
+    uid: auth.uid,
+    scheduleCpuTurns: ({ roomId, roundId }) => {
+      after(async () => {
+        try {
+          await runImpostorCpuTurns({ roomId, roundId });
+        } catch (error) {
+          console.error(
+            "Deferred CPU turn execution failed after next round start",
+            error,
+          );
+        }
+      });
+    },
+    scheduleCpuAttempts: ({ roomId, roundId }) => {
+      after(async () => {
+        try {
+          await runClassicCpuAttempts({ roomId, roundId });
+        } catch (error) {
+          console.error(
+            "Deferred standard CPU attempts failed after next round start",
+            error,
+          );
+        }
+      });
+    },
+  });
   after(async () => {
     try {
       await ensurePreparedRound({ roomId: body.roomId });
     } catch (error) {
-      console.error("Deferred round preparation failed after next round start", error);
+      console.error(
+        "Deferred round preparation failed after next round start",
+        error,
+      );
     }
   });
   return ok({ finished: false, nextRoundId: result.roundId });

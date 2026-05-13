@@ -12,7 +12,7 @@ export type AspectRatio = "1:1" | "16:9" | "9:16";
 export type GameMode = "classic" | "memory" | "change" | "impostor";
 export type PlayerKind = "human" | "cpu";
 export type ImpostorRole = "agent" | "impostor";
-export type ImpostorRoundPhase = "CHAIN" | "VOTING" | "REVEAL";
+export type ImpostorRoundPhase = "CHAIN" | "SCORING" | "VOTING" | "REVEAL";
 export type ImageModel = "gemini" | "flux";
 export type TextModelVariant = "flash" | "flash-lite";
 
@@ -263,7 +263,7 @@ export interface ImpostorTurnRecord {
   prompt: string;
   imageUrl: string;
   referenceImageUrl: string;
-  similarityScore: number;
+  similarityScore: number | null;
   matchedElements: string[];
   missingElements: string[];
   judgeNote: string;
@@ -287,7 +287,9 @@ export interface CpuVoteMeta {
 
 export interface ImpostorRoundPrivateState {
   rolesByUid: Record<string, ImpostorRole>;
+  roleConfirmedByUid?: Record<string, boolean>;
   turnRecords: ImpostorTurnRecord[];
+  draftsByUid?: Record<string, string>;
   votesByUid: Record<string, string>;
   finalJudge: ImpostorFinalJudge | null;
   cpuVoteMeta: CpuVoteMeta[];

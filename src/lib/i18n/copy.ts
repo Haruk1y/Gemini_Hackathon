@@ -266,6 +266,8 @@ const TRANSLATIONS = {
       title: "次ラウンド開始中です。",
       description: "お題画像を準備しています。",
       loading: "しばらくお待ちください...",
+      roleTitle: "あなたの役職",
+      autoProceedIn: (seconds: number) => `${seconds}秒後に自動で進みます。`,
     },
     scoreboard: {
       title: "ランキング",
@@ -550,6 +552,9 @@ const TRANSLATIONS = {
       title: "Starting the next round.",
       description: "Preparing the target image.",
       loading: "Please wait...",
+      roleTitle: "Your Role",
+      autoProceedIn: (seconds: number) =>
+        `Automatically continuing in ${seconds}s.`,
     },
     scoreboard: {
       title: "Ranking",

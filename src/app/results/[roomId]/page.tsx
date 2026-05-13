@@ -28,7 +28,7 @@ import { StampDock } from "@/components/game/stamp-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { apiPost } from "@/lib/client/api";
+import { ApiClientError, apiPost } from "@/lib/client/api";
 import {
   projectImageBoxToContainedFrame,
   projectImagePointToContainedFrame,
@@ -56,6 +56,10 @@ import { getGameModeDefinition } from "@/lib/game/modes";
 import { cn } from "@/lib/utils/cn";
 
 const TOTAL_RANKING_ANIMATION_START_DELAY_MS = 1_000;
+
+function isScorePollingContention(error: unknown) {
+  return error instanceof ApiClientError && error.code === "RATE_LIMIT";
+}
 
 interface NaturalImageSize {
   width: number;
@@ -601,6 +605,11 @@ export default function ResultsPage() {
   const liveRoom = snapshot.room as RoomData | null;
   const liveRound = snapshot.round as RoundData | null;
   const liveRoomStatus = liveRoom?.status ?? null;
+  const isLiveImpostorScoring = Boolean(
+    liveRoom?.status === "IN_ROUND" &&
+    liveRound?.modeState?.kind === "impostor" &&
+    liveRound.modeState.phase === "SCORING",
+  );
 
   const activeSnapshot = snapshot;
   const room = activeSnapshot.room as RoomData | null;
@@ -642,6 +651,7 @@ export default function ResultsPage() {
   useEffect(() => {
     if (!liveRoom || !liveRound) return;
     if (liveRoom.status !== "IN_ROUND" || !allowStayDuringRound) return;
+    if (isLiveImpostorScoring) return;
 
     const trigger = async () => {
       try {
@@ -663,7 +673,49 @@ export default function ResultsPage() {
     }, 1_500);
 
     return () => clearInterval(intervalId);
-  }, [allowStayDuringRound, liveRoom, liveRound, roomId]);
+  }, [
+    allowStayDuringRound,
+    isLiveImpostorScoring,
+    liveRoom,
+    liveRound,
+    roomId,
+  ]);
+
+  useEffect(() => {
+    if (!isLiveImpostorScoring || !liveRound) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const trigger = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await apiPost("/api/rounds/score-pending", {
+          roomId,
+          roundId: liveRound.roundId,
+        });
+      } catch (error) {
+        if (!cancelled && !isScorePollingContention(error)) {
+          console.error("results score-pending failed", error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void trigger();
+    const intervalId = window.setInterval(() => {
+      void trigger();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isLiveImpostorScoring, liveRound, roomId]);
 
   useRoomPresence({
     roomId,
@@ -1353,7 +1405,7 @@ export default function ResultsPage() {
                               useFixedDesktopVoteGrid ? "text-base" : "text-lg",
                             )}
                           >
-                            {copy.common.points(entry.similarityScore)}
+                            {copy.common.points(entry.similarityScore ?? 0)}
                           </p>
                           {entry.timedOut ? (
                             <Badge className="bg-white px-2 py-0 text-[10px]">

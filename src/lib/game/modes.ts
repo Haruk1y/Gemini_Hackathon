@@ -128,7 +128,6 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
         ja: "順番に伝言して、人狼を投票で見抜く",
         en: "Relay the image and expose the impostor by voting",
       },
-      disabled: true,
     },
   };
 
