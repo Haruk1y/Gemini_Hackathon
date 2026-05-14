@@ -5,24 +5,30 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent,
-  type WheelEvent,
 } from "react";
 import {
   Bot,
   Brain,
   Check,
-  ChevronsUpDown,
+  Clock3,
   Copy,
   Eye,
+  Gamepad2,
   Ghost,
+  ListChecks,
   LoaderCircle,
   LogOut,
+  Minus,
   Play,
-  Settings2,
+  Plus,
+  RotateCcw,
   Shuffle,
+  Sparkles,
+  type LucideIcon,
   Users,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -64,35 +70,26 @@ interface PickerOption {
 
 interface SwipeValuePickerProps {
   label: string;
+  icon: LucideIcon;
   options: readonly PickerOption[];
   value: number;
   onChange: (value: number) => void;
   disabled?: boolean;
 }
 
-interface PlayerReadyChipProps {
-  ready: boolean;
-  pending: boolean;
-}
-
-const SWIPE_THRESHOLD = 28;
+const MODE_PREVIEW_IMAGES: Record<GameMode, string> = {
+  classic: "/remotion/prompdojo-intro/modes/classic-wide.png",
+  memory: "/remotion/prompdojo-intro/modes/memory-wide.png",
+  change: "/remotion/prompdojo-intro/modes/aha-moment-wide.png",
+  impostor: "/remotion/prompdojo-intro/modes/art-imposter-wide.png",
+};
 
 const ROUND_OPTIONS: readonly PickerOption[] = [
-  {
-    value: 1,
-    label: "1",
-    unitLabel: "ROUND",
-  },
-  {
-    value: 2,
-    label: "2",
-    unitLabel: "ROUNDS",
-  },
-  {
-    value: 3,
-    label: "3",
-    unitLabel: "ROUNDS",
-  },
+  { value: 1, label: "1", unitLabel: "ROUND" },
+  { value: 2, label: "2", unitLabel: "ROUNDS" },
+  { value: 3, label: "3", unitLabel: "ROUNDS" },
+  { value: 4, label: "4", unitLabel: "ROUNDS" },
+  { value: 5, label: "5", unitLabel: "ROUNDS" },
 ];
 
 const STANDARD_ROUND_TIME_OPTIONS: readonly PickerOption[] =
@@ -123,6 +120,7 @@ function formatSettingsKey(
 
 function SwipeValuePicker({
   label,
+  icon: Icon,
   options,
   value,
   onChange,
@@ -134,89 +132,29 @@ function SwipeValuePicker({
     options.findIndex((option) => option.value === value),
   );
   const selectedOption = options[currentIndex] ?? options[0];
-  const previousOption = options[currentIndex - 1] ?? null;
-  const nextOption = options[currentIndex + 1] ?? null;
-  const currentIndexRef = useRef(currentIndex);
-  const dragStartYRef = useRef<number | null>(null);
-  const dragOffsetRef = useRef(0);
-  const movedRef = useRef(false);
-
-  useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
+  const canDecrease = currentIndex > 0;
+  const canIncrease = currentIndex < options.length - 1;
 
   const shiftIndex = (delta: number) => {
     if (disabled || delta === 0) return;
     const nextIndex = Math.max(
       0,
-      Math.min(options.length - 1, currentIndexRef.current + delta),
+      Math.min(options.length - 1, currentIndex + delta),
     );
-    if (nextIndex === currentIndexRef.current) return;
-    currentIndexRef.current = nextIndex;
+    if (nextIndex === currentIndex) return;
     onChange(options[nextIndex]!.value);
-  };
-
-  const finishDrag = (
-    event: PointerEvent<HTMLButtonElement>,
-    activateClickStep: boolean,
-  ) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    dragStartYRef.current = null;
-    dragOffsetRef.current = 0;
-
-    if (activateClickStep && !movedRef.current) {
-      shiftIndex(1);
-    }
-
-    movedRef.current = false;
-  };
-
-  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    dragStartYRef.current = event.clientY;
-    dragOffsetRef.current = 0;
-    movedRef.current = false;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (disabled || dragStartYRef.current == null) return;
-
-    dragOffsetRef.current += event.clientY - dragStartYRef.current;
-    dragStartYRef.current = event.clientY;
-
-    while (dragOffsetRef.current <= -SWIPE_THRESHOLD) {
-      movedRef.current = true;
-      dragOffsetRef.current += SWIPE_THRESHOLD;
-      shiftIndex(-1);
-    }
-
-    while (dragOffsetRef.current >= SWIPE_THRESHOLD) {
-      movedRef.current = true;
-      dragOffsetRef.current -= SWIPE_THRESHOLD;
-      shiftIndex(1);
-    }
-  };
-
-  const onWheel = (event: WheelEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    event.preventDefault();
-    shiftIndex(event.deltaY > 0 ? 1 : -1);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
 
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
       event.preventDefault();
       shiftIndex(-1);
       return;
     }
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
       event.preventDefault();
       shiftIndex(1);
       return;
@@ -235,24 +173,35 @@ function SwipeValuePicker({
   };
 
   return (
-    <div className="rounded-[16px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2.5">
-      <p className="text-[11px] font-black tracking-[0.2em] uppercase">
-        {label}
+    <div className="grid grid-cols-[minmax(108px,0.2fr)_40px_minmax(0,1fr)_40px] items-center gap-2 py-1 sm:grid-cols-[minmax(120px,0.18fr)_42px_minmax(0,1fr)_42px]">
+      <p className="flex min-w-0 items-center gap-2 text-[15px] leading-none font-black tracking-[0.08em] uppercase md:text-base">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[2px_2px_0_var(--pmb-ink)]">
+          <Icon className="h-4 w-4 stroke-[3]" />
+        </span>
+        <span className="truncate">{label}</span>
       </p>
 
       <button
         type="button"
+        disabled={disabled || !canDecrease}
+        onClick={() => shiftIndex(-1)}
+        aria-label={`${label} -`}
+        className={[
+          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "shadow-[3px_3px_0_var(--pmb-ink)] hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
+        ].join(" ")}
+      >
+        <Minus className="h-5 w-5 stroke-[3]" />
+      </button>
+
+      <button
+        type="button"
         disabled={disabled}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={(event) => finishDrag(event, true)}
-        onPointerCancel={(event) => finishDrag(event, false)}
-        onWheel={onWheel}
         onKeyDown={onKeyDown}
         className={[
-          "relative mt-2 h-[88px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
-          "cursor-ns-resize touch-none shadow-[4px_4px_0_var(--pmb-ink)]",
-          "hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "relative flex h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] text-center transition-transform duration-150 sm:h-11",
+          "shadow-[4px_4px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
           "focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
           "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
@@ -263,54 +212,30 @@ function SwipeValuePicker({
         aria-valuetext={`${selectedOption.label} ${selectedOption.unitLabel}`}
         role="spinbutton"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {previousOption
-            ? [previousOption.label, previousOption.unitLabel]
-                .filter(Boolean)
-                .join(" ")
-            : ""}
+        <span className="text-[1.55rem] leading-none font-black tracking-[-0.02em] sm:text-[1.8rem]">
+          {selectedOption.label}
         </span>
-
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2">
-          <ChevronsUpDown className="h-4 w-4 shrink-0" />
-          <span className="text-[2.55rem] leading-none font-black tracking-[-0.04em]">
-            {selectedOption.label}
+        {selectedOption.unitLabel ? (
+          <span className="text-[11px] font-black tracking-[0.2em] uppercase">
+            {selectedOption.unitLabel}
           </span>
-          {selectedOption.unitLabel ? (
-            <span className="text-[11px] font-black tracking-[0.2em] uppercase">
-              {selectedOption.unitLabel}
-            </span>
-          ) : null}
-        </span>
+        ) : null}
+      </button>
 
-        <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {nextOption
-            ? [nextOption.label, nextOption.unitLabel].filter(Boolean).join(" ")
-            : ""}
-        </span>
+      <button
+        type="button"
+        disabled={disabled || !canIncrease}
+        onClick={() => shiftIndex(1)}
+        aria-label={`${label} +`}
+        className={[
+          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "shadow-[3px_3px_0_var(--pmb-ink)] hover:-translate-y-0.5 hover:translate-x-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
+        ].join(" ")}
+      >
+        <Plus className="h-5 w-5 stroke-[3]" />
       </button>
     </div>
-  );
-}
-
-function PlayerReadyChip({ ready, pending }: PlayerReadyChipProps) {
-  const { copy } = useLanguage();
-  const toneClass = ready
-    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-    : "bg-[var(--pmb-red)] text-white";
-  const baseClass =
-    "inline-flex min-w-[92px] items-center justify-center rounded-full border-2 border-[var(--pmb-ink)] px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em]";
-
-  return (
-    <span className={[baseClass, toneClass].join(" ")}>
-      {pending ? (
-        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-      ) : ready ? (
-        copy.common.ready
-      ) : (
-        copy.common.wait
-      )}
-    </span>
   );
 }
 
@@ -356,20 +281,11 @@ export default function LobbyPage() {
   );
   const me = displayPlayers.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
-  const currentImageModel = room?.settings?.imageModel ?? "gemini";
   const currentTotalRounds = room?.settings?.totalRounds ?? 1;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
   const displayGameMode =
     me?.isHost && draftsReady ? draftGameMode : currentGameMode;
-  const displayTotalRounds =
-    me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
-  const displayRoundSeconds =
-    me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
-  const displayCpuCount =
-    me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
-  const displayChangeRepeatCount =
-    getChangeViewCountForRoundSeconds(displayRoundSeconds);
   const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
@@ -377,10 +293,6 @@ export default function LobbyPage() {
     draftGameMode === "change"
       ? CHANGE_ROUND_TIME_OPTIONS
       : STANDARD_ROUND_TIME_OPTIONS;
-  const imageModelLabel =
-    currentImageModel === "flux"
-      ? copy.lobby.fluxModel
-      : copy.lobby.geminiModel;
   const readyCount = displayPlayers.filter((player) => player.ready).length;
   const everyoneReady =
     displayPlayers.length > 0 && readyCount === displayPlayers.length;
@@ -749,7 +661,7 @@ export default function LobbyPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-hidden px-3 py-3 md:px-4 md:py-3">
+    <main className="page-enter mx-auto flex min-h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-3 md:px-4 md:py-3 lg:h-[100dvh] lg:overflow-hidden">
       <Card className="overflow-hidden bg-white p-0">
         <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
           <div>
@@ -809,65 +721,44 @@ export default function LobbyPage() {
         </div>
       </Card>
 
-      <section className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)]">
-        <Card className="relative flex min-h-0 flex-col bg-white p-3 md:p-3.5">
+      <section className="grid flex-1 gap-2 lg:min-h-0 lg:grid-cols-[minmax(220px,250px)_minmax(0,1fr)] xl:grid-cols-[minmax(230px,260px)_minmax(0,1fr)]">
+        <Card className="relative flex flex-col bg-white p-3 md:p-3.5 lg:min-h-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
+            <h2 className="flex items-center gap-2 text-2xl font-black md:text-[1.7rem]">
               <Users className="h-5 w-5" /> {copy.lobby.players}
             </h2>
-            <Badge
-              className={
-                everyoneReady
-                  ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-                  : "bg-[var(--pmb-base)] text-[var(--pmb-ink)]"
-              }
-            >
-              {displayPlayers.length > 0
-                ? copy.lobby.readyCount(readyCount, displayPlayers.length)
-                : copy.lobby.readyCount(0, 0)}
-            </Badge>
           </div>
 
           <div className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-            {displayPlayers.map((player) => (
-              <div
-                key={player.uid}
-                className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-black md:text-[15px]">
-                    {player.displayName}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
+            {displayPlayers.map((player) => {
+              const isSelf = player.uid === user?.uid;
+
+              return (
+                <div
+                  key={player.uid}
+                  className={[
+                    "flex items-center gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] px-3 py-2",
+                    isSelf ? "bg-[var(--pmb-yellow)]" : "bg-[var(--pmb-base)]",
+                  ].join(" ")}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-black md:text-[15px]">
+                      {player.displayName}
+                    </span>
                     {player.kind === "cpu" ? (
-                      <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
-                        <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
-                      </Badge>
-                    ) : null}
-                    {player.uid === user?.uid ? (
                       <Badge className="bg-white px-2 py-0 text-[10px]">
-                        {copy.common.you}
-                      </Badge>
-                    ) : null}
-                    {player.isHost ? (
-                      <Badge className="px-2 py-0 text-[10px]">
-                        {copy.common.host}
+                        <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
                       </Badge>
                     ) : null}
                   </div>
                 </div>
-
-                <PlayerReadyChip
-                  ready={player.ready}
-                  pending={player.uid === user?.uid && actionBusy === "ready"}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="relative mt-3 border-t-4 border-[var(--pmb-ink)] pt-2">
             {me?.isHost ? (
-              <div className="absolute right-0 bottom-full mb-3">
+              <div className="mb-2 sm:absolute sm:right-0 sm:bottom-full sm:mb-3">
                 <Button
                   type="button"
                   variant="ghost"
@@ -937,37 +828,11 @@ export default function LobbyPage() {
           </div>
         </Card>
 
-        <Card className="flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
-              <Settings2 className="h-5 w-5" /> {copy.lobby.gameSettings}
+        <Card className="relative flex min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5 lg:min-h-0">
+          <div className="flex items-center gap-2">
+            <h2 className="flex items-center gap-2 text-3xl leading-none font-black md:text-[2.15rem]">
+              <Gamepad2 className="h-6 w-6" /> {copy.lobby.gameMode}
             </h2>
-            <div className="flex flex-wrap justify-end gap-1.5">
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {currentMode.label}
-              </Badge>
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {imageModelLabel}
-              </Badge>
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayTotalRounds} {copy.common.rounds}
-              </Badge>
-              <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
-                {displayGameMode === "change"
-                  ? `${displayChangeRepeatCount} ${
-                      displayChangeRepeatCount === 1 ? "VIEW" : "VIEWS"
-                    }`
-                  : `${displayRoundSeconds} ${copy.common.seconds}`}
-              </Badge>
-              {displayGameMode !== "change" ? (
-                <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                  {displayCpuCount} {copy.common.cpu}
-                </Badge>
-              ) : null}
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayPlayers.length} {copy.common.players}
-              </Badge>
-            </div>
           </div>
 
           {settingsStatusMessage ? (
@@ -981,14 +846,8 @@ export default function LobbyPage() {
             </div>
           ) : null}
 
-          <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">
-              {copy.lobby.gameMode}
-            </h3>
-          </div>
-
-          <div className="-mx-1 mt-2 overflow-x-auto overflow-y-hidden px-1 pb-0.5">
-            <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
+          <div className="mt-3 grid min-h-0 items-stretch gap-3 xl:grid-cols-[minmax(150px,0.24fr)_minmax(0,0.76fr)]">
+            <div className="grid min-h-0 gap-2">
               {gameModeOptions.map((mode) => {
                 const selected = draftGameMode === mode.mode;
                 const Icon =
@@ -996,12 +855,15 @@ export default function LobbyPage() {
                     ? Eye
                     : mode.mode === "memory"
                       ? Brain
-                      : Ghost;
+                      : mode.mode === "change"
+                        ? Sparkles
+                        : Ghost;
 
                 return (
                   <button
                     key={mode.mode}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => {
                       if (!hostCanEdit) return;
                       const enteringChangeMode =
@@ -1022,44 +884,113 @@ export default function LobbyPage() {
                     }}
                     disabled={!hostCanEdit}
                     className={[
-                      "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
+                      "group relative flex min-h-[72px] w-full items-center justify-between gap-2 overflow-hidden rounded-[16px] border-4 px-3 py-2 text-left transition-all duration-150",
                       "disabled:cursor-not-allowed disabled:opacity-70",
                       selected
                         ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
-                        : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
+                        : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)] hover:-translate-y-0.5 hover:bg-white hover:shadow-[4px_4px_0_var(--pmb-ink)]",
                     ].join(" ")}
                   >
-                    <div className="flex min-h-[60px] items-start justify-between gap-3">
-                      <div className="flex min-h-[46px] flex-col justify-start">
-                        <p className="text-[11px] font-black tracking-[0.18em] uppercase">
-                          {mode.englishName}
-                        </p>
-                        <h3 className="mt-1 text-lg leading-tight font-black">
-                          {mode.label}
-                        </h3>
-                      </div>
-                      <div className="shrink-0 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
-                        <Icon className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <p className="mt-2 min-h-[2.45rem] text-[13px] leading-[1.3] font-semibold">
-                      {mode.description}
-                    </p>
+                    <span className="flex min-w-0 items-center">
+                      <span className="block truncate text-[0.98rem] leading-tight font-black">
+                        {mode.label}
+                      </span>
+                    </span>
+                    <span
+                      className={[
+                        "grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-white transition-transform duration-150",
+                        selected ? "rotate-[-5deg]" : "group-hover:rotate-6",
+                      ].join(" ")}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </span>
                   </button>
                 );
               })}
             </div>
+
+            <div className="min-w-0" aria-live="polite">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentMode.mode}
+                  initial={{ opacity: 0, x: 18, rotate: 0.4, scale: 0.98 }}
+                  animate={{ opacity: 1, x: 0, rotate: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: -14, rotate: -0.4, scale: 0.98 }}
+                  transition={{ type: "spring", bounce: 0.24, duration: 0.36 }}
+                  className="relative isolate h-full min-h-[312px] overflow-hidden rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[linear-gradient(135deg,#fff_0%,var(--pmb-base)_100%)] p-3 shadow-[5px_5px_0_var(--pmb-ink)]"
+                >
+                  <div className="absolute inset-x-0 top-0 h-3 border-b-4 border-[var(--pmb-ink)] bg-[repeating-linear-gradient(90deg,var(--pmb-yellow)_0_18px,var(--pmb-blue)_18px_36px,var(--pmb-green)_36px_54px,var(--pmb-red)_54px_72px)]" />
+                  <motion.div
+                    className="absolute top-7 right-5 h-7 w-7 rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)]"
+                    animate={{ y: [0, -7, 0], rotate: [0, 10, 0] }}
+                    transition={{
+                      duration: 2.6,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  />
+
+                  <div className="relative z-10 flex h-full min-h-[284px] flex-col gap-3 pt-3 sm:flex-row">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <h3 className="text-[1.65rem] leading-none font-black md:text-[1.9rem]">
+                        {currentMode.label}
+                      </h3>
+                      <p className="mt-2 max-w-[34rem] text-[13px] leading-[1.45] font-bold md:text-sm">
+                        {currentMode.description}
+                      </p>
+                      <div className="mt-auto flex items-start gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-white px-3 py-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+                        <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--pmb-orange)]" />
+                        <p className="text-xs leading-[1.35] font-black">
+                          {currentMode.lobbyHint}
+                        </p>
+                      </div>
+                    </div>
+
+                    <motion.div
+                      className="relative min-h-[148px] overflow-hidden rounded-[16px] border-4 border-[var(--pmb-ink)] bg-white shadow-[4px_4px_0_var(--pmb-ink)] sm:min-h-0 sm:flex-[0.95]"
+                      style={{
+                        backgroundImage: `url(${MODE_PREVIEW_IMAGES[currentMode.mode]})`,
+                        backgroundPosition: "center",
+                        backgroundSize: "cover",
+                      }}
+                      animate={{ y: [0, -5, 0], rotate: [-0.6, 0.7, -0.6] }}
+                      transition={{
+                        duration: 4.4,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }}
+                    >
+                      <Image
+                        key={`${currentMode.mode}-preview`}
+                        src={MODE_PREVIEW_IMAGES[currentMode.mode]}
+                        alt={currentMode.label}
+                        fill
+                        priority
+                        unoptimized
+                        sizes="(min-width: 1280px) 28vw, (min-width: 640px) 38vw, 92vw"
+                        className="object-cover"
+                      />
+                      <div className="absolute right-2 bottom-2 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] p-2 shadow-[2px_2px_0_var(--pmb-ink)]">
+                        <Play className="h-4 w-4 fill-[var(--pmb-ink)]" />
+                      </div>
+                    </motion.div>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </div>
 
-          <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">
-              {copy.lobby.advancedSettings}
+          <div className="mt-4 border-t-4 border-[var(--pmb-ink)] pt-3 md:mt-5">
+            <h3 className="flex items-center gap-2 text-2xl leading-none md:text-[1.85rem]">
+              <ListChecks className="h-6 w-6" />
+              {language === "ja" ? "ゲームルール" : "Game Rule"}
             </h3>
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-2 space-y-2">
             <SwipeValuePicker
               label="Rounds"
+              icon={RotateCcw}
               options={ROUND_OPTIONS}
               value={draftTotalRounds}
               onChange={setDraftTotalRounds}
@@ -1070,6 +1001,7 @@ export default function LobbyPage() {
               label={
                 draftGameMode === "change" ? copy.lobby.repeatViews : "Time"
               }
+              icon={Clock3}
               options={roundTimeOptions}
               value={draftRoundSeconds}
               onChange={setDraftRoundSeconds}
@@ -1078,6 +1010,7 @@ export default function LobbyPage() {
             {draftGameMode !== "change" ? (
               <SwipeValuePicker
                 label="CPU"
+                icon={Bot}
                 options={cpuOptions}
                 value={draftCpuCount}
                 onChange={setDraftCpuCount}

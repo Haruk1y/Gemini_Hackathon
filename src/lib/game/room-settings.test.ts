@@ -155,7 +155,7 @@ describe("updateRoomSettings", () => {
     expect(cpuPlayers.every((player) => player.ready)).toBe(true);
   });
 
-  it("syncs up to three cpu players for classic and memory modes", async () => {
+  it("syncs up to five cpu players for classic and memory modes", async () => {
     await saveRoomState(createBaseState());
 
     await updateRoomSettings({
@@ -165,7 +165,7 @@ describe("updateRoomSettings", () => {
         gameMode: "classic",
         totalRounds: 3,
         roundSeconds: 60,
-        cpuCount: 4,
+        cpuCount: 5,
       },
     });
 
@@ -174,8 +174,8 @@ describe("updateRoomSettings", () => {
       (player) => player.kind === "cpu",
     );
 
-    expect(state?.room.settings.cpuCount).toBe(3);
-    expect(cpuPlayers).toHaveLength(3);
+    expect(state?.room.settings.cpuCount).toBe(5);
+    expect(cpuPlayers).toHaveLength(5);
 
     await updateRoomSettings({
       roomId: "ROOM1",

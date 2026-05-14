@@ -60,20 +60,20 @@ describe("game defaults", () => {
     ).toBe(30);
   });
 
-  it("caps standard mode CPU settings at three players", () => {
+  it("caps standard mode CPU settings at five players", () => {
     expect(
       mergeRoomSettings({
         gameMode: "classic",
-        cpuCount: 5,
+        cpuCount: 6,
       }).cpuCount,
-    ).toBe(3);
+    ).toBe(5);
 
     expect(
       mergeRoomSettings({
         gameMode: "memory",
-        cpuCount: 4,
+        cpuCount: 5,
       }).cpuCount,
-    ).toBe(3);
+    ).toBe(5);
   });
 
   it("normalizes the legacy flash image model to gemini", () => {

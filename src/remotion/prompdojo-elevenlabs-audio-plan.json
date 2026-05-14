@@ -1,0 +1,498 @@
+{
+  "version": "promptdojo-v1",
+  "basePublicPath": "remotion/audio/elevenlabs/promptdojo-v1",
+  "baseFilePath": "public/remotion/audio/elevenlabs/promptdojo-v1",
+  "durationSeconds": 89.7,
+  "music": {
+    "id": "promptdojo-main-party",
+    "kind": "music",
+    "label": "PrompDojo Main Party Theme",
+    "src": "remotion/audio/elevenlabs/promptdojo-v1/music/promptdojo-main-party.mp3",
+    "file": "music/promptdojo-main-party.mp3",
+    "modelId": "music_v1",
+    "musicLengthMs": 89700,
+    "forceInstrumental": true,
+    "outputFormat": "mp3_44100_128",
+    "prompt": "Instrumental party game intro music for a colorful AI image guessing battle called PrompDojo. Bright synth hooks, playful chiptune accents, punchy game show drums, handclaps, bouncy bass, 136 BPM. Structure: instant high-energy hook for the first 10 seconds, branded logo lift around 10.5 seconds, focused groove for the game loop around 17 seconds, bigger party peak around 27.8 seconds, fast montage energy from 35.5 seconds, searching tension but still fun around 68.9 seconds, final celebratory outro from 83 seconds. No vocals, no lyrics, no artist references, clean mix that leaves room for UI sound effects."
+  },
+  "assets": [
+    {
+      "id": "title-slam",
+      "kind": "sfx",
+      "label": "Title Slam",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/title-slam.mp3",
+      "file": "sfx/title-slam.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.9,
+      "promptInfluence": 0.62,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Short arcade party game title stamp: punchy but friendly impact, tiny clap burst, bright synth accent, clean one-shot, not cinematic or scary."
+    },
+    {
+      "id": "mode-card-pop",
+      "kind": "sfx",
+      "label": "Mode Card Pop (Local Button 35)",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/local-popup-button-35.mp3",
+      "file": "sfx/local-popup-button-35.mp3",
+      "modelId": "local-audio",
+      "durationSeconds": 1.044875,
+      "promptInfluence": 0,
+      "outputFormat": "mp3_44100_192",
+      "prompt": "Local button sound used as a bright, ordinary pop-up UI effect. Shortened in Remotion so only the front pop is heard; replaces the deeper metallic ElevenLabs pop.",
+      "provider": "local",
+      "sourceFile": "/Users/yajima/Downloads/決定ボタンを押す35.mp3"
+    },
+    {
+      "id": "generate-whoosh",
+      "kind": "sfx",
+      "label": "Generate Whoosh",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/generate-whoosh.mp3",
+      "file": "sfx/generate-whoosh.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 1.05,
+      "promptInfluence": 0.56,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Clean AI image generation whoosh, rising sparkle texture, fast digital shimmer, resolves softly, playful game UI sound, one second."
+    },
+    {
+      "id": "score-hit",
+      "kind": "sfx",
+      "label": "Score Hit",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/score-hit.mp3",
+      "file": "sfx/score-hit.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.75,
+      "promptInfluence": 0.6,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Bright party game score reveal sound, small bell sparkle plus soft pop, celebratory but compact, clean one-shot."
+    },
+    {
+      "id": "ui-click",
+      "kind": "sfx",
+      "label": "UI Click",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/ui-click.mp3",
+      "file": "sfx/ui-click.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.5,
+      "promptInfluence": 0.7,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Tiny soft game UI click, rounded plastic tap, very short, not loud, no tail."
+    },
+    {
+      "id": "typing-tick",
+      "kind": "sfx",
+      "label": "Keyboard Typing (Local Clip)",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/local-keyboard-typing.mp3",
+      "file": "sfx/local-keyboard-typing.mp3",
+      "modelId": "local-audio",
+      "durationSeconds": 19.879167,
+      "promptInfluence": 0,
+      "outputFormat": "mp3_44100_48",
+      "prompt": "Local keyboard typing recording. Remotion trims different sections of this longer clip to cover each visible prompt typing interval.",
+      "provider": "local",
+      "sourceFile": "/Users/yajima/Downloads/キーボード (1).mp3"
+    },
+    {
+      "id": "vote-reveal",
+      "kind": "sfx",
+      "label": "Vote Reveal",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/vote-reveal.mp3",
+      "file": "sfx/vote-reveal.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.95,
+      "promptInfluence": 0.57,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Playful mystery vote reveal sound for a party game, sneaky little riser into a bright reveal pop, not scary, clean one-shot."
+    },
+    {
+      "id": "final-sting",
+      "kind": "sfx",
+      "label": "Final Sting",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/final-sting.mp3",
+      "file": "sfx/final-sting.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 1.7,
+      "promptInfluence": 0.58,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Short cheerful party game final logo sting, bright synth chord, tiny sparkle finish, upbeat and clean, no vocals."
+    },
+    {
+      "id": "crowd-cheer-confetti",
+      "kind": "sfx",
+      "label": "Crowd Cheer Confetti",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/crowd-cheer-confetti.mp3",
+      "file": "sfx/crowd-cheer-confetti.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 1.4,
+      "promptInfluence": 0.44,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Small friendly group cheer with light paper confetti flutter for a party game victory, low in the mix, no words, short."
+    },
+    {
+      "id": "memory-shutter",
+      "kind": "sfx",
+      "label": "Memory Shutter",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/memory-shutter.mp3",
+      "file": "sfx/memory-shutter.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.75,
+      "promptInfluence": 0.6,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Fast game UI shutter swipe as an image gets hidden, soft plastic panels closing, playful suspense, not harsh."
+    },
+    {
+      "id": "aha-found",
+      "kind": "sfx",
+      "label": "Aha Found",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/aha-found.mp3",
+      "file": "sfx/aha-found.mp3",
+      "modelId": "eleven_text_to_sound_v2",
+      "durationSeconds": 0.65,
+      "promptInfluence": 0.64,
+      "outputFormat": "mp3_44100_128",
+      "prompt": "Aha moment found-it sound for a party puzzle game, precise click plus sparkle ping, quick success accent, clean one-shot."
+    },
+    {
+      "id": "scene-transition-up",
+      "kind": "sfx",
+      "label": "Comical Transition Up (Local Clip)",
+      "src": "remotion/audio/elevenlabs/promptdojo-v1/sfx/local-comical-transition-up.mp3",
+      "file": "sfx/local-comical-transition-up.mp3",
+      "modelId": "local-audio",
+      "durationSeconds": 2.184,
+      "promptInfluence": 0,
+      "outputFormat": "mp3_48000_160",
+      "prompt": "Local comical upward scene transition sound. Used around the Aha image-change reveal timing.",
+      "provider": "local",
+      "sourceFile": "/Users/yajima/Downloads/場面切り替え_コミカル_長め_上り.mp3"
+    }
+  ],
+  "cues": [
+    {
+      "id": "cold-open-title-slam",
+      "assetId": "title-slam",
+      "at": 0.12,
+      "volume": 0.5
+    },
+    {
+      "id": "target-card-in",
+      "assetId": "mode-card-pop",
+      "at": 2.08,
+      "volume": 0.52,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "cold-prompt-typing",
+      "assetId": "typing-tick",
+      "at": 3.28,
+      "volume": 0.4,
+      "durationSeconds": 1.74,
+      "trimStartSeconds": 0.2
+    },
+    {
+      "id": "result-reveal",
+      "assetId": "generate-whoosh",
+      "at": 5.65,
+      "volume": 0.3
+    },
+    {
+      "id": "winner-score",
+      "assetId": "score-hit",
+      "at": 6.7,
+      "volume": 0.52
+    },
+    {
+      "id": "cold-open-cheer",
+      "assetId": "crowd-cheer-confetti",
+      "at": 7.72,
+      "volume": 0.2,
+      "durationSeconds": 1.1
+    },
+    {
+      "id": "title-hit",
+      "assetId": "title-slam",
+      "at": 10.75,
+      "volume": 0.45
+    },
+    {
+      "id": "game-loop-title",
+      "assetId": "title-slam",
+      "at": 15.66,
+      "volume": 0.42
+    },
+    {
+      "id": "observe-lock",
+      "assetId": "ui-click",
+      "at": 18.15,
+      "volume": 0.32,
+      "durationSeconds": 0.16
+    },
+    {
+      "id": "core-prompt-typing",
+      "assetId": "typing-tick",
+      "at": 20.35,
+      "volume": 0.42,
+      "durationSeconds": 2.7,
+      "trimStartSeconds": 2.6
+    },
+    {
+      "id": "prompt-submit",
+      "assetId": "ui-click",
+      "at": 23.25,
+      "volume": 0.34,
+      "durationSeconds": 0.16
+    },
+    {
+      "id": "core-generate",
+      "assetId": "generate-whoosh",
+      "at": 23.35,
+      "volume": 0.38
+    },
+    {
+      "id": "core-score",
+      "assetId": "score-hit",
+      "at": 25.55,
+      "volume": 0.55
+    },
+    {
+      "id": "core-score-pop",
+      "assetId": "mode-card-pop",
+      "at": 25.55,
+      "volume": 0.52,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "party-reveal-title",
+      "assetId": "title-slam",
+      "at": 27.9,
+      "volume": 0.42
+    },
+    {
+      "id": "party-score-pop",
+      "assetId": "score-hit",
+      "at": 29.25,
+      "volume": 0.42
+    },
+    {
+      "id": "party-score-card-pop",
+      "assetId": "mode-card-pop",
+      "at": 29.25,
+      "volume": 0.5,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "party-cheer",
+      "assetId": "crowd-cheer-confetti",
+      "at": 30.05,
+      "volume": 0.18,
+      "durationSeconds": 1.1
+    },
+    {
+      "id": "modes-title",
+      "assetId": "title-slam",
+      "at": 34.16,
+      "volume": 0.44
+    },
+    {
+      "id": "mode-grid-card-classic",
+      "assetId": "mode-card-pop",
+      "at": 35.58,
+      "volume": 0.53,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "mode-grid-card-memory",
+      "assetId": "mode-card-pop",
+      "at": 35.68,
+      "volume": 0.5,
+      "playbackRate": 1.06,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "mode-grid-card-imposter",
+      "assetId": "mode-card-pop",
+      "at": 35.78,
+      "volume": 0.5,
+      "playbackRate": 0.96,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "mode-grid-card-aha",
+      "assetId": "mode-card-pop",
+      "at": 35.88,
+      "volume": 0.51,
+      "playbackRate": 1.12,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "mode-select-slam",
+      "assetId": "title-slam",
+      "at": 36.5,
+      "volume": 0.42
+    },
+    {
+      "id": "classic-focus-pop",
+      "assetId": "mode-card-pop",
+      "at": 38.38,
+      "volume": 0.57,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "classic-prompt-typing",
+      "assetId": "typing-tick",
+      "at": 42.4,
+      "volume": 0.4,
+      "durationSeconds": 1.45,
+      "trimStartSeconds": 6.3
+    },
+    {
+      "id": "classic-score",
+      "assetId": "score-hit",
+      "at": 43.9,
+      "volume": 0.34
+    },
+    {
+      "id": "memory-focus-pop",
+      "assetId": "mode-card-pop",
+      "at": 46.98,
+      "volume": 0.57,
+      "playbackRate": 1.04,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "memory-shutter",
+      "assetId": "memory-shutter",
+      "at": 51.1,
+      "volume": 0.34
+    },
+    {
+      "id": "memory-prompt-typing",
+      "assetId": "typing-tick",
+      "at": 52.1,
+      "volume": 0.4,
+      "durationSeconds": 1.75,
+      "trimStartSeconds": 9.1
+    },
+    {
+      "id": "memory-score",
+      "assetId": "score-hit",
+      "at": 54,
+      "volume": 0.33,
+      "playbackRate": 1.06
+    },
+    {
+      "id": "imposter-focus-pop",
+      "assetId": "mode-card-pop",
+      "at": 56.58,
+      "volume": 0.74,
+      "playbackRate": 0.98,
+      "durationSeconds": 0.42
+    },
+    {
+      "id": "imposter-vote-1",
+      "assetId": "ui-click",
+      "at": 61.95,
+      "volume": 0.22,
+      "durationSeconds": 0.16,
+      "playbackRate": 0.92
+    },
+    {
+      "id": "imposter-vote-2",
+      "assetId": "ui-click",
+      "at": 62.25,
+      "volume": 0.2,
+      "durationSeconds": 0.16,
+      "playbackRate": 1.05
+    },
+    {
+      "id": "imposter-vote-3",
+      "assetId": "ui-click",
+      "at": 62.55,
+      "volume": 0.2,
+      "durationSeconds": 0.16,
+      "playbackRate": 1.12
+    },
+    {
+      "id": "imposter-vote-reveal",
+      "assetId": "vote-reveal",
+      "at": 63.05,
+      "volume": 0.44
+    },
+    {
+      "id": "aha-focus-pop",
+      "assetId": "mode-card-pop",
+      "at": 67.18,
+      "volume": 0.57,
+      "playbackRate": 1.12,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "aha-card",
+      "assetId": "mode-card-pop",
+      "at": 69,
+      "volume": 0.53,
+      "playbackRate": 1.12,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "aha-change-transition",
+      "assetId": "scene-transition-up",
+      "at": 72.95,
+      "volume": 0.38,
+      "durationSeconds": 1.8
+    },
+    {
+      "id": "aha-found",
+      "assetId": "aha-found",
+      "at": 75.6,
+      "volume": 0.62
+    },
+    {
+      "id": "recap-title-pop",
+      "assetId": "mode-card-pop",
+      "at": 78.58,
+      "volume": 0.53,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "recap-card-classic",
+      "assetId": "mode-card-pop",
+      "at": 78.6,
+      "volume": 0.42,
+      "playbackRate": 0.94,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "recap-card-memory",
+      "assetId": "mode-card-pop",
+      "at": 78.7,
+      "volume": 0.42,
+      "playbackRate": 1.04,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "recap-card-imposter",
+      "assetId": "mode-card-pop",
+      "at": 78.8,
+      "volume": 0.42,
+      "playbackRate": 1.1,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "recap-card-aha",
+      "assetId": "mode-card-pop",
+      "at": 78.9,
+      "volume": 0.42,
+      "playbackRate": 0.98,
+      "durationSeconds": 0.38
+    },
+    {
+      "id": "and-more-pop",
+      "assetId": "mode-card-pop",
+      "at": 80.55,
+      "volume": 0.58,
+      "playbackRate": 0.9,
+      "durationSeconds": 0.5
+    }
+  ]
+}

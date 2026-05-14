@@ -186,7 +186,7 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("shows READY as a static chip and exposes the language toggle", () => {
+  it("shows a compact players list and exposes the language toggle", () => {
     render(
       <LanguageProvider initialLanguage="en">
         <LobbyPage />
@@ -204,10 +204,62 @@ describe("LobbyPage", () => {
           '[role="group"][aria-label="Display language"]',
         ),
     ).not.toBeNull();
-    expect(screen.getAllByText("READY").length).toBeGreaterThan(0);
+    expect(screen.queryByText("2 PLAYERS")).toBeNull();
+    expect(screen.queryByText("READY")).toBeNull();
+    expect(screen.queryByText("YOU")).toBeNull();
+    expect(screen.queryByText("HOST")).toBeNull();
+    expect(
+      screen.getByText("Alice").parentElement?.parentElement?.className,
+    ).toContain("bg-[var(--pmb-yellow)]");
     expect(apiPostMock).not.toHaveBeenCalledWith("/api/rooms/ready", {
       roomId: "ROOM1",
       ready: false,
+    });
+  });
+
+  it("shows all game modes without scroll controls", () => {
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Classic" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Memory Match" }),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Aha Moment" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Art Impostor" })).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Scroll game modes down" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Scroll game modes up" }),
+    ).toBeNull();
+  });
+
+  it("updates the mode detail panel after selecting a game mode", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    expect(
+      screen.getByText(
+        "The standard mode where you create prompts while looking at the target image.",
+      ),
+    ).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Memory Match/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "You can only see the target for the first 10 seconds. Win with memory alone.",
+        ),
+      ).not.toBeNull();
     });
   });
 
@@ -489,7 +541,7 @@ describe("LobbyPage", () => {
     );
 
     const repeatPicker = screen.getByRole("spinbutton", {
-      name: "Change Repeat",
+      name: "Change Views",
     });
     expect(repeatPicker.getAttribute("aria-valuetext")).toBe("1 VIEW");
 
@@ -507,7 +559,72 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("allows classic mode to save up to three CPU players", async () => {
+  it("allows classic mode to save expanded round and time limits", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        includeGuest: false,
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const roundsPicker = screen.getByRole("spinbutton", {
+      name: "Change Rounds",
+    });
+    expect(roundsPicker.getAttribute("aria-valuemax")).toBe("5");
+
+    roundsPicker.focus();
+    await user.keyboard("{End}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          totalRounds: 5,
+        }),
+      });
+    });
+
+    const timePicker = screen.getByRole("spinbutton", {
+      name: "Change Time",
+    });
+    expect(timePicker.getAttribute("aria-valuemax")).toBe("120");
+
+    timePicker.focus();
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          roundSeconds: 75,
+        }),
+      });
+    });
+
+    await user.keyboard("{End}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          roundSeconds: 120,
+        }),
+      });
+    });
+  });
+
+  it("allows classic mode to save up to five CPU players", async () => {
     roomSyncState = {
       ...roomSyncState,
       snapshot: createLobbySnapshot({
@@ -526,7 +643,7 @@ describe("LobbyPage", () => {
     const cpuPicker = screen.getByRole("spinbutton", {
       name: "Change CPU",
     });
-    expect(cpuPicker.getAttribute("aria-valuemax")).toBe("3");
+    expect(cpuPicker.getAttribute("aria-valuemax")).toBe("5");
 
     cpuPicker.focus();
     await user.keyboard("{End}");
@@ -536,7 +653,7 @@ describe("LobbyPage", () => {
         roomId: "ROOM1",
         settings: expect.objectContaining({
           gameMode: "classic",
-          cpuCount: 3,
+          cpuCount: 5,
         }),
       });
     });

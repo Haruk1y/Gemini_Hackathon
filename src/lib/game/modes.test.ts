@@ -94,6 +94,9 @@ describe("game modes", () => {
     expect(getGameModeDefinition("memory", "en").label).toBe("Memory Match");
     expect(getGameModeDefinition("change", "ja").label).toBe("アハ体験");
     expect(getGameModeDefinition("change", "en").label).toBe("Aha Moment");
+    expect(getGameModeDefinition("impostor", "ja").label).toBe(
+      "ニセ画家を探せ",
+    );
     expect(getGameModeDefinition("impostor", "en").shortLabel).toBe("Impostor");
   });
 
@@ -125,7 +128,9 @@ describe("game modes", () => {
       CHANGE_DEFAULT_ROUND_SECONDS,
     );
     expect(normalizeRoundSecondsForMode("change", 100)).toBe(100);
-    expect(normalizeRoundSecondsForMode("classic", 15)).toBe(60);
-    expect(normalizeRoundSecondsForMode("classic", 90)).toBe(60);
+    expect(normalizeRoundSecondsForMode("classic", 15)).toBe(15);
+    expect(normalizeRoundSecondsForMode("classic", 75)).toBe(75);
+    expect(normalizeRoundSecondsForMode("classic", 90)).toBe(90);
+    expect(normalizeRoundSecondsForMode("classic", 120)).toBe(120);
   });
 });

@@ -131,7 +131,7 @@ const TRANSLATIONS = {
       nextRoundWarming: "次のお題を準備中...",
       nextRoundFallback: "次のお題はラウンド開始時に準備されます。",
       advancedSettings: "詳細な設定",
-      repeatViews: "繰り返し",
+      repeatViews: "Views",
       changePickerAria: (label: string) => `${label} を変更`,
       changeRequiresGemini:
         "アハ体験は Gemini の画像編集が使えるルームでのみ選べます。",
@@ -414,7 +414,7 @@ const TRANSLATIONS = {
       nextRoundFallback:
         "The next target will be prepared when the round starts.",
       advancedSettings: "Advanced Settings",
-      repeatViews: "Repeat",
+      repeatViews: "Views",
       changePickerAria: (label: string) => `Change ${label}`,
       changeRequiresGemini:
         "Aha Moment is only available in rooms using Gemini image editing.",
