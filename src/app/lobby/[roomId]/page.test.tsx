@@ -163,6 +163,7 @@ describe("LobbyPage", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -225,9 +226,7 @@ describe("LobbyPage", () => {
     );
 
     expect(screen.getByRole("button", { name: "Classic" })).not.toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Memory Match" }),
-    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Memory Match" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Aha Moment" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Art Impostor" })).not.toBeNull();
     expect(
@@ -247,20 +246,77 @@ describe("LobbyPage", () => {
     );
 
     expect(
-      screen.getByText(
+      screen.queryByText(
         "The standard mode where you create prompts while looking at the target image.",
       ),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(screen.getByText("Estimate Target Image Prompt")).not.toBeNull();
+    expect(screen.getByText("STEP 1/4")).not.toBeNull();
+    expect(screen.getByText("Target Image")).not.toBeNull();
+    expect(screen.getByText("Generated Image")).not.toBeNull();
+    expect(screen.getByText("Ranking")).not.toBeNull();
+    expect(screen.queryByText("Best")).toBeNull();
+    expect(screen.getByText("Prompt")).not.toBeNull();
+    expect(screen.queryByText("Prompt Text")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /Memory Match/i }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          "You can only see the target for the first 10 seconds. Win with memory alone.",
-        ),
-      ).not.toBeNull();
+      expect(screen.getByText("Memorize Target Image")).not.toBeNull();
     });
+    expect(screen.getAllByText("Memory Match").length).toBeGreaterThan(0);
+    expect(screen.getByText("STEP 1/4")).not.toBeNull();
+    expect(screen.getAllByText("Prompt").length).toBeGreaterThan(0);
+    expect(screen.getByText("Ranking")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Aha Moment/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Observe Original Image")).not.toBeNull();
+    });
+    expect(screen.queryByText("Action Stage")).toBeNull();
+    expect(screen.queryByText("Prompt Text")).toBeNull();
+    expect(screen.getByText("Ranking")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Art Impostor/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Shown Your Role")).not.toBeNull();
+    });
+    expect(screen.getByText("STEP 1/5")).not.toBeNull();
+    expect(screen.queryByText("Relay Image")).toBeNull();
+    expect(screen.queryByText("Generation")).toBeNull();
+    expect(screen.getAllByText("YOU ARE").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("IMPOSTER").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Vote Phase")).toBeNull();
+  });
+
+  it("registers the mode demo auto-advance without saving room settings", async () => {
+    const intervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation(
+        () => 1 as unknown as ReturnType<typeof window.setInterval>,
+      );
+
+    try {
+      render(
+        <LanguageProvider initialLanguage="en">
+          <LobbyPage />
+        </LanguageProvider>,
+      );
+
+      apiPostMock.mockClear();
+
+      await waitFor(() => {
+        expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 3400);
+      });
+      expect(apiPostMock).not.toHaveBeenCalledWith(
+        "/api/rooms/settings",
+        expect.anything(),
+      );
+    } finally {
+      intervalSpy.mockRestore();
+    }
   });
 
   it("auto-readies again when the lobby page is visited again later", async () => {
