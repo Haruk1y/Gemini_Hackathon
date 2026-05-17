@@ -335,7 +335,7 @@ describe("RoundPage Aha results shortcut", () => {
     expect(screen.queryByText(/Total/i)).toBeNull();
   });
 
-  it("separates round and total scores in classic round rankings", () => {
+  it("shows only round scores in classic round rankings", () => {
     const now = Date.now();
     roundSnapshot.room.settings.gameMode = "classic";
     roundSnapshot.room.settings.roundSeconds = 30;
@@ -370,8 +370,8 @@ describe("RoundPage Aha results shortcut", () => {
     );
 
     expect(screen.getByText("1. Host")).not.toBeNull();
-    expect(screen.getAllByText("Round").length).toBeGreaterThan(0);
-    expect(screen.getByText("Total: 130")).not.toBeNull();
+    expect(screen.getByText("80")).not.toBeNull();
+    expect(screen.queryByText(/Total/i)).toBeNull();
   });
 
   it("keeps the Aha image click target visually still on hover", () => {

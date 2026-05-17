@@ -580,7 +580,7 @@ function SwipeValuePicker({
   };
 
   return (
-    <div className="grid grid-cols-[minmax(108px,0.2fr)_40px_minmax(0,1fr)_40px] items-center gap-2 py-1 sm:grid-cols-[minmax(120px,0.18fr)_42px_minmax(0,1fr)_42px]">
+    <div className="grid min-h-0 grid-cols-[minmax(108px,0.2fr)_40px_minmax(0,1fr)_40px] items-stretch gap-2 py-1 sm:grid-cols-[minmax(120px,0.18fr)_42px_minmax(0,1fr)_42px]">
       <p className="flex min-w-0 items-center gap-2 text-[15px] leading-none font-black tracking-[0.08em] uppercase md:text-base">
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[2px_2px_0_var(--pmb-ink)]">
           <Icon className="h-4 w-4 stroke-[3]" />
@@ -594,7 +594,7 @@ function SwipeValuePicker({
         onClick={() => shiftIndex(-1)}
         aria-label={`${label} -`}
         className={[
-          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "grid h-full min-h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:w-10",
           "shadow-[3px_3px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
           "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
@@ -607,7 +607,7 @@ function SwipeValuePicker({
         disabled={disabled}
         onKeyDown={onKeyDown}
         className={[
-          "relative flex h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] text-center transition-transform duration-150 sm:h-11",
+          "relative flex h-full min-h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] text-center transition-transform duration-150",
           "shadow-[4px_4px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
           "focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
           "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
@@ -635,7 +635,7 @@ function SwipeValuePicker({
         onClick={() => shiftIndex(1)}
         aria-label={`${label} +`}
         className={[
-          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "grid h-full min-h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:w-10",
           "shadow-[3px_3px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
           "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
@@ -727,7 +727,7 @@ function ImpostorImageCard({
       animate={{ y: 0, opacity: 1, rotate: highlight ? -1 : 0 }}
       transition={{ delay, duration: 0.24 }}
       className={[
-        "relative h-full min-h-[134px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
+        "relative h-full min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
         highlight ? "bg-[var(--pmb-yellow)]" : "",
       ].join(" ")}
     >
@@ -769,7 +769,7 @@ function ImpostorRoleStage({ language }: { language: Language }) {
           ? "受け取った画像に寄せる。"
           : "Match the passed image.",
       className: "bg-[var(--pmb-green)]",
-      roleTextClassName: "text-[clamp(2rem,5vw,4.2rem)]",
+      roleTextClassName: "text-[clamp(1.35rem,4.5dvh,4.2rem)]",
     },
     {
       role: "IMPOSTER",
@@ -779,12 +779,12 @@ function ImpostorRoleStage({ language }: { language: Language }) {
           ? "バレずに少し変える。"
           : "Shift it without getting caught.",
       className: "bg-[var(--pmb-red)] text-white",
-      roleTextClassName: "text-[clamp(1.8rem,4.2vw,3.35rem)]",
+      roleTextClassName: "text-[clamp(1.25rem,4dvh,3.35rem)]",
     },
   ];
 
   return (
-    <div className="grid min-h-[210px] gap-2 md:grid-cols-2">
+    <div className="grid h-full min-h-0 overflow-hidden gap-2 md:grid-cols-2">
       {roleCards.map((card, index) => {
         const Icon = card.icon;
 
@@ -803,13 +803,13 @@ function ImpostorRoleStage({ language }: { language: Language }) {
             }}
             transition={{ delay: index * 0.08, duration: 0.28 }}
             className={[
-              "grid min-w-0 place-items-center overflow-hidden rounded-[16px] border-4 border-[var(--pmb-ink)] p-4 text-center shadow-[4px_4px_0_var(--pmb-ink)]",
+              "grid h-full min-h-0 min-w-0 place-items-center overflow-hidden rounded-[16px] border-4 border-[var(--pmb-ink)] p-3 text-center shadow-[4px_4px_0_var(--pmb-ink)] md:p-4",
               card.className,
             ].join(" ")}
           >
-            <div className="grid min-w-0 max-w-full gap-2 px-1">
-              <Icon className="mx-auto h-8 w-8" />
-              <p className="text-[clamp(1.8rem,4vw,3.6rem)] leading-none font-black">
+            <div className="grid min-h-0 min-w-0 max-w-full gap-1 px-1 md:gap-2">
+              <Icon className="mx-auto h-5 w-5 md:h-8 md:w-8" />
+              <p className="text-[clamp(1.2rem,3.8dvh,3.6rem)] leading-none font-black">
                 YOU ARE
               </p>
               <p
@@ -820,7 +820,7 @@ function ImpostorRoleStage({ language }: { language: Language }) {
               >
                 {card.role}
               </p>
-              <p className="mx-auto max-w-[20ch] text-sm leading-tight font-black md:text-base">
+              <p className="mx-auto max-w-[20ch] overflow-hidden text-[clamp(0.68rem,1.35dvh,1rem)] leading-tight font-black">
                 {card.body}
               </p>
             </div>
@@ -847,7 +847,7 @@ function ImpostorGenerationStage({
     : IMPOSTOR_RELAY_IMAGES[2];
 
   return (
-    <div className="relative grid min-h-[210px] gap-2 md:grid-cols-2">
+    <div className="relative grid h-full min-h-0 overflow-hidden gap-2 md:grid-cols-2">
       <ImpostorImageCard
         src={incomingImage}
         label={language === "ja" ? "受け取った画像" : "Incoming Image"}
@@ -901,9 +901,9 @@ function ImpostorRelayStage({ language }: { language: Language }) {
   ];
 
   return (
-    <div className="grid min-h-[210px] grid-cols-2 gap-2 md:grid-cols-4">
+    <div className="grid h-full min-h-0 grid-cols-2 overflow-hidden gap-2 md:grid-cols-4">
       {relayCards.map((card, index) => (
-        <div key={card.label} className="relative h-full min-w-0">
+        <div key={card.label} className="relative h-full min-h-0 min-w-0">
           <ImpostorImageCard
             src={card.src}
             label={card.label}
@@ -956,8 +956,8 @@ function ImpostorVoteStage({ language }: { language: Language }) {
   ];
 
   return (
-    <div className="grid min-h-[210px] gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,0.24fr)]">
-      <div className="grid min-h-0 grid-cols-3 gap-2">
+    <div className="grid h-full min-h-0 overflow-hidden gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,0.24fr)]">
+      <div className="grid h-full min-h-0 grid-cols-3 gap-2">
         {voteCards.map((card, index) => (
           <motion.div
             key={card.player}
@@ -965,7 +965,7 @@ function ImpostorVoteStage({ language }: { language: Language }) {
             animate={{ y: 0, rotate: card.suspect ? -2 : 0 }}
             transition={{ delay: index * 0.05, duration: 0.22 }}
             className={[
-              "relative min-h-[128px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
+              "relative min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
               card.suspect ? "bg-[var(--pmb-yellow)]" : "",
             ].join(" ")}
           >
@@ -1003,14 +1003,14 @@ function ImpostorVoteStage({ language }: { language: Language }) {
         ))}
       </div>
 
-      <div className="grid min-h-[128px] grid-rows-[auto_1fr_auto] gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+      <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
         <div className="flex items-center gap-1.5">
           <Vote className="h-4 w-4" />
           <p className="truncate text-sm font-black">
             {language === "ja" ? "投票先" : "Votes"}
           </p>
         </div>
-        <div className="space-y-1.5">
+        <div className="min-h-0 space-y-1.5 overflow-hidden">
           {voteRows.map((voteRow, index) => (
             <motion.div
               key={voteRow.voter}
@@ -1064,8 +1064,8 @@ function ImpostorWinStage({
       ];
 
   return (
-    <div className="grid min-h-[210px] gap-2 md:grid-cols-[minmax(0,0.52fr)_minmax(0,0.48fr)]">
-      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,0.48fr)_minmax(0,0.52fr)] overflow-hidden gap-2 md:grid-cols-[minmax(0,0.52fr)_minmax(0,0.48fr)] md:grid-rows-1">
+      <div className="grid h-full min-h-0 grid-cols-2 gap-2 md:grid-cols-1 md:grid-rows-2">
         {[
           {
             label: language === "ja" ? "最初の画像" : "Target Image",
@@ -1081,7 +1081,7 @@ function ImpostorWinStage({
             initial={{ x: -12, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: index * 0.08, duration: 0.22 }}
-            className="relative min-h-[98px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]"
+            className="relative h-full min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]"
           >
             <Image
               src={image.src}
@@ -1099,25 +1099,27 @@ function ImpostorWinStage({
         ))}
       </div>
 
-      <div className="grid gap-2">
+      <div className="grid h-full min-h-0 grid-rows-[minmax(0,0.92fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 overflow-hidden">
         <div
           className={[
-            "grid place-items-center rounded-[14px] border-4 border-[var(--pmb-ink)] p-3 text-center shadow-[3px_3px_0_var(--pmb-ink)]",
+            "flex min-h-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] p-2 text-center shadow-[3px_3px_0_var(--pmb-ink)] md:p-3",
             isCrew
               ? "bg-[var(--pmb-green)]"
               : "bg-[var(--pmb-red)] text-white",
           ].join(" ")}
         >
-          <div>
+          <div className="shrink-0">
             {isCrew ? (
-              <Trophy className="mx-auto mb-1 h-7 w-7" />
+              <Trophy className="h-5 w-5 md:h-7 md:w-7" />
             ) : (
-              <Ghost className="mx-auto mb-1 h-7 w-7" />
+              <Ghost className="h-5 w-5 md:h-7 md:w-7" />
             )}
-            <p className="text-[10px] font-black tracking-[0.14em] uppercase">
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[9px] leading-none font-black tracking-[0.14em] uppercase md:text-[10px]">
               {language === "ja" ? "勝利条件" : "Win Condition"}
             </p>
-            <p className="text-[clamp(1.5rem,3vw,2.6rem)] leading-none font-black">
+            <p className="truncate text-[clamp(0.95rem,2.2dvh,2.2rem)] leading-none font-black">
               {isCrew ? "CREW" : "IMPOSTER"} WINS
             </p>
           </div>
@@ -1129,17 +1131,17 @@ function ImpostorWinStage({
             initial={{ x: 12, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: index * 0.1, duration: 0.22 }}
-            className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white p-3 shadow-[3px_3px_0_var(--pmb-ink)]"
+            className="grid min-h-0 grid-cols-[auto_1fr] items-center gap-1.5 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white p-1.5 shadow-[3px_3px_0_var(--pmb-ink)] md:gap-2 md:p-2"
           >
             <span
               className={[
-                "grid h-8 w-8 place-items-center rounded-full border-2 border-[var(--pmb-ink)]",
+                "grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--pmb-ink)] md:h-6 md:w-6",
                 isCrew ? "bg-[var(--pmb-green)]" : "bg-[var(--pmb-red)] text-white",
               ].join(" ")}
             >
-              <Check className="h-5 w-5" />
+              <Check className="h-3 w-3 md:h-4 md:w-4" />
             </span>
-            <p className="min-w-0 text-xs leading-snug font-black">
+            <p className="min-w-0 truncate text-[10px] leading-none font-black md:text-[11px]">
               {condition}
             </p>
           </motion.div>
@@ -1299,7 +1301,7 @@ function ModeGameplayPreview({
           setStepControlsVisible(false);
         }
       }}
-      className="relative isolate h-full min-h-[312px] overflow-hidden rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[linear-gradient(135deg,#fff_0%,var(--pmb-base)_100%)] p-2 shadow-[5px_5px_0_var(--pmb-ink)]"
+      className="relative isolate aspect-[47/20] h-full min-h-0 max-w-full overflow-hidden rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[linear-gradient(135deg,#fff_0%,var(--pmb-base)_100%)] p-2 shadow-[5px_5px_0_var(--pmb-ink)]"
     >
       <div className="absolute inset-x-0 top-0 h-3 border-b-4 border-[var(--pmb-ink)] bg-[repeating-linear-gradient(90deg,var(--pmb-yellow)_0_18px,var(--pmb-blue)_18px_36px,var(--pmb-green)_36px_54px,var(--pmb-red)_54px_72px)]" />
       <motion.div
@@ -1354,7 +1356,7 @@ function ModeGameplayPreview({
 
       <div
         className={[
-          "relative z-10 grid h-full min-h-[292px] gap-2 pt-3",
+          "relative z-10 grid h-full min-h-0 gap-2 pt-3",
           showSidePanel
             ? "md:grid-cols-[minmax(0,1fr)_minmax(116px,0.3fr)]"
             : "md:grid-cols-1",
@@ -1364,8 +1366,8 @@ function ModeGameplayPreview({
           className={[
             "grid min-h-0 gap-2",
             showPromptPanel
-              ? "grid-rows-[42px_minmax(0,1fr)_64px]"
-              : "grid-rows-[42px_minmax(0,1fr)]",
+              ? "grid-rows-[auto_minmax(0,1fr)_minmax(3.25rem,0.3fr)]"
+              : "grid-rows-[auto_minmax(0,1fr)]",
           ].join(" ")}
         >
           <div className="flex min-w-0 items-center justify-between gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-1.5 shadow-[3px_3px_0_var(--pmb-ink)]">
@@ -1404,7 +1406,7 @@ function ModeGameplayPreview({
           {mode === "impostor" ? (
             <ImpostorDemoStage stepIndex={stepIndex} language={language} />
           ) : mode === "change" ? (
-            <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+            <div className="relative min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
               <motion.div
                 className="absolute inset-0"
                 animate={{ opacity: 1 }}
@@ -1450,7 +1452,7 @@ function ModeGameplayPreview({
             </div>
           ) : (
             <div className="grid min-h-0 gap-2 sm:grid-cols-2">
-              <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+              <div className="relative min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
                 <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black tracking-[0.08em] uppercase shadow-[2px_2px_0_var(--pmb-ink)]">
                   <ImageIcon className="h-3 w-3" />
                   {targetLabel}
@@ -1482,7 +1484,7 @@ function ModeGameplayPreview({
                 ) : null}
               </div>
 
-              <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+              <div className="relative min-h-0 overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
                 <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black tracking-[0.08em] uppercase shadow-[2px_2px_0_var(--pmb-ink)]">
                   <Play className="h-3 w-3 fill-[var(--pmb-ink)]" />
                   {generatedLabel}
@@ -1533,7 +1535,7 @@ function ModeGameplayPreview({
                   <Send className="h-3 w-3" />
                   {demo.promptLabel}
                 </p>
-                <div className="min-h-[32px] px-1 py-1.5 font-mono text-[11px] font-black">
+                <div className="min-h-0 px-1 py-1.5 font-mono text-[11px] font-black">
                   <TypedPromptLine
                     text={promptText}
                     isTyping={promptIsTyping}
@@ -1545,7 +1547,7 @@ function ModeGameplayPreview({
         </div>
 
         {showSidePanel ? (
-          <div className="grid min-h-[132px] grid-rows-[auto_1fr] gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+          <div className="grid min-h-0 grid-rows-[auto_1fr] gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
             <div className="flex items-center gap-1.5">
               <Trophy className="h-4 w-4" />
               <p className="truncate text-sm font-black">{rankingLabel}</p>
@@ -1956,7 +1958,7 @@ export default function LobbyPage() {
 
   if (isLeaving || loading || (isConnecting && !snapshotError && !room)) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">{copy.lobby.loading}</Card>
       </main>
     );
@@ -1964,7 +1966,7 @@ export default function LobbyPage() {
 
   if (authError) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
             {resolveUiErrorMessage(language, authError)}
@@ -1976,7 +1978,7 @@ export default function LobbyPage() {
 
   if (snapshotError) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
             {copy.lobby.roomInfoFetchFailed(snapshotError.message)}
@@ -1988,7 +1990,7 @@ export default function LobbyPage() {
 
   if (!room) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
             {copy.lobby.roomInfoUnavailable}
@@ -2000,7 +2002,7 @@ export default function LobbyPage() {
 
   if (!me) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">
           <p className="text-sm font-semibold text-[var(--pmb-red)]">
             {copy.lobby.roomSessionMismatch}
@@ -2011,7 +2013,7 @@ export default function LobbyPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex min-h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-3 md:px-4 md:py-3 lg:h-[100dvh] lg:overflow-hidden">
+    <main className="page-enter mx-auto flex h-[100dvh] w-full max-w-[174dvh] flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-3 md:px-4 md:py-3">
       <Card className="overflow-hidden bg-white p-0">
         <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
           <div>
@@ -2070,8 +2072,8 @@ export default function LobbyPage() {
         </div>
       </Card>
 
-      <section className="grid flex-1 gap-2 lg:min-h-0 lg:grid-cols-[minmax(220px,250px)_minmax(0,1fr)] xl:grid-cols-[minmax(230px,260px)_minmax(0,1fr)]">
-        <Card className="relative flex flex-col bg-white p-3 md:p-3.5 lg:min-h-0">
+      <section className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(220px,250px)_minmax(0,1fr)] xl:grid-cols-[minmax(230px,260px)_minmax(0,1fr)]">
+        <Card className="relative flex min-h-0 flex-col bg-white p-3 md:p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-2xl font-black md:text-[1.7rem]">
               <Users className="h-5 w-5" /> {copy.lobby.players}
@@ -2177,26 +2179,28 @@ export default function LobbyPage() {
           </div>
         </Card>
 
-        <Card className="relative flex min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5 lg:min-h-0">
-          <div className="flex items-center gap-2">
-            <h2 className="flex items-center gap-2 text-3xl leading-none font-black md:text-[2.15rem]">
-              <Gamepad2 className="h-6 w-6" /> {copy.lobby.gameMode}
-            </h2>
+        <Card className="relative grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto_minmax(0,0.42fr)] overflow-hidden bg-white p-3 md:p-3.5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="flex items-center gap-2 text-3xl leading-none font-black md:text-[2.15rem]">
+                <Gamepad2 className="h-6 w-6" /> {copy.lobby.gameMode}
+              </h2>
+            </div>
+
+            {settingsStatusMessage ? (
+              <div
+                className={[
+                  "mt-2 flex items-center gap-1.5 text-[11px] font-semibold",
+                  "text-[var(--pmb-red)]",
+                ].join(" ")}
+              >
+                <span>{settingsStatusMessage}</span>
+              </div>
+            ) : null}
           </div>
 
-          {settingsStatusMessage ? (
-            <div
-              className={[
-                "mt-2 flex items-center gap-1.5 text-[11px] font-semibold",
-                "text-[var(--pmb-red)]",
-              ].join(" ")}
-            >
-              <span>{settingsStatusMessage}</span>
-            </div>
-          ) : null}
-
-          <div className="mt-3 grid items-stretch gap-3 xl:min-h-0 xl:grid-cols-[minmax(150px,0.24fr)_minmax(0,0.76fr)]">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:min-h-0 xl:grid-cols-1">
+          <div className="mt-3 grid min-h-0 items-stretch gap-3 xl:grid-cols-[minmax(150px,0.24fr)_minmax(0,0.76fr)]">
+            <div className="grid min-h-0 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-1 xl:grid-rows-4">
               {gameModeOptions.map((mode) => {
                 const selected = draftGameMode === mode.mode;
                 const Icon =
@@ -2233,7 +2237,7 @@ export default function LobbyPage() {
                     }}
                     disabled={!hostCanEdit}
                     className={[
-                      "group relative flex min-h-[58px] w-full items-center justify-between gap-2 overflow-hidden rounded-[16px] border-4 px-3 py-2 text-left transition-all duration-150 xl:min-h-[72px]",
+                      "group relative flex min-h-[58px] w-full items-center justify-between gap-2 overflow-hidden rounded-[16px] border-4 px-3 py-2 text-left transition-all duration-150 xl:h-full xl:min-h-0",
                       "disabled:cursor-not-allowed disabled:opacity-70",
                       selected
                         ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
@@ -2258,7 +2262,10 @@ export default function LobbyPage() {
               })}
             </div>
 
-            <div className="min-w-0" aria-live="polite">
+            <div
+              className="flex min-h-0 min-w-0 items-stretch justify-center overflow-hidden"
+              aria-live="polite"
+            >
               <AnimatePresence mode="wait">
                 <ModeGameplayPreview
                   key={`${currentMode.mode}-${language}`}
@@ -2276,7 +2283,7 @@ export default function LobbyPage() {
             </h3>
           </div>
 
-          <div className="mt-2 space-y-2">
+          <div className="mt-2 grid min-h-0 grid-rows-3 gap-2">
             <SwipeValuePicker
               label="Rounds"
               icon={RotateCcw}

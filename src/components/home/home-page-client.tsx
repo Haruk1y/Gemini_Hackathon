@@ -508,7 +508,7 @@ export default function HomePageClient({
   };
 
   return (
-    <main className="page-enter mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-8">
+    <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-6 overflow-y-auto px-4 py-8 md:px-8">
       <header className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <Card className="relative min-w-0 bg-[var(--pmb-yellow)] p-6 md:p-8">
           <div className="min-w-0">
