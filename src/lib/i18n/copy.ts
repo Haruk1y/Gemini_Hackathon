@@ -195,6 +195,7 @@ const TRANSLATIONS = {
       memoryPromptTitle: "プロンプトを入力しよう！",
       memoryLockedPlaceholder:
         "記憶タイム中は入力できません。画像をよく覚えよう。",
+      memoryLockedOverlayTitle: "Locked",
       promptExample: "例: A playful neon cat eating salmon sushi...",
       waitingForMemory: "記憶タイム終了待ち",
       generateImage: "画像を生成",
@@ -478,6 +479,7 @@ const TRANSLATIONS = {
       memoryPromptTitle: "Enter a prompt!",
       memoryLockedPlaceholder:
         "Input is disabled during memory time. Memorize the image carefully.",
+      memoryLockedOverlayTitle: "Locked",
       promptExample: "Example: A playful neon cat eating salmon sushi...",
       waitingForMemory: "Waiting for memory time to end",
       generateImage: "Generate image",

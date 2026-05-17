@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { EyeOff, LoaderCircle, Send } from "lucide-react";
+import { EyeOff, LoaderCircle, Lock, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -1568,7 +1568,6 @@ export default function RoundPage() {
                   <CountdownTimer secondsLeft={visibleSecondsLeft} />
                 )}
               </div>
-
             </div>
           </Card>
 
@@ -1683,21 +1682,51 @@ export default function RoundPage() {
             className={`bg-white p-4 lg:col-span-2 lg:overflow-y-auto ${promptPanelHeightClass}`}
           >
             <h2 className="mb-2 text-lg">{copy.round.memoryPromptTitle}</h2>
-            <Textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={submitPromptOnShortcut}
-              placeholder={
-                isPreviewPhase
-                  ? copy.round.memoryLockedPlaceholder
-                  : copy.round.promptExample
-              }
-              maxLength={600}
-              className="min-h-20"
-              disabled={
-                promptLocked || !isRoundLive || attemptsLeft <= 0 || isBusy
-              }
-            />
+            <div className="relative">
+              <Textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={submitPromptOnShortcut}
+                placeholder={
+                  isPreviewPhase
+                    ? copy.round.memoryLockedPlaceholder
+                    : copy.round.promptExample
+                }
+                maxLength={600}
+                className={`min-h-24 ${
+                  isPreviewPhase
+                    ? "resize-none border-[var(--pmb-ink)] bg-[var(--pmb-base)] text-transparent placeholder:text-transparent"
+                    : ""
+                }`}
+                disabled={
+                  promptLocked || !isRoundLive || attemptsLeft <= 0 || isBusy
+                }
+                aria-describedby={
+                  isPreviewPhase ? "memory-prompt-lock" : undefined
+                }
+              />
+              {isPreviewPhase ? (
+                <div
+                  id="memory-prompt-lock"
+                  data-testid="memory-prompt-lock"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center gap-3 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white/95 p-3 text-center"
+                  role="status"
+                >
+                  <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-red)] p-3 text-white">
+                    <Lock
+                      className="h-8 w-8 sm:h-10 sm:w-10"
+                      strokeWidth={3.5}
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-2xl leading-none font-black tracking-[0.08em] uppercase sm:text-3xl">
+                      {copy.round.memoryLockedOverlayTitle}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
               <Button
                 type="button"
