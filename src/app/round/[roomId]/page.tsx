@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { EyeOff, LoaderCircle, LogOut, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -343,8 +343,6 @@ export default function RoundPage() {
       : null;
   const isChangeMode = Boolean(changeModeState);
   const isImpostorMode = Boolean(impostorModeState);
-  const showClassicMemoryTotals =
-    currentGameMode === "classic" || currentGameMode === "memory";
   const isMyTurn = Boolean(snapshot.isMyTurn);
   const mySubmission = snapshot.mySubmission;
   const myRole = snapshot.myRole;
@@ -738,6 +736,8 @@ export default function RoundPage() {
     "h-20 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold";
   const promptPanelHeightClass =
     "lg:h-[220px] lg:min-h-[220px] lg:max-h-[220px]";
+  const resultsButtonClass =
+    "h-[58px] w-44 justify-center px-4 py-2 text-base";
   const changeTimeline = resolveChangeTimeline(
     round?.promptStartsAt,
     roundSeconds,
@@ -889,6 +889,21 @@ export default function RoundPage() {
     }
   };
 
+  const submitPromptOnShortcut = (
+    event: KeyboardEvent<HTMLTextAreaElement>,
+  ) => {
+    if (
+      event.key !== "Enter" ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void submitPrompt();
+  };
+
   const submitChangeClick = async (x: number, y: number) => {
     if (!round || !isChangeMode || !isRoundLive || mySubmission) return;
 
@@ -1009,8 +1024,8 @@ export default function RoundPage() {
                 disabled={isBusy || (isRoundLive && !autoEndingSoon)}
                 className={
                   autoEndingSoon
-                    ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
-                    : ""
+                    ? `${resultsButtonClass} animate-pulse bg-[var(--pmb-yellow)] font-mono font-black`
+                    : resultsButtonClass
                 }
               >
                 <LogOut className="mr-2 h-4 w-4" />
@@ -1359,6 +1374,7 @@ export default function RoundPage() {
           <Textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={submitPromptOnShortcut}
             placeholder={
               isMyTurn
                 ? copy.round.promptPlaceholder
@@ -1655,8 +1671,8 @@ export default function RoundPage() {
                   disabled={isBusy || (isRoundLive && !autoEndingSoon)}
                   className={
                     autoEndingSoon
-                      ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
-                      : ""
+                      ? `${resultsButtonClass} animate-pulse bg-[var(--pmb-yellow)] font-mono font-black`
+                      : resultsButtonClass
                   }
                 >
                   <LogOut className="mr-2 h-4 w-4" />
@@ -1793,6 +1809,7 @@ export default function RoundPage() {
             <Textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={submitPromptOnShortcut}
               placeholder={
                 isPreviewPhase
                   ? copy.round.memoryLockedPlaceholder
