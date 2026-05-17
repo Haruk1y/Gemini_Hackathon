@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(process.cwd()),
   },
+  experimental: {
+    lockDistDir: false,
+  },
   assetPrefix,
   env: {
     NEXT_PUBLIC_APP_ORIGIN: publicAppOrigin,
