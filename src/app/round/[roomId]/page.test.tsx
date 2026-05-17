@@ -312,14 +312,16 @@ describe("RoundPage Aha results shortcut", () => {
     roundSnapshot.round.promptStartsAt = new Date(now - 15_000).toISOString();
     roundSnapshot.round.endsAt = new Date(now + 15_000).toISOString();
     (roundSnapshot as { mySubmission: unknown }).mySubmission = null;
-    (roundSnapshot as {
-      scores: Array<{
-        uid: string;
-        displayName: string;
-        bestScore: number;
-        bestImageUrl: string;
-      }>;
-    }).scores = [
+    (
+      roundSnapshot as {
+        scores: Array<{
+          uid: string;
+          displayName: string;
+          bestScore: number;
+          bestImageUrl: string;
+        }>;
+      }
+    ).scores = [
       {
         uid: "guest",
         displayName: "Guest",
@@ -349,15 +351,17 @@ describe("RoundPage Aha results shortcut", () => {
     delete (roundSnapshot.round as { modeState?: unknown }).modeState;
     (roundSnapshot as { mySubmission: unknown }).mySubmission = null;
     roundSnapshot.attempts = null;
-    (roundSnapshot as {
-      scores: Array<{
-        uid: string;
-        displayName: string;
-        bestScore: number;
-        totalScore: number;
-        bestImageUrl: string;
-      }>;
-    }).scores = [
+    (
+      roundSnapshot as {
+        scores: Array<{
+          uid: string;
+          displayName: string;
+          bestScore: number;
+          totalScore: number;
+          bestImageUrl: string;
+        }>;
+      }
+    ).scores = [
       {
         uid: "host",
         displayName: "Host",
@@ -376,6 +380,31 @@ describe("RoundPage Aha results shortcut", () => {
     expect(screen.getByText("1. Host")).not.toBeNull();
     expect(screen.getByText("80")).not.toBeNull();
     expect(screen.queryByText(/Total/i)).toBeNull();
+  });
+
+  it("shows a strong prompt lock indicator during memory preview", async () => {
+    const now = Date.now();
+    roundSnapshot.room.settings.gameMode = "memory";
+    roundSnapshot.room.settings.roundSeconds = 60;
+    roundSnapshot.round.status = "IN_ROUND";
+    roundSnapshot.round.promptStartsAt = new Date(now + 15_000).toISOString();
+    roundSnapshot.round.endsAt = new Date(now + 75_000).toISOString();
+    delete (roundSnapshot.round as { modeState?: unknown }).modeState;
+    (roundSnapshot as { mySubmission: unknown }).mySubmission = null;
+    roundSnapshot.attempts = null;
+    roundSnapshot.scores = [];
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <RoundPage />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByTestId("memory-prompt-lock")).not.toBeNull();
+    expect(screen.getByText("Locked")).not.toBeNull();
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox").disabled).toBe(
+      true,
+    );
   });
 
   it("keeps the Aha image click target visually still on hover", () => {
