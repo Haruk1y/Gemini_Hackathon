@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Coins, Settings, Target, Trophy } from "lucide-react";
 
@@ -507,6 +507,32 @@ export default function HomePageClient({
     }
   };
 
+  const createRoomOnShortcut = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (
+      event.key !== "Enter" ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void createRoom();
+  };
+
+  const joinRoomOnShortcut = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (
+      event.key !== "Enter" ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void joinRoom();
+  };
+
   return (
     <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-6 overflow-y-auto px-4 py-8 md:px-8">
       <header className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
@@ -800,6 +826,7 @@ export default function HomePageClient({
               <Input
                 value={createDisplayName}
                 onChange={(event) => setCreateDisplayName(event.target.value)}
+                onKeyDown={createRoomOnShortcut}
                 placeholder={copy.home.displayNamePlaceholder}
                 maxLength={24}
               />
@@ -836,6 +863,7 @@ export default function HomePageClient({
                 <Input
                   value={joinDisplayName}
                   onChange={(event) => setJoinDisplayName(event.target.value)}
+                  onKeyDown={joinRoomOnShortcut}
                   placeholder={copy.home.displayNamePlaceholder}
                   maxLength={24}
                 />
@@ -848,6 +876,7 @@ export default function HomePageClient({
                   onChange={(event) =>
                     setJoinCode(event.target.value.toUpperCase())
                   }
+                  onKeyDown={joinRoomOnShortcut}
                   placeholder={copy.home.roomCodePlaceholder}
                   maxLength={6}
                 />
