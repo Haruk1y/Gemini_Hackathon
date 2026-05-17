@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createRoomState } from "@/lib/server/room-state";
-import { buildRoomViewSnapshot, serializeForClient, shouldConcealRoundTarget } from "@/lib/realtime/views";
+import {
+  buildRoomViewSnapshot,
+  serializeForClient,
+  shouldConcealRoundTarget,
+} from "@/lib/realtime/views";
 import type {
   ImpostorRoundModeState,
   ImpostorRoundPrivateState,
@@ -11,7 +15,9 @@ import { dateAfterHours } from "@/lib/utils/time";
 describe("serializeForClient", () => {
   it("keeps plain strings unchanged", () => {
     expect(serializeForClient("2001")).toBe("2001");
-    expect(serializeForClient("2001-01-01T00:00:00.000Z")).toBe("2001-01-01T00:00:00.000Z");
+    expect(serializeForClient("2001-01-01T00:00:00.000Z")).toBe(
+      "2001-01-01T00:00:00.000Z",
+    );
   });
 
   it("serializes nested date values without rewriting display names", () => {
@@ -137,6 +143,10 @@ describe("buildRoomViewSnapshot score totals", () => {
         expiresAt: dateAfterHours(24),
       },
     };
+    state.room.ui.resultsView = {
+      roundId: "round-1",
+      showTotalRanking: true,
+    };
 
     const roundSnapshot = buildRoomViewSnapshot({
       state,
@@ -151,6 +161,14 @@ describe("buildRoomViewSnapshot score totals", () => {
       view: "results",
     }) as unknown as {
       scores: Array<{ bestScore: number; totalScore: number }>;
+      room: {
+        ui: {
+          resultsView: {
+            roundId: string;
+            showTotalRanking: boolean;
+          };
+        };
+      };
     };
 
     expect(roundSnapshot.scores[0]).toMatchObject({
@@ -161,6 +179,143 @@ describe("buildRoomViewSnapshot score totals", () => {
       bestScore: 64,
       totalScore: 142,
     });
+    expect(resultsSnapshot.room.ui.resultsView).toEqual({
+      roundId: "round-1",
+      showTotalRanking: true,
+    });
+  });
+
+  it("hides total ranking data from guests until the host reveals it", () => {
+    const now = new Date("2026-04-07T10:00:00.000Z");
+    const state = createRoomState({
+      roomId: "ROOM1",
+      code: "ROOM1",
+      createdAt: now,
+      expiresAt: dateAfterHours(24),
+      createdByUid: "host",
+      status: "RESULTS",
+      currentRoundId: "round-1",
+      roundIndex: 1,
+      settings: {
+        maxPlayers: 8,
+        roundSeconds: 60,
+        maxAttempts: 1,
+        aspectRatio: "1:1",
+        imageModel: "gemini",
+        promptModel: "flash",
+        judgeModel: "flash",
+        hintLimit: 0,
+        totalRounds: 3,
+        gameMode: "classic",
+        cpuCount: 0,
+      },
+      ui: {
+        theme: "neo-brutal",
+      },
+    });
+    state.players.host = {
+      uid: "host",
+      displayName: "Host",
+      kind: "human",
+      isHost: true,
+      joinedAt: now,
+      expiresAt: dateAfterHours(24),
+      lastSeenAt: now,
+      ready: true,
+      totalScore: 142,
+    };
+    state.players.guest = {
+      uid: "guest",
+      displayName: "Guest",
+      kind: "human",
+      isHost: false,
+      joinedAt: now,
+      expiresAt: dateAfterHours(24),
+      lastSeenAt: now,
+      ready: true,
+      totalScore: 100,
+    };
+    state.rounds["round-1"] = {
+      roundId: "round-1",
+      index: 1,
+      status: "RESULTS",
+      createdAt: now,
+      expiresAt: dateAfterHours(24),
+      startedAt: now,
+      promptStartsAt: now,
+      endsAt: now,
+      targetImageUrl: "https://example.com/target.png",
+      targetThumbUrl: "https://example.com/target.png",
+      gmTitle: "Target",
+      gmTags: [],
+      difficulty: 3,
+      reveal: {},
+      stats: {
+        submissions: 2,
+        topScore: 64,
+      },
+    };
+    state.scores["round-1"] = {
+      host: {
+        uid: "host",
+        displayName: "Host",
+        bestScore: 64,
+        bestImageUrl: "https://example.com/host.png",
+        updatedAt: now,
+        expiresAt: dateAfterHours(24),
+      },
+      guest: {
+        uid: "guest",
+        displayName: "Guest",
+        bestScore: 40,
+        bestImageUrl: "https://example.com/guest.png",
+        updatedAt: now,
+        expiresAt: dateAfterHours(24),
+      },
+    };
+
+    const concealedSnapshot = buildRoomViewSnapshot({
+      state,
+      uid: "guest",
+      view: "results",
+    }) as unknown as {
+      scoreHistory: unknown[];
+      players: Array<{ uid: string; totalScore: number }>;
+      scores: Array<{ uid: string; bestScore: number; totalScore: number }>;
+    };
+
+    expect(concealedSnapshot.scoreHistory).toEqual([]);
+    expect(
+      concealedSnapshot.players.find((player) => player.uid === "host")
+        ?.totalScore,
+    ).toBe(0);
+    expect(
+      concealedSnapshot.scores.find((entry) => entry.uid === "host")
+        ?.totalScore,
+    ).toBe(64);
+
+    state.room.ui.resultsView = {
+      roundId: "round-1",
+      showTotalRanking: true,
+    };
+    const revealedSnapshot = buildRoomViewSnapshot({
+      state,
+      uid: "guest",
+      view: "results",
+    }) as unknown as {
+      scoreHistory: unknown[];
+      players: Array<{ uid: string; totalScore: number }>;
+      scores: Array<{ uid: string; bestScore: number; totalScore: number }>;
+    };
+
+    expect(revealedSnapshot.scoreHistory).toHaveLength(1);
+    expect(
+      revealedSnapshot.players.find((player) => player.uid === "host")
+        ?.totalScore,
+    ).toBe(142);
+    expect(
+      revealedSnapshot.scores.find((entry) => entry.uid === "host")?.totalScore,
+    ).toBe(142);
   });
 });
 
@@ -365,8 +520,12 @@ describe("buildRoomViewSnapshot impostor mode", () => {
     };
 
     expect(snapshot.isMyTurn).toBe(true);
-    expect(snapshot.round.targetImageUrl).toBe("https://example.com/original.png");
-    expect(snapshot.round.modeState.chainImageUrl).toBe("https://example.com/chain.png");
+    expect(snapshot.round.targetImageUrl).toBe(
+      "https://example.com/original.png",
+    );
+    expect(snapshot.round.modeState.chainImageUrl).toBe(
+      "https://example.com/chain.png",
+    );
     expect(snapshot.turnTimeline).toEqual([]);
   });
 
@@ -435,7 +594,8 @@ describe("buildRoomViewSnapshot impostor mode", () => {
       revealedTurns: 2,
     };
     state.roundPrivates["round-1"]!.modeState = {
-      ...(state.roundPrivates["round-1"]!.modeState as ImpostorRoundPrivateState),
+      ...(state.roundPrivates["round-1"]!
+        .modeState as ImpostorRoundPrivateState),
       turnRecords: [
         {
           uid: "host",
@@ -479,8 +639,15 @@ describe("buildRoomViewSnapshot impostor mode", () => {
       }>;
     };
 
-    expect(snapshot.turnTimeline.map((entry) => entry.uid)).toEqual(["guest", "host"]);
-    expect(snapshot.turnTimeline[0].imageUrl).toBe("https://example.com/turn-2.png");
-    expect(snapshot.turnTimeline[1].imageUrl).toBe("https://example.com/turn-1.png");
+    expect(snapshot.turnTimeline.map((entry) => entry.uid)).toEqual([
+      "guest",
+      "host",
+    ]);
+    expect(snapshot.turnTimeline[0].imageUrl).toBe(
+      "https://example.com/turn-2.png",
+    );
+    expect(snapshot.turnTimeline[1].imageUrl).toBe(
+      "https://example.com/turn-1.png",
+    );
   });
 });

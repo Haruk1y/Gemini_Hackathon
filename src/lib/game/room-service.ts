@@ -128,6 +128,48 @@ export async function updateRoomSettings(params: {
   });
 }
 
+export async function updateResultsView(params: {
+  roomId: string;
+  uid: string;
+  roundId: string;
+  showTotalRanking: boolean;
+}): Promise<{ roundId: string; showTotalRanking: boolean }> {
+  return withRoomLock(params.roomId, async () => {
+    const state = await loadRoomState(params.roomId);
+    const room = requireRoom(state?.room);
+    const player = requirePlayer(state?.players[params.uid]);
+    assertHost(player);
+
+    if (room.status !== "RESULTS" || room.currentRoundId !== params.roundId) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Results view can only be changed for the active results round.",
+        false,
+        409,
+      );
+    }
+
+    const round = state?.rounds[params.roundId];
+    if (!round || round.status !== "RESULTS") {
+      throw new AppError(
+        "ROUND_NOT_FOUND",
+        "Round results are not available.",
+        false,
+        404,
+      );
+    }
+
+    const nextView = {
+      roundId: params.roundId,
+      showTotalRanking: params.showTotalRanking,
+    };
+    room.ui.resultsView = nextView;
+    await saveRoomState(bumpRoomVersion(state!));
+
+    return nextView;
+  });
+}
+
 export const CHANGE_START_MIN_PLAYERS = CHANGE_MIN_PLAYERS;
 
 export async function pingRoom(roomId: string, uid: string): Promise<void> {

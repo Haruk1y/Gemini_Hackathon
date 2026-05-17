@@ -122,4 +122,24 @@ describe("normalizeSnapshot", () => {
     expect(snapshot.players).toHaveLength(1);
     expect(snapshot.players[0]?.isHost).toBe(false);
   });
+
+  it("normalizes shared results view state", () => {
+    const snapshot = normalizeSnapshot({
+      room: {
+        status: "RESULTS",
+        currentRoundId: "round-1",
+        ui: {
+          resultsView: {
+            roundId: "round-1",
+            showTotalRanking: true,
+          },
+        },
+      },
+    });
+
+    expect(snapshot.room?.ui?.resultsView).toEqual({
+      roundId: "round-1",
+      showTotalRanking: true,
+    });
+  });
 });

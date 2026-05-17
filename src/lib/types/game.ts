@@ -90,6 +90,10 @@ export interface RoomDoc {
   settings: RoomSettings;
   ui: {
     theme: "neo-brutal";
+    resultsView?: {
+      roundId: string;
+      showTotalRanking: boolean;
+    };
   };
 }
 

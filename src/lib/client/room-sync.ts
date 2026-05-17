@@ -56,6 +56,11 @@ export interface ChangeResultData {
   createdAt?: unknown;
 }
 
+export interface ResultsViewData {
+  roundId: string;
+  showTotalRanking: boolean;
+}
+
 export interface RoomData {
   roomId?: string;
   code?: string;
@@ -66,6 +71,9 @@ export interface RoomData {
     index?: number;
     status?: PreparedRoundStatus;
   } | null;
+  ui?: {
+    resultsView?: ResultsViewData | null;
+  };
   settings?: {
     gameMode?: GameMode;
     maxPlayers?: number;
@@ -298,6 +306,21 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function normalizeResultsView(
+  value: unknown,
+): ResultsViewData | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value)) return undefined;
+
+  const roundId = asString(value.roundId);
+  if (!roundId) return undefined;
+
+  return {
+    roundId,
+    showTotalRanking: Boolean(value.showTotalRanking),
+  };
+}
+
 function normalizeRoomStatus(value: unknown): RoomStatus | null {
   return value === "LOBBY" ||
     value === "GENERATING_ROUND" ||
@@ -465,6 +488,11 @@ function normalizeRoomData(value: unknown): RoomData | null {
       : value.nextRoundPreparation === null
         ? null
         : undefined,
+    ui: isRecord(value.ui)
+      ? {
+          resultsView: normalizeResultsView(value.ui.resultsView),
+        }
+      : undefined,
     settings: isRecord(value.settings)
       ? {
           gameMode: normalizeGameMode(value.settings.gameMode) ?? undefined,
