@@ -192,9 +192,6 @@ const TRANSLATIONS = {
       revealedInResults: "このターンの画像はラウンド終了後に公開されます。",
       hiddenUntilTurn: "あなたの番になるまで画像は非公開です。",
       memoryPreview: "Memory Preview",
-      resultsScreenCountdown: (seconds: number) =>
-        `リザルト画面へ（残り${seconds}秒）`,
-      resultsScreen: "リザルト画面へ",
       memoryPromptTitle: "プロンプトを入力しよう！",
       memoryLockedPlaceholder:
         "記憶タイム中は入力できません。画像をよく覚えよう。",
@@ -478,9 +475,6 @@ const TRANSLATIONS = {
       revealedInResults: "This turn's image is revealed after the round.",
       hiddenUntilTurn: "The image stays hidden until your turn.",
       memoryPreview: "Memory Preview",
-      resultsScreenCountdown: (seconds: number) =>
-        `Go to results (${seconds}s left)`,
-      resultsScreen: "Go to results",
       memoryPromptTitle: "Enter a prompt!",
       memoryLockedPlaceholder:
         "Input is disabled during memory time. Memorize the image carefully.",

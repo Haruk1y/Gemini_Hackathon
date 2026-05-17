@@ -164,29 +164,33 @@ describe("RoundPage Aha results shortcut", () => {
     vi.useRealTimers();
   });
 
-  it("forces Aha results before navigating from the round screen", async () => {
-    apiPostMock.mockResolvedValue({ ok: true, status: "RESULTS" });
+  it("does not render a manual results navigation button", () => {
+    const now = Date.now();
+    roundSnapshot.round.promptStartsAt = new Date(now - 10_000).toISOString();
+    roundSnapshot.round.endsAt = new Date(now + 20_000).toISOString();
 
-    const user = userEvent.setup();
     render(
       <LanguageProvider initialLanguage="en">
         <RoundPage />
       </LanguageProvider>,
     );
 
-    const button = await screen.findByRole("button", {
-      name: /Go to results/i,
-    });
-    await user.click(button);
-
-    await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledWith("/api/rounds/endIfNeeded", {
-        roomId: "ROOM1",
-        roundId: "round-1",
+    expect(
+      screen.queryByRole("button", {
+        name: /Go to results/i,
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /Results in/i,
+      }),
+    ).toBeNull();
+    expect(apiPostMock).not.toHaveBeenCalledWith(
+      "/api/rounds/endIfNeeded",
+      expect.objectContaining({
         forceResults: true,
-      });
-    });
-    expect(pushMock).toHaveBeenCalledWith("/results/ROOM1");
+      }),
+    );
   });
 
   it("submits the typed draft when a classic round enters the timeout grace window", async () => {
