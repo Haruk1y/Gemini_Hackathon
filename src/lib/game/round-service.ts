@@ -15,6 +15,7 @@ import {
   createChangeSubmission,
   createMockChangeRoundAssets,
   isPointInsideNormalizedBox,
+  listHumanPlayers,
 } from "@/lib/game/change-mode";
 import {
   ChangeImageDiffError,
@@ -41,7 +42,7 @@ import { buildStandardCpuPrompt } from "@/lib/game/cpu";
 import {
   getRoundSchedule,
   getRoundSubmissionDeadline,
-  RESULTS_GRACE_SECONDS,
+  TIMEOUT_DRAFT_COLLECTION_SECONDS,
 } from "@/lib/game/modes";
 import { assertRoundSubmissionWindow } from "@/lib/game/round-validation";
 import { DEFAULT_LANGUAGE, type Language } from "@/lib/i18n/language";
@@ -133,6 +134,12 @@ function hasScoringAttempts(
         attempt.status === "GENERATING" || attempt.status === "SCORING",
     ),
   );
+}
+
+function countScoreEntries(
+  scoresByUid: Record<string, unknown> | undefined,
+): number {
+  return Object.keys(scoresByUid ?? {}).length;
 }
 
 function summarizeTimeoutAutoSubmitError(error: unknown) {
@@ -2526,21 +2533,21 @@ async function finalizeClassicResultsIfNeeded(params: {
       promptStartsAt: latestRound.promptStartsAt,
       roundSeconds: latestRoom.settings.roundSeconds,
     });
-    const isGraceWindow = Boolean(
-      submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
-    );
-    const isShortenedResultsCountdown = Boolean(
-      submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
-    );
+    const draftCollectionEndsAt = submissionDeadline
+      ? new Date(
+          submissionDeadline.getTime() +
+            TIMEOUT_DRAFT_COLLECTION_SECONDS * 1000,
+        )
+      : null;
+    const scoreCount = countScoreEntries(latestState?.scores[params.roundId]);
+    const playerCount = Object.keys(latestState?.players ?? {}).length;
+    const hasMissingScores = playerCount > 0 && scoreCount < playerCount;
 
     if (
-      submissionDeadline &&
-      now >= submissionDeadline.getTime() &&
-      !isGraceWindow &&
-      !isShortenedResultsCountdown
+      hasMissingScores &&
+      draftCollectionEndsAt &&
+      now < draftCollectionEndsAt.getTime()
     ) {
-      latestRound.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
-      await saveRoomState(bumpRoomVersion(latestState!));
       return { status: "IN_ROUND" };
     }
 
@@ -2596,31 +2603,17 @@ async function finalizeChangeResultsIfNeeded(params: {
       promptStartsAt: validated.round.promptStartsAt,
       roundSeconds: latestRoom.settings.roundSeconds,
     });
-    const isGraceWindow = Boolean(
-      submissionDeadline && endsAt.getTime() > submissionDeadline.getTime(),
-    );
-    const isShortenedResultsCountdown = Boolean(
-      submissionDeadline && endsAt.getTime() < submissionDeadline.getTime(),
-    );
+    const humanPlayerCount = listHumanPlayers(latestState?.players ?? {}).length;
+    const allHumanPlayersSubmitted =
+      humanPlayerCount > 0 &&
+      validated.round.modeState.submittedCount >= humanPlayerCount;
     const canForceResults = Boolean(
       params.forceResults &&
       submissionDeadline &&
       now >= submissionDeadline.getTime(),
     );
 
-    if (
-      !canForceResults &&
-      submissionDeadline &&
-      now >= submissionDeadline.getTime() &&
-      !isGraceWindow &&
-      !isShortenedResultsCountdown
-    ) {
-      validated.round.endsAt = new Date(now + RESULTS_GRACE_SECONDS * 1000);
-      await saveRoomState(bumpRoomVersion(latestState!));
-      return { status: "IN_ROUND" };
-    }
-
-    if (!canForceResults && now < endsAt.getTime()) {
+    if (!allHumanPlayersSubmitted && !canForceResults && now < endsAt.getTime()) {
       return { status: "IN_ROUND" };
     }
 

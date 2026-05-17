@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { EyeOff, LoaderCircle, LogOut, Send } from "lucide-react";
+import { EyeOff, LoaderCircle, Send } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -38,7 +38,6 @@ import {
   useRoomSync,
 } from "@/lib/client/room-sync";
 import {
-  ALL_SCORED_RESULTS_DELAY_SECONDS,
   CHANGE_ANSWER_SECONDS,
   CHANGE_DEFAULT_ROUND_SECONDS,
   CHANGE_RESET_SECONDS,
@@ -49,7 +48,6 @@ import {
   getGameModeDefinition,
   getChangeViewCountForRoundSeconds,
   isPostDeadlineGraceActive,
-  RESULTS_GRACE_SECONDS,
 } from "@/lib/game/modes";
 import { formatSeconds, millisecondsLeft, parseDate } from "@/lib/utils/time";
 
@@ -260,10 +258,6 @@ export default function RoundPage() {
   const [previewSecondsLeft, setPreviewSecondsLeft] = useState<number | null>(
     null,
   );
-  const [resultCountdownSeconds, setResultCountdownSeconds] = useState<
-    number | null
-  >(null);
-  const [manualResultsPending, setManualResultsPending] = useState(false);
   const [localSelectedPoint, setLocalSelectedPoint] = useState<{
     x: number;
     y: number;
@@ -274,7 +268,6 @@ export default function RoundPage() {
   const endCalled = useRef(false);
   const changeStageContainerRef = useRef<HTMLDivElement | null>(null);
   const changeStageRef = useRef<HTMLDivElement | null>(null);
-  const resultCountdownFallbackTargetRef = useRef<number | null>(null);
   const cpuTurnFiredRef = useRef<string | null>(null);
   const draftSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -447,7 +440,6 @@ export default function RoundPage() {
     endCalled.current = false;
     endRoundRetrier.current?.cancel();
     endRoundRetrier.current = null;
-    resultCountdownFallbackTargetRef.current = null;
     lastDraftSyncedRef.current = null;
     setLocalSelectedPoint(null);
     setChangeClickFrameSize(null);
@@ -687,8 +679,7 @@ export default function RoundPage() {
   );
   const isRoundLive =
     room?.status === "IN_ROUND" && round?.status === "IN_ROUND";
-  const isBusy =
-    submitPending || manualResultsPending || isImpostorScoringPhase;
+  const isBusy = submitPending || isImpostorScoringPhase;
 
   useEffect(() => {
     if (!isChangeMode || !isRoundLive) {
@@ -708,6 +699,10 @@ export default function RoundPage() {
   const everyoneScored = playerCount > 0 && scores.length >= playerCount;
   const shouldAutoEndAfterScores =
     !isChangeMode && everyoneScored && (room?.settings?.maxAttempts ?? 1) <= 1;
+  const shouldAutoEndAfterChangeSubmissions =
+    isChangeMode &&
+    humanPlayerCount > 0 &&
+    changeSubmittedCount >= humanPlayerCount;
   const postDeadlineGraceActive =
     isRoundLive &&
     isPostDeadlineGraceActive({
@@ -718,7 +713,10 @@ export default function RoundPage() {
   const roundEndReached =
     isRoundLive && round?.endsAt ? millisecondsLeft(round.endsAt) <= 0 : false;
   const autoEndingSoon =
-    isRoundLive && (shouldAutoEndAfterScores || postDeadlineGraceActive);
+    isRoundLive &&
+    (shouldAutoEndAfterScores ||
+      shouldAutoEndAfterChangeSubmissions ||
+      roundEndReached);
   const visibleSecondsLeft = autoEndingSoon ? 0 : secondsLeft;
   const isPreviewPhase =
     currentGameMode === "memory" &&
@@ -736,8 +734,6 @@ export default function RoundPage() {
     "h-20 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold";
   const promptPanelHeightClass =
     "lg:h-[220px] lg:min-h-[220px] lg:max-h-[220px]";
-  const resultsButtonClass =
-    "h-[58px] w-44 justify-center px-4 py-2 text-base";
   const changeTimeline = resolveChangeTimeline(
     round?.promptStartsAt,
     roundSeconds,
@@ -816,50 +812,6 @@ export default function RoundPage() {
     submitPending,
   ]);
 
-  useEffect(() => {
-    if (!autoEndingSoon) {
-      resultCountdownFallbackTargetRef.current = null;
-      setResultCountdownSeconds(null);
-      return;
-    }
-
-    const parsedEndsAt = parseDate(round?.endsAt);
-    const now = Date.now();
-    const countdownTargetMs =
-      parsedEndsAt && parsedEndsAt.getTime() > now
-        ? parsedEndsAt.getTime()
-        : (() => {
-            if (resultCountdownFallbackTargetRef.current == null) {
-              const fallbackSeconds =
-                shouldAutoEndAfterScores && !postDeadlineGraceActive
-                  ? ALL_SCORED_RESULTS_DELAY_SECONDS
-                  : RESULTS_GRACE_SECONDS;
-              resultCountdownFallbackTargetRef.current =
-                now + fallbackSeconds * 1000;
-            }
-            return resultCountdownFallbackTargetRef.current;
-          })();
-
-    const update = () => {
-      const leftSeconds = Math.max(
-        0,
-        Math.ceil((countdownTargetMs - Date.now()) / 1000),
-      );
-      setResultCountdownSeconds(leftSeconds);
-    };
-
-    update();
-    const intervalId = setInterval(update, 250);
-    return () => clearInterval(intervalId);
-  }, [
-    autoEndingSoon,
-    everyoneScored,
-    isChangeMode,
-    postDeadlineGraceActive,
-    round?.endsAt,
-    shouldAutoEndAfterScores,
-  ]);
-
   useRoomPresence({
     roomId,
     enabled: Boolean(room && user),
@@ -923,34 +875,6 @@ export default function RoundPage() {
     } finally {
       setSubmitPending(false);
     }
-  };
-
-  const onBackToLobby = async () => {
-    if (round && isChangeMode && isRoundLive) {
-      setManualResultsPending(true);
-
-      try {
-        const result = await apiPost<EndRoundResponse>(
-          "/api/rounds/endIfNeeded",
-          {
-            roomId,
-            roundId: round.roundId,
-            forceResults: true,
-          },
-        );
-
-        if (result.status === "RESULTS") {
-          router.push(buildCurrentAppPath(`/results/${roomId}`));
-          return;
-        }
-      } catch (error) {
-        console.error("force change results failed", error);
-      } finally {
-        setManualResultsPending(false);
-      }
-    }
-
-    router.push(buildCurrentAppPath(`/results/${roomId}?from=round`));
   };
 
   if (!room || !round) {
@@ -1017,24 +941,6 @@ export default function RoundPage() {
                   {copy.round.changeCorrectCount(changeCorrectCount)}
                 </p>
               </Card>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={onBackToLobby}
-                disabled={isBusy || (isRoundLive && !autoEndingSoon)}
-                className={
-                  autoEndingSoon
-                    ? `${resultsButtonClass} animate-pulse bg-[var(--pmb-yellow)] font-mono font-black`
-                    : resultsButtonClass
-                }
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                {autoEndingSoon
-                  ? copy.round.resultsScreenCountdown(
-                      resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
-                    )
-                  : copy.round.resultsScreen}
-              </Button>
             </div>
           </div>
           {feedback ? (
@@ -1663,26 +1569,6 @@ export default function RoundPage() {
                 )}
               </div>
 
-              <div className="flex justify-start md:justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={onBackToLobby}
-                  disabled={isBusy || (isRoundLive && !autoEndingSoon)}
-                  className={
-                    autoEndingSoon
-                      ? `${resultsButtonClass} animate-pulse bg-[var(--pmb-yellow)] font-mono font-black`
-                      : resultsButtonClass
-                  }
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  {autoEndingSoon
-                    ? copy.round.resultsScreenCountdown(
-                        resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
-                      )
-                    : copy.round.resultsScreen}
-                </Button>
-              </div>
             </div>
           </Card>
 

@@ -210,7 +210,7 @@ describe("endRoundIfNeeded classic/memory timing", () => {
     );
   });
 
-  it("schedules a 10-second grace window after the deadline when no scoring attempts remain", async () => {
+  it("waits 3 seconds at the deadline when player scores are still missing", async () => {
     await saveRoomState(
       createClassicRoundState({
         promptStartsAt: new Date("2026-04-07T10:00:10.000Z"),
@@ -225,15 +225,26 @@ describe("endRoundIfNeeded classic/memory timing", () => {
       }),
     ).resolves.toEqual({ status: "IN_ROUND" });
 
-    const state = await loadRoomState("ROOM1");
+    let state = await loadRoomState("ROOM1");
     expect(state?.room.status).toBe("IN_ROUND");
     expect(state?.rounds["round-1"]?.status).toBe("IN_ROUND");
-    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:01:20.000Z",
-    );
+
+    vi.setSystemTime(new Date("2026-04-07T10:01:13.000Z"));
+
+    await expect(
+      endRoundIfNeeded({
+        roomId: "ROOM1",
+        roundId: "round-1",
+      }),
+    ).resolves.toEqual({ status: "RESULTS" });
+
+    state = await loadRoomState("ROOM1");
+    expect(state?.room.status).toBe("RESULTS");
+    expect(state?.rounds["round-1"]?.status).toBe("RESULTS");
+    expect(state?.rounds["round-1"]?.reveal.gmPromptPublic).toBe("gm prompt");
   });
 
-  it("moves to results after the post-deadline grace window expires", async () => {
+  it("moves to results after the deadline expires", async () => {
     await saveRoomState(
       createClassicRoundState({
         promptStartsAt: new Date("2026-04-07T10:00:00.000Z"),

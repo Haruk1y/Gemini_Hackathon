@@ -209,7 +209,7 @@ describe("change round service", () => {
     expect(state?.players.guest.totalScore).toBe(0);
   });
 
-  it("keeps the original round timer even after all humans click, then reveals after deadline", async () => {
+  it("moves to results as soon as all humans have clicked", async () => {
     await saveRoomState(createChangeRoundState());
 
     await submitChangeRoundClick({
@@ -230,38 +230,9 @@ describe("change round service", () => {
         roomId: "ROOM1",
         roundId: "round-1",
       }),
-    ).resolves.toEqual({ status: "IN_ROUND" });
-
-    let state = await loadRoomState("ROOM1");
-    expect(state?.room.status).toBe("IN_ROUND");
-    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:30.000Z",
-    );
-
-    vi.setSystemTime(new Date("2026-04-07T10:00:31.000Z"));
-
-    await expect(
-      endRoundIfNeeded({
-        roomId: "ROOM1",
-        roundId: "round-1",
-      }),
-    ).resolves.toEqual({ status: "IN_ROUND" });
-
-    state = await loadRoomState("ROOM1");
-    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:41.000Z",
-    );
-
-    vi.setSystemTime(new Date("2026-04-07T10:00:42.000Z"));
-
-    await expect(
-      endRoundIfNeeded({
-        roomId: "ROOM1",
-        roundId: "round-1",
-      }),
     ).resolves.toEqual({ status: "RESULTS" });
 
-    state = await loadRoomState("ROOM1");
+    const state = await loadRoomState("ROOM1");
     expect(state?.room.status).toBe("RESULTS");
     expect(state?.rounds["round-1"]?.status).toBe("RESULTS");
     expect(state?.rounds["round-1"]?.reveal).toMatchObject({
@@ -319,7 +290,7 @@ describe("change round service", () => {
     expect(state?.rounds["round-1"]?.reveal).toEqual({});
   });
 
-  it("does not keep extending the results countdown after entering the grace window", async () => {
+  it("moves to results immediately when the Aha deadline passes", async () => {
     await saveRoomState(createChangeRoundState());
 
     await submitChangeRoundClick({
@@ -328,13 +299,6 @@ describe("change round service", () => {
       uid: "host",
       point: { x: 0.5, y: 0.4 },
     });
-    await submitChangeRoundClick({
-      roomId: "ROOM1",
-      roundId: "round-1",
-      uid: "guest",
-      point: { x: 0.1, y: 0.1 },
-    });
-
     vi.setSystemTime(new Date("2026-04-07T10:00:31.000Z"));
 
     await expect(
@@ -342,25 +306,13 @@ describe("change round service", () => {
         roomId: "ROOM1",
         roundId: "round-1",
       }),
-    ).resolves.toEqual({ status: "IN_ROUND" });
+    ).resolves.toEqual({ status: "RESULTS" });
 
-    let state = await loadRoomState("ROOM1");
+    const state = await loadRoomState("ROOM1");
+    expect(state?.room.status).toBe("RESULTS");
+    expect(state?.rounds["round-1"]?.status).toBe("RESULTS");
     expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:41.000Z",
-    );
-
-    vi.setSystemTime(new Date("2026-04-07T10:00:32.000Z"));
-
-    await expect(
-      endRoundIfNeeded({
-        roomId: "ROOM1",
-        roundId: "round-1",
-      }),
-    ).resolves.toEqual({ status: "IN_ROUND" });
-
-    state = await loadRoomState("ROOM1");
-    expect(parseDate(state?.rounds["round-1"]?.endsAt)?.toISOString()).toBe(
-      "2026-04-07T10:00:41.000Z",
+      "2026-04-07T10:00:30.000Z",
     );
   });
 });
