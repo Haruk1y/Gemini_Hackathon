@@ -883,7 +883,7 @@ export default function ResultsPage() {
 
   if (!room || !round) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">{copy.results.loading}</Card>
       </main>
     );
@@ -897,7 +897,7 @@ export default function ResultsPage() {
       round.reveal?.changeSummary?.trim() || copy.common.none;
 
     return (
-      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+      <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-2 overflow-x-hidden overflow-y-auto px-4 py-4 md:px-6">
         <StampDock
           roomId={roomId}
           recentStamps={recentStamps}
@@ -1131,7 +1131,7 @@ export default function ResultsPage() {
     return (
       <main
         className={cn(
-          "page-enter mx-auto flex min-h-[100dvh] w-full max-w-[1500px] flex-col overflow-x-hidden px-4 py-4 md:px-6 lg:h-[100dvh] lg:max-h-[100dvh] lg:overflow-hidden",
+          "page-enter mx-auto flex h-[100dvh] w-full flex-col overflow-x-hidden overflow-y-auto px-4 py-4 md:px-6",
           useFixedDesktopVoteGrid ? "gap-2.5" : "gap-3",
         )}
       >
@@ -1526,7 +1526,7 @@ export default function ResultsPage() {
         recentStamps={recentStamps}
         disabled={!isResultsPhase}
       />
-      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[1500px] flex-col gap-2 overflow-hidden px-4 py-4 md:px-6">
+      <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-2 overflow-x-hidden overflow-y-auto px-4 py-4 md:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-3 shadow-[8px_8px_0_var(--pmb-ink)] md:p-4">
           <div>
             <p className="text-sm font-black tracking-wide uppercase">

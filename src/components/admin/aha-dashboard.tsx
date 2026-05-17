@@ -212,7 +212,7 @@ export function AhaAdminDashboard() {
   }
 
   return (
-    <main className="page-enter mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-4 px-4 py-5 md:px-6">
+    <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-4 overflow-y-auto px-4 py-5 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4 shadow-[8px_8px_0_var(--pmb-ink)]">
         <div>
           <p className="text-xs font-black tracking-[0.18em] uppercase">

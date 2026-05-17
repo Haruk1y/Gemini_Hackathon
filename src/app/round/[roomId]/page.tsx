@@ -955,7 +955,7 @@ export default function RoundPage() {
 
   if (!room || !round) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-6xl items-center justify-center p-6">
+      <main className="mx-auto flex h-[100dvh] items-center justify-center overflow-y-auto p-6">
         <Card className="bg-white">{copy.round.loading}</Card>
       </main>
     );
@@ -980,7 +980,7 @@ export default function RoundPage() {
       : "border-[var(--pmb-yellow)] bg-[var(--pmb-yellow)]";
 
     return (
-      <main className="page-enter mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-7xl flex-col gap-3 overflow-hidden px-4 py-3 md:px-6">
+      <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-3 overflow-x-hidden overflow-y-auto px-4 py-3 md:px-6">
         <StampDock
           roomId={roomId}
           recentStamps={recentStamps}
@@ -1302,7 +1302,7 @@ export default function RoundPage() {
         : copy.round.hiddenImageDescription;
 
     return (
-      <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+      <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-3 overflow-y-auto px-4 py-3 md:px-6">
         <StampDock
           roomId={roomId}
           recentStamps={recentStamps}
@@ -1623,7 +1623,7 @@ export default function RoundPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-screen lg:max-h-screen lg:overflow-hidden">
+    <main className="page-enter mx-auto flex h-[100dvh] w-full flex-col gap-3 overflow-y-auto px-4 py-3 md:px-6">
       <StampDock
         roomId={roomId}
         recentStamps={recentStamps}
