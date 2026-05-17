@@ -745,13 +745,31 @@ export default function ResultsPage() {
   const myLatestAttempt =
     myAttempts?.attempts?.[myAttempts.attempts.length - 1] ?? null;
   const [showJudgeReason, setShowJudgeReason] = useState(false);
-  const [showTotalRanking, setShowTotalRanking] = useState(false);
+  const [optimisticTotalRankingRoundId, setOptimisticTotalRankingRoundId] =
+    useState<string | null>(null);
+  const [resultsViewBusy, setResultsViewBusy] = useState(false);
   const totalRankingLabel = language === "ja" ? "合計順位" : "Total Ranking";
   const nextLabel = language === "ja" ? "次へ" : "Next";
+  const syncedTotalRankingRoundId =
+    room?.ui?.resultsView?.showTotalRanking === true
+      ? room.ui.resultsView.roundId
+      : null;
+  const showTotalRanking = Boolean(
+    round?.roundId &&
+    (syncedTotalRankingRoundId === round.roundId ||
+      optimisticTotalRankingRoundId === round.roundId),
+  );
+  const canRevealTotalRanking = scoreHistory.length >= 1;
 
   useEffect(() => {
-    setShowTotalRanking(false);
+    setOptimisticTotalRankingRoundId(null);
+    setResultsViewBusy(false);
   }, [round?.roundId]);
+  useEffect(() => {
+    if (syncedTotalRankingRoundId === round?.roundId) {
+      setOptimisticTotalRankingRoundId(null);
+    }
+  }, [round?.roundId, syncedTotalRankingRoundId]);
   const [lobbyBusy, setLobbyBusy] = useState(false);
   const [voteBusy, setVoteBusy] = useState(false);
   const [voteError, setVoteError] = useState<UiError | null>(null);
@@ -825,14 +843,55 @@ export default function ResultsPage() {
     router.push(buildCurrentAppPath(`/transition/${roomId}?start=1`));
   };
 
+  const revealTotalRanking = async () => {
+    if (
+      !me?.isHost ||
+      !room ||
+      !round ||
+      !isResultsPhase ||
+      !canRevealTotalRanking ||
+      resultsViewBusy
+    ) {
+      return;
+    }
+
+    const currentRoundId = round.roundId;
+    setOptimisticTotalRankingRoundId(currentRoundId);
+    setResultsViewBusy(true);
+    try {
+      await apiPost<{
+        ok: true;
+        resultsView: { roundId: string; showTotalRanking: boolean };
+      }>("/api/rooms/results-view", {
+        roomId,
+        roundId: currentRoundId,
+        showTotalRanking: true,
+      });
+    } catch (error) {
+      console.error("results view update failed", error);
+      setOptimisticTotalRankingRoundId((value) =>
+        value === currentRoundId ? null : value,
+      );
+    } finally {
+      setResultsViewBusy(false);
+    }
+  };
+
   const onResultsNext = () => {
     if (!showTotalRanking) {
-      setShowTotalRanking(true);
+      void revealTotalRanking();
       return;
     }
 
     void onNext();
   };
+  const showNextAction = !isFinalRound || !showTotalRanking;
+  const nextActionDisabled =
+    !me?.isHost ||
+    !isResultsPhase ||
+    resultsViewBusy ||
+    (!showTotalRanking && !canRevealTotalRanking);
+  const nextActionLabel = showTotalRanking ? copy.results.nextRound : nextLabel;
 
   const onLeave = () => {
     const leave = async () => {
@@ -924,28 +983,19 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!showTotalRanking && !me?.isHost ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowTotalRanking(true)}
-                  disabled={scoreHistory.length < 1}
-                >
-                  {totalRankingLabel}
-                </Button>
-              ) : null}
-              {me?.isHost && (!isFinalRound || !showTotalRanking) ? (
+              {showNextAction ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onResultsNext}
-                  disabled={
-                    !isResultsPhase ||
-                    (!showTotalRanking && scoreHistory.length < 1)
-                  }
+                  disabled={nextActionDisabled}
                 >
-                  <ChevronRight className="mr-1 h-4 w-4" />
-                  {showTotalRanking ? copy.results.nextRound : nextLabel}
+                  {resultsViewBusy && me?.isHost && !showTotalRanking ? (
+                    <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronRight className="mr-1 h-4 w-4" />
+                  )}
+                  {nextActionLabel}
                 </Button>
               ) : null}
               {me?.isHost ? (
@@ -1548,28 +1598,19 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!showTotalRanking && !me?.isHost ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowTotalRanking(true)}
-                  disabled={scoreHistory.length < 1}
-                >
-                  {totalRankingLabel}
-                </Button>
-              ) : null}
-              {me?.isHost && (!isFinalRound || !showTotalRanking) ? (
+              {showNextAction ? (
                 <Button
                   type="button"
                   variant="accent"
                   onClick={onResultsNext}
-                  disabled={
-                    !isResultsPhase ||
-                    (!showTotalRanking && scoreHistory.length < 1)
-                  }
+                  disabled={nextActionDisabled}
                 >
-                  <ChevronRight className="mr-1 h-4 w-4" />
-                  {showTotalRanking ? copy.results.nextRound : nextLabel}
+                  {resultsViewBusy && me?.isHost && !showTotalRanking ? (
+                    <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronRight className="mr-1 h-4 w-4" />
+                  )}
+                  {nextActionLabel}
                 </Button>
               ) : null}
               {me?.isHost ? (

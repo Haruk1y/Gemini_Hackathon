@@ -56,6 +56,12 @@ export const roomOnlySchema = z.object({
   roomId: z.string().trim().min(1),
 });
 
+export const resultsViewSchema = z.object({
+  roomId: z.string().trim().min(1),
+  roundId: z.string().trim().min(1),
+  showTotalRanking: z.boolean(),
+});
+
 export const roomSettingsUpdateSchema = z.object({
   roomId: z.string().trim().min(1),
   settings: z.object({

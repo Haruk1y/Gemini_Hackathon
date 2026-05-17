@@ -95,6 +95,7 @@ function createResultsSnapshot(params?: {
   includeRound?: boolean;
   roundIndex?: number;
   totalRounds?: number;
+  showTotalRanking?: boolean;
 }) {
   const includeRound = params?.includeRound ?? true;
 
@@ -103,6 +104,14 @@ function createResultsSnapshot(params?: {
       status: params?.roomStatus ?? "RESULTS",
       currentRoundId: includeRound ? "round-1" : null,
       roundIndex: params?.roundIndex ?? 1,
+      ui: {
+        resultsView: params?.showTotalRanking
+          ? {
+              roundId: "round-1",
+              showTotalRanking: true,
+            }
+          : null,
+      },
       settings: {
         gameMode: "classic" as const,
         imageModel: "gemini" as const,
@@ -211,6 +220,9 @@ function createChangeResultsSnapshot() {
       status: "RESULTS" as const,
       currentRoundId: "round-1",
       roundIndex: 1,
+      ui: {
+        resultsView: null,
+      },
       settings: {
         gameMode: "change" as const,
         imageModel: "gemini" as const,
@@ -413,19 +425,46 @@ describe("ResultsPage lobby return flow", () => {
     expect(podium.textContent).not.toContain("/188");
   });
 
-  it("shows hyphen rank trends in total ranking on the first round", async () => {
-    const user = userEvent.setup();
+  it("shows hyphen rank trends in synced total ranking on the first round", async () => {
+    snapshotState = createResultsSnapshot({ showTotalRanking: true });
+
     render(
       <LanguageProvider initialLanguage="en">
         <ResultsPage />
       </LanguageProvider>,
     );
 
-    await user.click(
-      await screen.findByRole("button", { name: "Total Ranking" }),
+    await screen.findByRole("heading", { name: "Total Ranking" });
+    expect(screen.getAllByText("-")).toHaveLength(2);
+  });
+
+  it("does not let guests reveal total ranking before the host syncs it", async () => {
+    const user = userEvent.setup();
+    const view = render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
     );
 
-    expect(screen.getAllByText("-")).toHaveLength(2);
+    const nextButton = await screen.findByRole("button", { name: "Next" });
+    expect((nextButton as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(nextButton);
+
+    expect(apiPostMock).not.toHaveBeenCalledWith(
+      "/api/rooms/results-view",
+      expect.anything(),
+    );
+    expect(screen.queryByRole("heading", { name: "Total Ranking" })).toBeNull();
+
+    snapshotState = createResultsSnapshot({ showTotalRanking: true });
+    view.rerender(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Total Ranking" });
   });
 
   it("uses Next to reveal total ranking before the host starts the next round", async () => {
@@ -446,8 +485,14 @@ describe("ResultsPage lobby return flow", () => {
 
     await user.click(await screen.findByRole("button", { name: "Next" }));
 
-    expect(await screen.findByRole("heading", { name: "Total Ranking" })).not
-      .toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "Total Ranking" }),
+    ).not.toBeNull();
+    expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/results-view", {
+      roomId: "ROOM1",
+      roundId: "round-1",
+      showTotalRanking: true,
+    });
     expect(pushMock).not.toHaveBeenCalled();
   });
 
@@ -467,8 +512,9 @@ describe("ResultsPage lobby return flow", () => {
 
     await user.click(await screen.findByRole("button", { name: "Next" }));
 
-    expect(await screen.findByRole("heading", { name: "Total Ranking" })).not
-      .toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "Total Ranking" }),
+    ).not.toBeNull();
     expect(pushMock).not.toHaveBeenCalled();
   });
 

@@ -400,12 +400,39 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
     ? impostor.round.modeState.phase !== "REVEAL"
     : false;
   const votesByUid = impostor?.roundPrivate.modeState.votesByUid ?? {};
+  const resultsView = state.room.ui.resultsView ?? null;
+  const isTotalRankingRevealed = Boolean(
+    resultsView?.showTotalRanking && resultsView.roundId === currentRoundId,
+  );
+  const viewer = state.players[uid] ?? null;
+  const shouldExposeTotalRanking = Boolean(
+    viewer?.isHost || isTotalRankingRevealed,
+  );
+  const scores = getSortedScores(state, currentRoundId).map((entry) =>
+    shouldExposeTotalRanking
+      ? entry
+      : {
+          ...entry,
+          totalScore: entry.bestScore,
+        },
+  );
+  const players = getSortedPlayers(state).map((player) =>
+    shouldExposeTotalRanking
+      ? player
+      : {
+          ...player,
+          totalScore: 0,
+        },
+  );
 
   return {
     room: {
       status: state.room.status,
       currentRoundId: state.room.currentRoundId,
       roundIndex: state.room.roundIndex,
+      ui: {
+        resultsView,
+      },
       settings: {
         gameMode: state.room.settings.gameMode,
         imageModel: state.room.settings.imageModel,
@@ -416,12 +443,8 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
       },
     },
     round: round ? serializeForClient(round) : null,
-    scores: getSortedScores(state, currentRoundId).map((entry) =>
-      serializeForClient(entry),
-    ),
-    players: getSortedPlayers(state).map((player) =>
-      serializeForClient(player),
-    ),
+    scores: scores.map((entry) => serializeForClient(entry)),
+    players: players.map((player) => serializeForClient(player)),
     recentStamps: getLiveStamps(state).map((event) =>
       serializeForClient(event),
     ),
@@ -470,7 +493,9 @@ function buildResultsSnapshot(state: RoomState, uid: string) {
           })),
         )
       : [],
-    scoreHistory: serializeForClient(getScoreHistory(state)),
+    scoreHistory: shouldExposeTotalRanking
+      ? serializeForClient(getScoreHistory(state))
+      : [],
     revealLocked,
   };
 }
