@@ -425,6 +425,24 @@ describe("ResultsPage lobby return flow", () => {
     expect(podium.textContent).not.toContain("/188");
   });
 
+  it("shows the same generic host wait message to guests", async () => {
+    snapshotState = createResultsSnapshot({ roundIndex: 1, totalRounds: 1 });
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByText("Waiting for the host.")).not.toBeNull();
+    expect(
+      screen.queryByText("Only the host can trigger the next step."),
+    ).toBeNull();
+    expect(
+      screen.queryByText("Waiting for the host to reopen the lobby."),
+    ).toBeNull();
+  });
+
   it("shows hyphen rank trends in synced total ranking on the first round", async () => {
     snapshotState = createResultsSnapshot({ showTotalRanking: true });
 
