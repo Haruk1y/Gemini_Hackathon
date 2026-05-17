@@ -29,7 +29,6 @@ import {
   cpuRewriteSystemPrompt,
   cpuRewriteUserPrompt,
   gmSystemPrompt,
-  gmUserPrompt,
   validateSingleChangePrompt,
 } from "@/lib/gemini/prompts";
 import {
@@ -813,15 +812,7 @@ export async function generateGmPrompt(params: {
           contents: [
             {
               role: "user",
-              parts: [
-                { text: gmSystemPrompt(params.settings, stylePreset) },
-                {
-                  text: gmUserPrompt({
-                    aspectRatio: params.settings.aspectRatio,
-                    stylePreset,
-                  }),
-                },
-              ],
+              parts: [{ text: gmSystemPrompt(params.settings, stylePreset) }],
             },
           ],
         }),
