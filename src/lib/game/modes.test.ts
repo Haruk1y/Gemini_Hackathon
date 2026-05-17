@@ -8,6 +8,7 @@ import {
   getRoundSubmissionDeadline,
   isPostDeadlineGraceActive,
   isRoundSecondsAllowedForMode,
+  MEMORY_PREVIEW_SECONDS,
   normalizeRoundSecondsForMode,
 } from "@/lib/game/modes";
 
@@ -26,7 +27,7 @@ describe("game modes", () => {
     );
   });
 
-  it("adds a 10-second preview before memory mode prompt entry", () => {
+  it("adds a fixed preview before memory mode prompt entry", () => {
     const startedAt = new Date("2026-04-07T10:00:00.000Z");
     const schedule = getRoundSchedule({
       gameMode: "memory",
@@ -35,7 +36,7 @@ describe("game modes", () => {
     });
 
     expect(schedule.promptStartsAt.getTime() - startedAt.getTime()).toBe(
-      10_000,
+      MEMORY_PREVIEW_SECONDS * 1000,
     );
     expect(schedule.endsAt.getTime() - schedule.promptStartsAt.getTime()).toBe(
       60_000,

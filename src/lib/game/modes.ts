@@ -2,7 +2,7 @@ import type { Language } from "@/lib/i18n/language";
 import type { GameMode, RoomSettings } from "@/lib/types/game";
 import { parseDate } from "@/lib/utils/time";
 
-export const MEMORY_PREVIEW_SECONDS = 10;
+export const MEMORY_PREVIEW_SECONDS = 15;
 export const ALL_SCORED_RESULTS_DELAY_SECONDS = 0;
 export const TIMEOUT_DRAFT_COLLECTION_SECONDS = 3;
 export const CHANGE_WAIT_SECONDS = 5;
@@ -95,12 +95,12 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
       label: { ja: "記憶勝負", en: "Memory Match" },
       shortLabel: { ja: "記憶", en: "Memory" },
       description: {
-        ja: "お題画像を見れるのは最初の10秒だけ！記憶で勝負するモード。",
-        en: "You can only see the target for the first 10 seconds. Win with memory alone.",
+        ja: `お題画像を見れるのは最初の${MEMORY_PREVIEW_SECONDS}秒だけ！記憶で勝負するモード。`,
+        en: `You can only see the target for the first ${MEMORY_PREVIEW_SECONDS} seconds. Win with memory alone.`,
       },
       lobbyHint: {
-        ja: "最初の10秒だけ見て、その後は記憶で勝負",
-        en: "See it for 10 seconds, then rely on memory",
+        ja: `最初の${MEMORY_PREVIEW_SECONDS}秒だけ見て、その後は記憶で勝負`,
+        en: `See it for ${MEMORY_PREVIEW_SECONDS} seconds, then rely on memory`,
       },
     },
     change: {
