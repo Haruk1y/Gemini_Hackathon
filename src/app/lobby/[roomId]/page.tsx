@@ -2013,19 +2013,15 @@ export default function LobbyPage() {
   return (
     <main className="page-enter mx-auto flex min-h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-3 md:px-4 md:py-3 lg:h-[100dvh] lg:overflow-hidden">
       <Card className="overflow-hidden bg-white p-0">
-        <div className="grid items-center gap-3 bg-[var(--pmb-yellow)] px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:px-5">
-          <div className="min-w-0">
-            <h1 className="text-3xl leading-none md:text-4xl">PrompDojo</h1>
-          </div>
-
-          <div className="min-w-0 md:justify-self-start md:pl-8 lg:pl-16">
+        <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
+          <div>
             <p className="text-[11px] font-black tracking-[0.24em] uppercase">
               {copy.lobby.roomCode}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <p className="font-mono text-[1.75rem] leading-none font-black tracking-[0.28em] md:text-[2.15rem]">
+              <h1 className="font-mono text-[1.75rem] font-black tracking-[0.28em] md:text-[2.15rem]">
                 {room.code}
-              </p>
+              </h1>
 
               <Button
                 onClick={copyCode}
@@ -2057,7 +2053,7 @@ export default function LobbyPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-stretch justify-end gap-2 self-stretch md:justify-self-end">
+          <div className="flex flex-wrap items-stretch justify-end gap-2 self-stretch">
             <div className="flex">
               <Button
                 type="button"
