@@ -395,9 +395,9 @@ const MODE_GAMEPLAY_DEMOS: Record<
         {
           badge: "VOTE",
           stepLabel: "STEP 4/5",
-          title: "投票フェーズ",
-          body: "リレー結果を見比べて、怪しいプレイヤーに票が集まっていく。",
-          prompt: "変化を入れたプレイヤーに投票",
+          title: "IMPOSTERに投票",
+          body: "リレー結果を見比べて、画像を変えたと思うプレイヤーに投票する。",
+          prompt: "IMPOSTERだと思うプレイヤーに投票",
           result: "VOTE",
         },
         {
@@ -458,9 +458,9 @@ const MODE_GAMEPLAY_DEMOS: Record<
         {
           badge: "VOTE",
           stepLabel: "STEP 4/5",
-          title: "Vote Phase",
-          body: "Compare the relay results and watch votes build up on the suspected imposter.",
-          prompt: "vote for the player who changed the image",
+          title: "Vote for the Imposter",
+          body: "Compare the relay results and vote for the player who changed the image.",
+          prompt: "Vote for the player you think is the imposter",
           result: "VOTE",
         },
         {
@@ -700,7 +700,7 @@ function ImpostorImageCard({
 }: {
   src: string;
   label: string;
-  badge: string;
+  badge?: string;
   highlight?: boolean;
   delay?: number;
 }) {
@@ -727,14 +727,16 @@ function ImpostorImageCard({
         <span className="truncate rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]">
           {label}
         </span>
-        <span
-          className={[
-            "rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]",
-            highlight ? "bg-[var(--pmb-red)] text-white" : "bg-white",
-          ].join(" ")}
-        >
-          {badge}
-        </span>
+        {badge ? (
+          <span
+            className={[
+              "rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]",
+              highlight ? "bg-[var(--pmb-red)] text-white" : "bg-white",
+            ].join(" ")}
+          >
+            {badge}
+          </span>
+        ) : null}
       </div>
     </motion.div>
   );
@@ -747,8 +749,8 @@ function ImpostorRoleStage({ language }: { language: Language }) {
       icon: Users,
       body:
         language === "ja"
-          ? "繋がれてきた画像にできるだけ近い画像を生成する。"
-          : "Generate an image as close as possible to the one you receive.",
+          ? "受け取った画像に寄せる。"
+          : "Match the passed image.",
       className: "bg-[var(--pmb-green)]",
     },
     {
@@ -756,8 +758,8 @@ function ImpostorRoleStage({ language }: { language: Language }) {
       icon: Ghost,
       body:
         language === "ja"
-          ? "正体を隠しながら、画像を少しずつ別方向へずらす。"
-          : "Hide your role while nudging the image away from the target.",
+          ? "バレずに少し変える。"
+          : "Shift it without getting caught.",
       className: "bg-[var(--pmb-red)] text-white",
     },
   ];
@@ -788,16 +790,13 @@ function ImpostorRoleStage({ language }: { language: Language }) {
           >
             <div className="grid gap-2">
               <Icon className="mx-auto h-8 w-8" />
-              <p className="text-[11px] font-black tracking-[0.16em] uppercase">
-                {language === "ja" ? "あなたの役職" : "Your Role"}
-              </p>
               <p className="text-[clamp(1.8rem,4vw,3.6rem)] leading-none font-black">
                 YOU ARE
               </p>
               <p className="text-[clamp(2rem,5vw,4.2rem)] leading-none font-black">
                 {card.role}
               </p>
-              <p className="mx-auto max-w-[24ch] text-xs leading-snug font-bold">
+              <p className="mx-auto max-w-[20ch] text-sm leading-tight font-black md:text-base">
                 {card.body}
               </p>
             </div>
@@ -828,7 +827,6 @@ function ImpostorGenerationStage({
       <ImpostorImageCard
         src={incomingImage}
         label={language === "ja" ? "受け取った画像" : "Incoming Image"}
-        badge="INPUT"
       />
 
       <motion.div
@@ -855,7 +853,6 @@ function ImpostorRelayStage({ language }: { language: Language }) {
   const relayCards = [
     {
       label: language === "ja" ? "Target" : "Target",
-      badge: "START",
       src: IMPOSTOR_RELAY_IMAGES[0],
       highlight: false,
     },
@@ -910,26 +907,28 @@ function ImpostorRelayStage({ language }: { language: Language }) {
 function ImpostorVoteStage({ language }: { language: Language }) {
   const voteCards = [
     {
-      player: "Player A",
-      votes: 0,
-      status: "CREW",
+      player: "Player 1",
+      voterMarks: [] as string[],
       src: IMPOSTOR_RELAY_IMAGES[1],
       suspect: false,
     },
     {
-      player: "Player B",
-      votes: 3,
-      status: "IMPOSTER?",
+      player: "Player 2",
+      voterMarks: ["1", "3"],
       src: IMPOSTOR_RELAY_IMAGES[2],
       suspect: true,
     },
     {
-      player: "Player C",
-      votes: 1,
-      status: "CREW",
+      player: "Player 3",
+      voterMarks: ["2"],
       src: IMPOSTOR_RELAY_IMAGES[3],
       suspect: false,
     },
+  ];
+  const voteRows = [
+    { voter: "Player 1", target: "Player 2" },
+    { voter: "Player 2", target: "Player 3" },
+    { voter: "Player 3", target: "Player 2" },
   ];
 
   return (
@@ -955,23 +954,15 @@ function ImpostorVoteStage({ language }: { language: Language }) {
               sizes="(min-width: 1280px) 12vw, (min-width: 640px) 22vw, 30vw"
               className="object-cover"
             />
-            <div className="absolute inset-x-1.5 top-1.5 z-10 flex items-center justify-between gap-1">
+            <div className="absolute inset-x-1.5 top-1.5 z-10 flex items-center gap-1">
               <span className="truncate rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]">
                 {card.player}
               </span>
-              <span
-                className={[
-                  "rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]",
-                  card.suspect ? "bg-[var(--pmb-red)] text-white" : "bg-white",
-                ].join(" ")}
-              >
-                {card.status}
-              </span>
             </div>
             <div className="absolute right-2 bottom-2 z-10 flex flex-wrap justify-end gap-1">
-              {Array.from({ length: card.votes }).map((_, voteIndex) => (
+              {card.voterMarks.map((voterMark, voteIndex) => (
                 <motion.span
-                  key={voteIndex}
+                  key={voterMark}
                   initial={{ scale: 0, y: 8, opacity: 0 }}
                   animate={{ scale: 1, y: 0, opacity: 1 }}
                   transition={{
@@ -980,19 +971,10 @@ function ImpostorVoteStage({ language }: { language: Language }) {
                   }}
                   className="grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] font-mono text-[10px] font-black shadow-[1px_1px_0_var(--pmb-ink)]"
                 >
-                  V
+                  {voterMark}
                 </motion.span>
               ))}
             </div>
-            {card.suspect ? (
-              <motion.div
-                initial={{ scale: 0.6, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="absolute bottom-2 left-2 z-10 rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-[10px] font-black shadow-[2px_2px_0_var(--pmb-ink)]"
-              >
-                IMPOSTOR?
-              </motion.div>
-            ) : null}
           </motion.div>
         ))}
       </div>
@@ -1001,32 +983,30 @@ function ImpostorVoteStage({ language }: { language: Language }) {
         <div className="flex items-center gap-1.5">
           <Vote className="h-4 w-4" />
           <p className="truncate text-sm font-black">
-            {language === "ja" ? "投票" : "Vote"}
+            {language === "ja" ? "投票先" : "Votes"}
           </p>
         </div>
         <div className="space-y-1.5">
-          {["Player 1", "Player 2", "Player 3", "Player 4"].map(
-            (voter, index) => (
-              <motion.div
-                key={voter}
-                initial={{ x: 8, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: index * 0.08, duration: 0.2 }}
-                className={[
-                  "flex items-center justify-between gap-2 rounded-[9px] border-2 border-[var(--pmb-ink)] px-2 py-1 text-[10px] font-black",
-                  index === 0
-                    ? "bg-[var(--pmb-yellow)] shadow-[1px_1px_0_var(--pmb-ink)]"
-                    : "bg-[var(--pmb-base)]",
-                ].join(" ")}
-              >
-                <span className="truncate">{voter}</span>
-                <span>{index === 3 ? "..." : index === 2 ? "C" : "B"}</span>
-              </motion.div>
-            ),
-          )}
+          {voteRows.map((voteRow, index) => (
+            <motion.div
+              key={voteRow.voter}
+              initial={{ x: 8, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: index * 0.08, duration: 0.2 }}
+              className={[
+                "flex items-center justify-between gap-2 rounded-[9px] border-2 border-[var(--pmb-ink)] px-2 py-1 text-[10px] font-black",
+                index === 0
+                  ? "bg-[var(--pmb-yellow)] shadow-[1px_1px_0_var(--pmb-ink)]"
+                  : "bg-[var(--pmb-base)]",
+              ].join(" ")}
+            >
+              <span className="truncate">{voteRow.voter}</span>
+              <span className="truncate">{voteRow.target}</span>
+            </motion.div>
+          ))}
         </div>
         <div className="rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-red)] px-2 py-1.5 text-center font-mono text-[12px] font-black text-white shadow-[2px_2px_0_var(--pmb-ink)]">
-          3 / 4 VOTES
+          PLAYER 2: 2 / 3
         </div>
       </div>
     </div>
@@ -1229,6 +1209,8 @@ function ModeGameplayPreview({
         ? "MISS 0"
         : "74 pts";
   const shouldHideTarget = mode === "memory" && stepIndex === 1;
+  const shouldRenderGeneratedImage =
+    !isPromptCompareMode || stepIndex >= 2;
   const generatedImageOpacity = isPromptCompareMode
     ? stepIndex >= 2
       ? 1
@@ -1426,21 +1408,24 @@ function ModeGameplayPreview({
                   <Play className="h-3 w-3 fill-[var(--pmb-ink)]" />
                   {generatedLabel}
                 </div>
-                <motion.div
-                  className="absolute inset-0"
-                  animate={{ opacity: generatedImageOpacity }}
-                  transition={{ duration: 0.28 }}
-                >
-                  <Image
-                    src={previewGeneratedImage}
-                    alt=""
-                    fill
-                    priority
-                    unoptimized
-                    sizes="(min-width: 1280px) 18vw, (min-width: 640px) 36vw, 90vw"
-                    className="object-cover"
-                  />
-                </motion.div>
+                {shouldRenderGeneratedImage ? (
+                  <motion.div
+                    className="absolute inset-0"
+                    initial={{ opacity: generatedImageOpacity }}
+                    animate={{ opacity: generatedImageOpacity }}
+                    transition={{ duration: 0.28 }}
+                  >
+                    <Image
+                      src={previewGeneratedImage}
+                      alt=""
+                      fill
+                      priority
+                      unoptimized
+                      sizes="(min-width: 1280px) 18vw, (min-width: 640px) 36vw, 90vw"
+                      className="object-cover"
+                    />
+                  </motion.div>
+                ) : null}
                 {showGeneratedPulse ? (
                   <div className="absolute inset-0 z-10 grid place-items-center bg-black/30">
                     <span className="flex items-center gap-2 rounded-[10px] border-2 border-[var(--pmb-ink)] bg-white px-3 py-2 text-[11px] font-black shadow-[2px_2px_0_var(--pmb-ink)]">

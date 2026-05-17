@@ -239,7 +239,7 @@ describe("LobbyPage", () => {
 
   it("updates the mode detail panel after selecting a game mode", async () => {
     const user = userEvent.setup();
-    render(
+    const { container } = render(
       <LanguageProvider initialLanguage="en">
         <LobbyPage />
       </LanguageProvider>,
@@ -258,12 +258,18 @@ describe("LobbyPage", () => {
     expect(screen.queryByText("Best")).toBeNull();
     expect(screen.getByText("Prompt")).not.toBeNull();
     expect(screen.queryByText("Prompt Text")).toBeNull();
+    expect(
+      container.querySelector('img[src*="classic-generated"]'),
+    ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /Memory Match/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Memorize Target Image")).not.toBeNull();
     });
+    expect(
+      container.querySelector('img[src*="memory-generated"]'),
+    ).toBeNull();
     expect(screen.getAllByText("Memory Match").length).toBeGreaterThan(0);
     expect(screen.getByText("STEP 1/4")).not.toBeNull();
     expect(screen.getAllByText("Prompt").length).toBeGreaterThan(0);
