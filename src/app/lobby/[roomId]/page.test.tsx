@@ -187,7 +187,7 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("shows a compact players list and exposes the language toggle", () => {
+  it("shows a compact players list without the lobby language toggle", () => {
     render(
       <LanguageProvider initialLanguage="en">
         <LobbyPage />
@@ -196,15 +196,15 @@ describe("LobbyPage", () => {
 
     expect(screen.queryByRole("button", { name: "READY" })).toBeNull();
     expect(
-      screen.getByRole("group", { name: "Display language" }),
-    ).not.toBeNull();
+      screen.queryByRole("group", { name: "Display language" }),
+    ).toBeNull();
     expect(
       screen
         .getByRole("button", { name: "Copy room code" })
         .parentElement?.querySelector(
           '[role="group"][aria-label="Display language"]',
         ),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(screen.queryByText("2 PLAYERS")).toBeNull();
     expect(screen.queryByText("READY")).toBeNull();
     expect(screen.queryByText("YOU")).toBeNull();

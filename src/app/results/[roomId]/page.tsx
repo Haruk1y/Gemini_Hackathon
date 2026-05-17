@@ -485,7 +485,7 @@ function TotalScoreBoard({
                   key={`${round.roundId}-timeline-label`}
                   className="flex shrink-0 items-center gap-2"
                 >
-                  <div className="w-32 text-center font-mono text-lg leading-none font-black md:w-36 md:text-xl">
+                  <div className="w-20 text-center font-mono text-lg leading-none font-black md:w-24 md:text-xl">
                     Round{round.roundIndex}
                   </div>
                   {roundIndex < rounds.length - 1 ? (
@@ -525,9 +525,9 @@ function TotalScoreBoard({
                   } as CSSProperties
                 }
               >
-                <div className="grid min-w-[220px] grid-cols-[72px_minmax(0,1fr)] items-center gap-4 py-3 pr-5 pl-3">
-                  <div className="flex shrink-0 flex-col items-center gap-1 self-start pt-1">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border-4 border-[var(--pmb-ink)] bg-white font-mono text-2xl leading-none font-black">
+                <div className="grid min-w-[220px] grid-cols-[60px_minmax(0,1fr)] items-center gap-3 py-1.5 pr-4 pl-3">
+                  <div className="flex shrink-0 flex-col items-center gap-0.5 self-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border-4 border-[var(--pmb-ink)] bg-white font-mono text-xl leading-none font-black">
                       #{index + 1}
                     </div>
                     <RankTrendIcon rankDelta={rankDelta} />
@@ -548,7 +548,7 @@ function TotalScoreBoard({
                   </div>
                 </div>
 
-                <div className="min-w-0 overflow-x-auto py-3 pr-3">
+                <div className="min-w-0 overflow-x-auto py-1 pr-2">
                   <div className="w-max">
                     <div className="flex items-center gap-2">
                       {entry.rounds.map((round, roundIndex) => (
@@ -556,8 +556,8 @@ function TotalScoreBoard({
                           key={round.roundId}
                           className="flex shrink-0 items-center gap-2"
                         >
-                          <div className="relative w-32 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-2 md:w-36">
-                            <div className="absolute top-1 left-1 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-ink)] px-3 py-1 font-mono text-base leading-none font-black text-white">
+                          <div className="relative w-20 rounded-lg border-2 border-[var(--pmb-ink)] bg-white p-1.5 md:w-24">
+                            <div className="absolute top-1 left-1 rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-ink)] px-2 py-0.5 font-mono text-sm leading-none font-black text-white">
                               {round.score}
                             </div>
                             <img
@@ -747,6 +747,7 @@ export default function ResultsPage() {
   const [showJudgeReason, setShowJudgeReason] = useState(false);
   const [showTotalRanking, setShowTotalRanking] = useState(false);
   const totalRankingLabel = language === "ja" ? "合計順位" : "Total Ranking";
+  const nextLabel = language === "ja" ? "次へ" : "Next";
 
   useEffect(() => {
     setShowTotalRanking(false);
@@ -807,7 +808,7 @@ export default function ResultsPage() {
 
   const lobbyHintMessage = (() => {
     if (lobbyBusy) {
-      return copy.results.returningToLobby;
+      return null;
     }
 
     if (liveRoomStatus === "RESULTS") {
@@ -822,6 +823,15 @@ export default function ResultsPage() {
   const onNext = async () => {
     if (!me?.isHost || !room) return;
     router.push(buildCurrentAppPath(`/transition/${roomId}?start=1`));
+  };
+
+  const onResultsNext = () => {
+    if (!showTotalRanking) {
+      setShowTotalRanking(true);
+      return;
+    }
+
+    void onNext();
   };
 
   const onLeave = () => {
@@ -914,7 +924,7 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!showTotalRanking ? (
+              {!showTotalRanking && !me?.isHost ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -924,15 +934,18 @@ export default function ResultsPage() {
                   {totalRankingLabel}
                 </Button>
               ) : null}
-              {me?.isHost && !isFinalRound ? (
+              {me?.isHost && (!isFinalRound || !showTotalRanking) ? (
                 <Button
                   type="button"
                   variant="accent"
-                  onClick={onNext}
-                  disabled={!isResultsPhase}
+                  onClick={onResultsNext}
+                  disabled={
+                    !isResultsPhase ||
+                    (!showTotalRanking && scoreHistory.length < 1)
+                  }
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
-                  {copy.results.nextRound}
+                  {showTotalRanking ? copy.results.nextRound : nextLabel}
                 </Button>
               ) : null}
               {me?.isHost ? (
@@ -1188,11 +1201,7 @@ export default function ResultsPage() {
                 </Button>
               ) : null}
             </div>
-            {lobbyBusy ? (
-              <p className="text-xs font-semibold">
-                {copy.results.returningToLobby}
-              </p>
-            ) : lobbyHintMessage ? (
+            {lobbyHintMessage ? (
               <p className="text-xs font-semibold">{lobbyHintMessage}</p>
             ) : null}
           </div>
@@ -1539,7 +1548,7 @@ export default function ResultsPage() {
               </Badge>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
-              {!showTotalRanking ? (
+              {!showTotalRanking && !me?.isHost ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -1549,15 +1558,18 @@ export default function ResultsPage() {
                   {totalRankingLabel}
                 </Button>
               ) : null}
-              {me?.isHost && !isFinalRound ? (
+              {me?.isHost && (!isFinalRound || !showTotalRanking) ? (
                 <Button
                   type="button"
                   variant="accent"
-                  onClick={onNext}
-                  disabled={!isResultsPhase}
+                  onClick={onResultsNext}
+                  disabled={
+                    !isResultsPhase ||
+                    (!showTotalRanking && scoreHistory.length < 1)
+                  }
                 >
                   <ChevronRight className="mr-1 h-4 w-4" />
-                  {copy.results.nextRound}
+                  {showTotalRanking ? copy.results.nextRound : nextLabel}
                 </Button>
               ) : null}
               {me?.isHost ? (
@@ -1651,7 +1663,6 @@ export default function ResultsPage() {
                     <Podium
                       entries={sortedScores}
                       myUid={user?.uid}
-                      showTotals
                       myEntryFooter={
                         <Button
                           type="button"

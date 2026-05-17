@@ -81,7 +81,9 @@ vi.mock("@/components/game/podium", () => ({
       {entries
         .map(
           (entry) =>
-            `${entry.displayName}:${entry.bestScore}/${entry.totalScore}`,
+            `${entry.displayName}:${entry.bestScore}${
+              showTotals ? `/${entry.totalScore}` : ""
+            }`,
         )
         .join(", ")}
     </div>
@@ -396,7 +398,7 @@ describe("ResultsPage lobby return flow", () => {
     });
   });
 
-  it("separates round and total scores in classic results podium", async () => {
+  it("shows only round scores in classic results podium", async () => {
     render(
       <LanguageProvider initialLanguage="en">
         <ResultsPage />
@@ -404,10 +406,11 @@ describe("ResultsPage lobby return flow", () => {
     );
 
     const podium = await screen.findByTestId("podium");
-    expect(podium.textContent).toContain("Round Score");
-    expect(podium.textContent).toContain("Total Score");
-    expect(podium.textContent).toContain("Host:91/191");
-    expect(podium.textContent).toContain("Guest:88/188");
+    expect(podium.textContent).toContain("Host:91");
+    expect(podium.textContent).toContain("Guest:88");
+    expect(podium.textContent).not.toContain("Total Score");
+    expect(podium.textContent).not.toContain("/191");
+    expect(podium.textContent).not.toContain("/188");
   });
 
   it("shows hyphen rank trends in total ranking on the first round", async () => {
@@ -423,6 +426,50 @@ describe("ResultsPage lobby return flow", () => {
     );
 
     expect(screen.getAllByText("-")).toHaveLength(2);
+  });
+
+  it("uses Next to reveal total ranking before the host starts the next round", async () => {
+    authStateRef.current.user = {
+      uid: "host",
+      issuedAt: "2026-04-22T00:00:00.000Z",
+    };
+    snapshotState = createResultsSnapshot({ totalRounds: 2 });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Total Ranking" })).toBeNull();
+
+    await user.click(await screen.findByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("heading", { name: "Total Ranking" })).not
+      .toBeNull();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("uses Next to reveal total ranking on the final round", async () => {
+    authStateRef.current.user = {
+      uid: "host",
+      issuedAt: "2026-04-22T00:00:00.000Z",
+    };
+    snapshotState = createResultsSnapshot({ roundIndex: 2, totalRounds: 2 });
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <ResultsPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Next" }));
+
+    expect(await screen.findByRole("heading", { name: "Total Ranking" })).not
+      .toBeNull();
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it("shows the change summary in Aha Moment results", async () => {

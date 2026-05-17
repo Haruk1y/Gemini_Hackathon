@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   Bot,
   Brain,
@@ -38,7 +44,6 @@ import { useLanguage } from "@/components/providers/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { LanguageToggle } from "@/components/ui/language-toggle";
 import { apiPost } from "@/lib/client/api";
 import { buildCurrentAppPath } from "@/lib/client/paths";
 import { leaveRoom, useRoomPresence } from "@/lib/client/room-presence";
@@ -648,11 +653,13 @@ function TypedPromptLine({
   text: string;
   isTyping: boolean;
 }) {
-  const [visibleText, setVisibleText] = useState(isTyping ? "" : text);
+  const [typingState, setTypingState] = useState({
+    text: "",
+    visibleText: "",
+  });
 
   useEffect(() => {
     if (!isTyping) {
-      setVisibleText(text);
       return;
     }
 
@@ -663,20 +670,28 @@ function TypedPromptLine({
     const tick = (now: number) => {
       const progress = Math.min(1, (now - startedAt) / durationMs);
       const nextLength = Math.ceil(text.length * progress);
-      setVisibleText(text.slice(0, nextLength));
+      setTypingState({
+        text,
+        visibleText: text.slice(0, nextLength),
+      });
 
       if (progress < 1) {
         animationFrame = window.requestAnimationFrame(tick);
       }
     };
 
-    setVisibleText("");
     animationFrame = window.requestAnimationFrame(tick);
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
     };
   }, [isTyping, text]);
+
+  const visibleText = isTyping
+    ? typingState.text === text
+      ? typingState.visibleText
+      : ""
+    : text;
 
   return (
     <span className="relative inline-flex max-w-full items-center">
@@ -1822,7 +1837,7 @@ export default function LobbyPage() {
     enabled: Boolean(room && user) && !isLeaving,
   });
 
-  const updateReady = async (
+  const updateReady = useCallback(async (
     nextReady: boolean,
     options?: { silent?: boolean },
   ) => {
@@ -1844,7 +1859,7 @@ export default function LobbyPage() {
     } finally {
       setActionBusy(null);
     }
-  };
+  }, [roomId]);
 
   useEffect(() => {
     if (roomStatus !== "LOBBY" || !me || isLeaving) return;
@@ -1853,7 +1868,7 @@ export default function LobbyPage() {
 
     autoReadyAttemptedRef.current = true;
     void updateReady(true, { silent: true });
-  }, [actionBusy, isLeaving, me, optimisticReady, roomStatus]);
+  }, [actionBusy, isLeaving, me, optimisticReady, roomStatus, updateReady]);
 
   const onStart = async () => {
     if (!me?.isHost || !canStartRound) return;
@@ -2035,7 +2050,6 @@ export default function LobbyPage() {
                   <Copy className="h-5 w-5" />
                 )}
               </Button>
-              <LanguageToggle className="shrink-0" />
             </div>
           </div>
 
