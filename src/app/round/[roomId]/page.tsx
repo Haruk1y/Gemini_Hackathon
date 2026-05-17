@@ -678,6 +678,11 @@ export default function RoundPage() {
     effectiveGeneratedImagePhase === "SCORING"
       ? copy.round.scoring
       : copy.round.generatingImage;
+  const latestAttemptReviewVisible = Boolean(
+    effectiveGeneratedImagePhase === "DONE" &&
+    ((latestAttempt?.matchedElements?.length ?? 0) > 0 ||
+      (latestAttempt?.missingElements?.length ?? 0) > 0),
+  );
   const attemptsLeft = Math.max(
     0,
     (room?.settings?.maxAttempts ?? 0) - (attempts?.attemptsUsed ?? 0),
@@ -699,9 +704,6 @@ export default function RoundPage() {
     return () => window.clearInterval(intervalId);
   }, [isChangeMode, isRoundLive, round?.promptStartsAt, round?.roundId]);
 
-  const otherBestImages = scores.filter(
-    (entry) => entry.uid !== user?.uid && entry.bestImageUrl,
-  );
   const hasGeneratedImage = Boolean(
     attempts?.attempts?.some((attempt) => attempt.imageUrl.trim().length > 0),
   );
@@ -730,6 +732,12 @@ export default function RoundPage() {
     currentGameMode === "classic" || isPreviewPhase || hasGeneratedImage;
   const imageFrameClass =
     "relative h-64 w-full overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white sm:h-72 lg:h-[min(34vh,320px)]";
+  const roundImageFrameClass =
+    "relative mx-auto aspect-square w-full max-w-60 overflow-hidden rounded-lg border-4 border-[var(--pmb-ink)] bg-white xl:max-w-72 2xl:max-w-80";
+  const judgeNotesClass =
+    "h-20 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold";
+  const promptPanelHeightClass =
+    "lg:h-[220px] lg:min-h-[220px] lg:max-h-[220px]";
   const changeTimeline = resolveChangeTimeline(
     round?.promptStartsAt,
     roundSeconds,
@@ -1605,286 +1613,247 @@ export default function RoundPage() {
         recentStamps={recentStamps}
         disabled={!isRoundLive}
       />
-      <Card className="bg-white p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-2xl leading-none font-black uppercase md:text-3xl">
-                Round {round.index}
-              </p>
-              <Badge
-                className={
-                  currentGameMode === "memory" ? "bg-[var(--pmb-blue)]" : ""
-                }
-              >
-                {currentMode.label}
-              </Badge>
+      <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,2fr)_minmax(280px,0.95fr)]">
+        <div className="grid gap-3 lg:min-h-0 lg:grid-cols-2 lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+          <Card className="bg-white p-4 lg:col-span-2">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-2xl leading-none font-black uppercase md:text-3xl">
+                  Round {round.index}
+                </p>
+                <Badge
+                  className={
+                    currentGameMode === "memory" ? "bg-[var(--pmb-blue)]" : ""
+                  }
+                >
+                  {currentMode.label}
+                </Badge>
+              </div>
+
+              <div className="justify-self-start md:justify-self-end">
+                {isPreviewPhase ? (
+                  <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
+                    <p className="text-xs font-black tracking-[0.18em] uppercase">
+                      {copy.round.memoryPreview}
+                    </p>
+                    <p className="mt-1 font-mono text-2xl font-black">
+                      {formatSeconds(
+                        previewSecondsLeft ?? MEMORY_PREVIEW_SECONDS,
+                      )}
+                    </p>
+                  </Card>
+                ) : (
+                  <CountdownTimer secondsLeft={visibleSecondsLeft} />
+                )}
+              </div>
+
+              <div className="flex justify-start md:justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onBackToLobby}
+                  disabled={isBusy || (isRoundLive && !autoEndingSoon)}
+                  className={
+                    autoEndingSoon
+                      ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
+                      : ""
+                  }
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {autoEndingSoon
+                    ? copy.round.resultsScreenCountdown(
+                        resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
+                      )
+                    : copy.round.resultsScreen}
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isPreviewPhase ? (
-              <Card className="bg-[var(--pmb-blue)] px-4 py-2 shadow-[6px_6px_0_var(--pmb-ink)]">
-                <p className="text-xs font-black tracking-[0.18em] uppercase">
-                  {copy.round.memoryPreview}
-                </p>
-                <p className="mt-1 font-mono text-2xl font-black">
-                  {formatSeconds(previewSecondsLeft ?? MEMORY_PREVIEW_SECONDS)}
-                </p>
-              </Card>
-            ) : (
-              <CountdownTimer secondsLeft={visibleSecondsLeft} />
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={onBackToLobby}
-              disabled={isBusy || (isRoundLive && !autoEndingSoon)}
-              className={
-                autoEndingSoon
-                  ? "animate-pulse bg-[var(--pmb-yellow)] font-mono text-base font-black"
-                  : ""
-              }
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              {autoEndingSoon
-                ? copy.round.resultsScreenCountdown(
-                    resultCountdownSeconds ?? RESULTS_GRACE_SECONDS,
-                  )
-                : copy.round.resultsScreen}
-            </Button>
-          </div>
-        </div>
-        <h2 className="mt-4 mb-2 text-lg">{copy.round.memoryPromptTitle}</h2>
-        <Textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder={
-            isPreviewPhase
-              ? copy.round.memoryLockedPlaceholder
-              : copy.round.promptExample
-          }
-          maxLength={600}
-          className="min-h-20"
-          disabled={promptLocked || !isRoundLive || attemptsLeft <= 0 || isBusy}
-        />
-        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
-          <Button
-            type="button"
-            onClick={submitPrompt}
-            disabled={
-              isBusy ||
-              !isRoundLive ||
-              attemptsLeft <= 0 ||
-              prompt.trim().length < 1 ||
-              promptLocked
-            }
-          >
-            {submitPending ? (
-              <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="mr-1 h-4 w-4" />
-            )}
-            {submitPending
-              ? effectiveGeneratedImagePhase === "SCORING"
-                ? copy.round.scoring
-                : copy.round.generatingImage
-              : isPreviewPhase
-                ? copy.round.waitingForMemory
-                : copy.round.generateImage}
-          </Button>
-          <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
-            {copy.round.attemptsLeft(attemptsLeft)}
           </Card>
-        </div>
-        {feedback ? (
-          <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">
-            {resolveUiErrorMessage(language, feedback)}
-          </p>
-        ) : null}
-        {!isRoundLive ? (
-          <p className="mt-2 text-sm font-semibold">
-            {copy.round.roundPreparing}
-          </p>
-        ) : null}
-      </Card>
 
-      <section className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_1fr_0.95fr]">
-        <Card className="bg-white p-3">
-          <h3 className="mb-2 text-base">{copy.round.targetImage}</h3>
-          {shouldShowTargetImage ? (
-            round.targetImageUrl ? (
-              <div className={imageFrameClass}>
-                <img
-                  src={
-                    round.targetImageUrl ||
-                    placeholderImageUrl(round.gmTitle || "target")
-                  }
-                  alt="target"
-                  className="h-full w-full object-contain p-1"
-                  onError={(event) =>
-                    applyImageFallback(
-                      event.currentTarget,
-                      round.gmTitle || "target",
-                    )
-                  }
-                />
-              </div>
-            ) : (
-              <div
-                className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-center text-sm font-semibold`}
-              >
-                {copy.round.syncingTargetImage}
-              </div>
-            )
-          ) : (
-            <div
-              className={`${imageFrameClass} flex flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
-            >
-              <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4">
-                <EyeOff className="h-8 w-8" />
-              </div>
-              <p className="text-lg font-black">{copy.round.memoryOnly}</p>
-            </div>
-          )}
-        </Card>
-
-        <Card className="bg-white p-3">
-          <h3 className="mb-2 text-base">{copy.round.generatedImage}</h3>
-          {latestAttempt || submitPending ? (
-            <div className="space-y-2">
-              {showGeneratedImagePreview ? (
-                <div className={imageFrameClass}>
+          <Card className="bg-white p-3">
+            <h3 className="mb-2 text-base">{copy.round.targetImage}</h3>
+            {shouldShowTargetImage ? (
+              round.targetImageUrl ? (
+                <div className={roundImageFrameClass}>
                   <img
-                    src={latestAttemptImageUrl}
-                    alt="latest attempt"
+                    src={
+                      round.targetImageUrl ||
+                      placeholderImageUrl(round.gmTitle || "target")
+                    }
+                    alt="target"
                     className="h-full w-full object-contain p-1"
                     onError={(event) =>
                       applyImageFallback(
                         event.currentTarget,
-                        copy.round.generatedImage,
+                        round.gmTitle || "target",
                       )
                     }
                   />
-                  {effectiveGeneratedImagePhase === "SCORING" ? (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
-                      <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
-                        <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
-                        {copy.round.scoring}
-                      </p>
-                    </div>
-                  ) : null}
-                  {effectiveGeneratedImagePhase === "DONE" &&
-                  typeof latestAttempt?.score === "number" ? (
-                    <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-right font-mono text-sm font-black">
-                      <span className="mr-1 text-[10px] tracking-[0.12em] uppercase">
-                        {copy.common.round}
-                      </span>
-                      {latestAttempt.score}
-                    </p>
-                  ) : null}
                 </div>
               ) : (
                 <div
-                  className={`${imageFrameClass} flex flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
+                  className={`${roundImageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-center text-sm font-semibold`}
                 >
-                  <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] p-4">
-                    <LoaderCircle className="h-8 w-8 animate-spin" />
-                  </div>
-                  <p className="text-lg font-black">
-                    {generatedImageStatusLabel}
-                  </p>
+                  {copy.round.syncingTargetImage}
                 </div>
-              )}
-              <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
-                <p>{copy.common.judgeNote}</p>
-                {effectiveGeneratedImagePhase === "DONE" &&
-                latestAttempt?.matchedElements?.length ? (
-                  <p className="mt-1 text-[var(--pmb-green)]">
-                    {copy.common.matched(
-                      latestAttempt.matchedElements.join(" / "),
-                    )}
-                  </p>
-                ) : null}
-                {effectiveGeneratedImagePhase === "DONE" &&
-                latestAttempt?.missingElements?.length ? (
-                  <p className="mt-1 text-[var(--pmb-red)]">
-                    {copy.common.missing(
-                      latestAttempt.missingElements.join(" / "),
-                    )}
-                  </p>
-                ) : null}
-                {effectiveGeneratedImagePhase === "SCORING" ? (
-                  <p className="mt-1">{copy.round.judgeNotesAfterScoring}</p>
-                ) : null}
-                {effectiveGeneratedImagePhase === "GENERATING" ? (
-                  <p className="mt-1">{copy.round.generatingImage}</p>
-                ) : null}
-              </Card>
-            </div>
-          ) : (
-            <div className="space-y-2">
+              )
+            ) : (
               <div
-                className={`${imageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}
+                className={`${roundImageFrameClass} flex flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
               >
-                {copy.round.noImageYet}
+                <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] p-4">
+                  <EyeOff className="h-8 w-8" />
+                </div>
+                <p className="text-lg font-black">{copy.round.memoryOnly}</p>
               </div>
-              <Card className="h-28 overflow-y-auto bg-[var(--pmb-base)] p-2 text-xs font-semibold">
-                <p>{copy.common.judgeNote}</p>
-                <p className="mt-1">{copy.round.judgeNotesAfterGeneration}</p>
-              </Card>
-            </div>
-          )}
-        </Card>
+            )}
+          </Card>
 
-        <div className="flex min-h-0 flex-col gap-3">
-          <Scoreboard
-            entries={scores}
-            myUid={user?.uid}
-            showTotals={showClassicMemoryTotals}
-          />
-
-          <Card className="min-h-0 bg-white p-3">
-            <h3 className="mb-2 text-sm">{copy.round.everyoneBestImages}</h3>
-            {otherBestImages.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                {otherBestImages.map((entry) => (
-                  <div
-                    key={entry.uid}
-                    className="rounded-lg border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2"
-                  >
-                    <p className="mb-1 truncate text-xs font-bold">
-                      {entry.displayName}
-                    </p>
-                    <p className="mb-1 font-mono text-[10px] font-black tracking-[0.08em] uppercase">
-                      {copy.common.round}: {entry.bestScore}
-                      {showClassicMemoryTotals
-                        ? ` / ${copy.common.total}: ${entry.totalScore}`
-                        : ""}
-                    </p>
+          <Card className="flex min-h-0 flex-col overflow-hidden bg-white p-3">
+            <h3 className="mb-2 text-base">{copy.round.generatedImage}</h3>
+            {latestAttempt || submitPending ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                {showGeneratedImagePreview ? (
+                  <div className={roundImageFrameClass}>
                     <img
-                      src={
-                        entry.bestImageUrl ||
-                        placeholderImageUrl(entry.displayName)
-                      }
-                      alt={`${entry.displayName} best`}
-                      className="aspect-square w-full rounded border-2 border-[var(--pmb-ink)] bg-white object-contain p-1"
+                      src={latestAttemptImageUrl}
+                      alt="latest attempt"
+                      className="h-full w-full object-contain p-1"
                       onError={(event) =>
                         applyImageFallback(
                           event.currentTarget,
-                          entry.displayName,
+                          copy.round.generatedImage,
                         )
                       }
                     />
+                    {effectiveGeneratedImagePhase === "SCORING" ? (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+                        <p className="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold">
+                          <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                          {copy.round.scoring}
+                        </p>
+                      </div>
+                    ) : null}
+                    {effectiveGeneratedImagePhase === "DONE" &&
+                    typeof latestAttempt?.score === "number" ? (
+                      <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-right font-mono text-sm font-black">
+                        <span className="mr-1 text-[10px] tracking-[0.12em] uppercase">
+                          {copy.common.round}
+                        </span>
+                        {latestAttempt.score}
+                      </p>
+                    ) : null}
                   </div>
-                ))}
+                ) : (
+                  <div
+                    className={`${roundImageFrameClass} flex flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--pmb-base),white)] p-6 text-center`}
+                  >
+                    <div className="rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-blue)] p-4">
+                      <LoaderCircle className="h-8 w-8 animate-spin" />
+                    </div>
+                    <p className="text-lg font-black">
+                      {generatedImageStatusLabel}
+                    </p>
+                  </div>
+                )}
+                {latestAttemptReviewVisible ? (
+                  <Card className={judgeNotesClass}>
+                    {latestAttempt?.matchedElements?.length ? (
+                      <p className="text-[var(--pmb-green)]">
+                        {copy.common.matched(
+                          latestAttempt.matchedElements.join(" / "),
+                        )}
+                      </p>
+                    ) : null}
+                    {latestAttempt?.missingElements?.length ? (
+                      <p className="text-[var(--pmb-red)]">
+                        {copy.common.missing(
+                          latestAttempt.missingElements.join(" / "),
+                        )}
+                      </p>
+                    ) : null}
+                  </Card>
+                ) : null}
               </div>
             ) : (
-              <p className="text-sm font-semibold">
-                {copy.round.waitingForOthers}
-              </p>
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <div
+                  className={`${roundImageFrameClass} flex items-center justify-center border-dashed bg-[var(--pmb-base)] p-4 text-sm font-semibold`}
+                >
+                  {copy.round.noImageYet}
+                </div>
+              </div>
             )}
           </Card>
+
+          <Card
+            className={`bg-white p-4 lg:col-span-2 lg:overflow-y-auto ${promptPanelHeightClass}`}
+          >
+            <h2 className="mb-2 text-lg">{copy.round.memoryPromptTitle}</h2>
+            <Textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder={
+                isPreviewPhase
+                  ? copy.round.memoryLockedPlaceholder
+                  : copy.round.promptExample
+              }
+              maxLength={600}
+              className="min-h-20"
+              disabled={
+                promptLocked || !isRoundLive || attemptsLeft <= 0 || isBusy
+              }
+            />
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+              <Button
+                type="button"
+                onClick={submitPrompt}
+                disabled={
+                  isBusy ||
+                  !isRoundLive ||
+                  attemptsLeft <= 0 ||
+                  prompt.trim().length < 1 ||
+                  promptLocked
+                }
+              >
+                {submitPending ? (
+                  <LoaderCircle className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-1 h-4 w-4" />
+                )}
+                {submitPending
+                  ? effectiveGeneratedImagePhase === "SCORING"
+                    ? copy.round.scoring
+                    : copy.round.generatingImage
+                  : isPreviewPhase
+                    ? copy.round.waitingForMemory
+                    : copy.round.generateImage}
+              </Button>
+              <Card className="bg-[var(--pmb-base)] px-3 py-2 text-center text-sm font-semibold shadow-[4px_4px_0_var(--pmb-ink)]">
+                {copy.round.attemptsLeft(attemptsLeft)}
+              </Card>
+            </div>
+            {feedback ? (
+              <p className="mt-2 text-sm font-semibold text-[var(--pmb-red)]">
+                {resolveUiErrorMessage(language, feedback)}
+              </p>
+            ) : null}
+            {!isRoundLive ? (
+              <p className="mt-2 text-sm font-semibold">
+                {copy.round.roundPreparing}
+              </p>
+            ) : null}
+          </Card>
         </div>
+
+        <aside className="flex min-h-0 flex-col gap-3 lg:h-full">
+          <Scoreboard
+            className="lg:flex-1 lg:overflow-hidden"
+            entries={scores}
+            myUid={user?.uid}
+            showImages
+          />
+        </aside>
       </section>
     </main>
   );
