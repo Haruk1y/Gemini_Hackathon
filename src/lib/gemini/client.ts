@@ -1328,7 +1328,10 @@ export async function scoreImageSimilarity(params: {
                 },
                 {
                   text: [
-                    "Scoring rubric: subject 35, composition 20, colors 15, background/props 20, style 10.",
+                    "Scoring rubric: subject 30, background/props 25, composition 20, colors 15, style 10.",
+                    "Use the full 0-100 integer scale. Do not round to the nearest 5 or 10.",
+                    "Small visual differences should affect the score by 1 to 4 points when appropriate.",
+                    "Only use multiples of 5 when the image quality genuinely lands on that exact value.",
                     "Return at most 6 matchedElements and at most 6 missingElements.",
                     `Write matchedElements, missingElements, and note in ${visualJudgeResponseLanguage(language)}.`,
                     "Return JSON only, and make score an integer.",
