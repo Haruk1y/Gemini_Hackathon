@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import HomePageClient from "@/components/home/home-page-client";
@@ -44,7 +50,7 @@ describe("HomePageClient", () => {
     vi.clearAllMocks();
   });
 
-  it("includes image, prompt, and judge model settings in the create room payload", async () => {
+  it("creates a room with selected model settings via command-enter", async () => {
     apiPostMock.mockResolvedValue({
       ok: true,
       roomId: "ROOM123",
@@ -91,11 +97,7 @@ describe("HomePageClient", () => {
       }),
     );
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Create Room",
-      }),
-    );
+    fireEvent.keyDown(createNameInput, { key: "Enter", metaKey: true });
 
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/create", {
@@ -110,6 +112,48 @@ describe("HomePageClient", () => {
 
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM123");
+    });
+  });
+
+  it("joins a room with command-enter from the room code input", async () => {
+    apiPostMock.mockResolvedValue({
+      ok: true,
+      roomId: "ROOM456",
+    });
+
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider initialLanguage="en">
+        <HomePageClient
+          initialImageModel="gemini"
+          initialPromptModel="flash"
+          initialJudgeModel="flash"
+        />
+      </LanguageProvider>,
+    );
+
+    const displayNameInputs = screen.getAllByPlaceholderText(
+      "Display name (at least 1 character)",
+    );
+    const roomCodeInput = screen.getByPlaceholderText(
+      "Room code (6 characters)",
+    );
+
+    await user.type(displayNameInputs[1]!, "Mina");
+    await user.type(roomCodeInput, "abc123");
+
+    fireEvent.keyDown(roomCodeInput, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/join", {
+        code: "ABC123",
+        displayName: "Mina",
+      });
+    });
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/lobby/ROOM456");
     });
   });
 
