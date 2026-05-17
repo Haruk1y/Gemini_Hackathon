@@ -5,6 +5,8 @@ import {
   Bot,
   Brain,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Copy,
   Eye,
@@ -147,7 +149,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "お題プロンプトを推定",
           body: "形・色・配置を見て、AIに渡す説明文を頭の中で組み立てる。",
           prompt:
-            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
           result: "観察中",
         },
         {
@@ -155,7 +157,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "プロンプトを書く",
           body: "見えている内容を、AIが再現しやすい言葉にする。",
           prompt:
-            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
           result: "入力中",
         },
         {
@@ -163,7 +165,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "画像生成",
           body: "入力したプロンプトから、AIが再現画像を生成する。",
           prompt:
-            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
           result: "生成中",
         },
         {
@@ -171,7 +173,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "スコアリング",
           body: "生成画像が近いほど、高いスコアを獲得。",
           prompt:
-            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
           result: "92 pts",
         },
       ],
@@ -227,7 +229,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "お題画像を記憶",
           body: "短い観察時間で、画像の配置や細部を記憶する。",
           prompt:
-            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
           result: "10 SEC",
         },
         {
@@ -235,7 +237,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "プロンプトを書く",
           body: "ここからは記憶だけでプロンプトを作る。",
           prompt:
-            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
           result: "記憶中",
         },
         {
@@ -243,7 +245,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "画像生成",
           body: "覚えて入力したプロンプトから、AIが再現画像を生成する。",
           prompt:
-            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
           result: "生成中",
         },
         {
@@ -251,7 +253,7 @@ const MODE_GAMEPLAY_DEMOS: Record<
           title: "スコアリング",
           body: "覚えていた要素が多いほど、生成画像が近づく。",
           prompt:
-            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
           result: "81 pts",
         },
       ],
@@ -752,6 +754,7 @@ function ImpostorRoleStage({ language }: { language: Language }) {
           ? "受け取った画像に寄せる。"
           : "Match the passed image.",
       className: "bg-[var(--pmb-green)]",
+      roleTextClassName: "text-[clamp(2rem,5vw,4.2rem)]",
     },
     {
       role: "IMPOSTER",
@@ -761,6 +764,7 @@ function ImpostorRoleStage({ language }: { language: Language }) {
           ? "バレずに少し変える。"
           : "Shift it without getting caught.",
       className: "bg-[var(--pmb-red)] text-white",
+      roleTextClassName: "text-[clamp(1.8rem,4.2vw,3.35rem)]",
     },
   ];
 
@@ -784,16 +788,21 @@ function ImpostorRoleStage({ language }: { language: Language }) {
             }}
             transition={{ delay: index * 0.08, duration: 0.28 }}
             className={[
-              "grid place-items-center rounded-[16px] border-4 border-[var(--pmb-ink)] p-4 text-center shadow-[4px_4px_0_var(--pmb-ink)]",
+              "grid min-w-0 place-items-center overflow-hidden rounded-[16px] border-4 border-[var(--pmb-ink)] p-4 text-center shadow-[4px_4px_0_var(--pmb-ink)]",
               card.className,
             ].join(" ")}
           >
-            <div className="grid gap-2">
+            <div className="grid min-w-0 max-w-full gap-2 px-1">
               <Icon className="mx-auto h-8 w-8" />
               <p className="text-[clamp(1.8rem,4vw,3.6rem)] leading-none font-black">
                 YOU ARE
               </p>
-              <p className="text-[clamp(2rem,5vw,4.2rem)] leading-none font-black">
+              <p
+                className={[
+                  "max-w-full overflow-hidden leading-none font-black whitespace-nowrap",
+                  card.roleTextClassName,
+                ].join(" ")}
+              >
                 {card.role}
               </p>
               <p className="mx-auto max-w-[20ch] text-sm leading-tight font-black md:text-base">
@@ -1170,6 +1179,7 @@ function ModeGameplayPreview({
   const demo = MODE_GAMEPLAY_DEMOS[mode][language];
   const demoStepCount = demo.steps.length;
   const [stepIndex, setStepIndex] = useState(0);
+  const [stepControlsVisible, setStepControlsVisible] = useState(false);
   const step = demo.steps[stepIndex] ?? demo.steps[0];
   const isPromptCompareMode = mode === "classic" || mode === "memory";
   const previewTargetImage =
@@ -1242,6 +1252,11 @@ function ModeGameplayPreview({
           ? "IMPOSTER"
           : null
       : null;
+  const moveDemoStep = (delta: -1 | 1) => {
+    setStepIndex(
+      (current) => (current + delta + demoStepCount) % demoStepCount,
+    );
+  };
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1251,7 +1266,7 @@ function ModeGameplayPreview({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [demoStepCount]);
+  }, [demoStepCount, stepIndex]);
 
   return (
     <motion.div
@@ -1260,6 +1275,15 @@ function ModeGameplayPreview({
       animate={{ opacity: 1, x: 0, rotate: 0, scale: 1 }}
       exit={{ opacity: 0, x: -14, rotate: -0.4, scale: 0.98 }}
       transition={{ type: "spring", bounce: 0.24, duration: 0.36 }}
+      onMouseEnter={() => setStepControlsVisible(true)}
+      onMouseLeave={() => setStepControlsVisible(false)}
+      onFocusCapture={() => setStepControlsVisible(true)}
+      onBlurCapture={(event) => {
+        const nextFocusedNode = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(nextFocusedNode)) {
+          setStepControlsVisible(false);
+        }
+      }}
       className="relative isolate h-full min-h-[312px] overflow-hidden rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[linear-gradient(135deg,#fff_0%,var(--pmb-base)_100%)] p-2 shadow-[5px_5px_0_var(--pmb-ink)]"
     >
       <div className="absolute inset-x-0 top-0 h-3 border-b-4 border-[var(--pmb-ink)] bg-[repeating-linear-gradient(90deg,var(--pmb-yellow)_0_18px,var(--pmb-blue)_18px_36px,var(--pmb-green)_36px_54px,var(--pmb-red)_54px_72px)]" />
@@ -1272,6 +1296,46 @@ function ModeGameplayPreview({
           ease: "easeInOut",
         }}
       />
+      <button
+        type="button"
+        aria-label={
+          language === "ja" ? "前の説明ステップ" : "Previous demo step"
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          moveDemoStep(-1);
+        }}
+        className={[
+          "absolute top-1/2 left-2 z-40 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--pmb-ink)] bg-white/95 shadow-[3px_3px_0_var(--pmb-ink)] transition-all duration-150",
+          stepControlsVisible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0",
+          "hover:scale-105",
+          "focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
+        ].join(" ")}
+      >
+        <ChevronLeft className="h-6 w-6 stroke-[4]" />
+      </button>
+      <button
+        type="button"
+        aria-label={
+          language === "ja" ? "次の説明ステップ" : "Next demo step"
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          moveDemoStep(1);
+        }}
+        className={[
+          "absolute top-1/2 right-2 z-40 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--pmb-ink)] bg-white/95 shadow-[3px_3px_0_var(--pmb-ink)] transition-all duration-150",
+          stepControlsVisible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0",
+          "hover:scale-105",
+          "focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
+        ].join(" ")}
+      >
+        <ChevronRight className="h-6 w-6 stroke-[4]" />
+      </button>
 
       <div
         className={[

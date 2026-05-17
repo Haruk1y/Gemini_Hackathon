@@ -262,6 +262,18 @@ describe("LobbyPage", () => {
       container.querySelector('img[src*="classic-generated"]'),
     ).toBeNull();
 
+    await user.click(screen.getByRole("button", { name: "Next demo step" }));
+    await waitFor(() => {
+      expect(screen.getByText("Writing Prompt")).not.toBeNull();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Previous demo step" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Estimate Target Image Prompt")).not.toBeNull();
+    });
+
     await user.click(screen.getByRole("button", { name: /Memory Match/i }));
 
     await waitFor(() => {
