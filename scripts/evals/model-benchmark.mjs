@@ -19,7 +19,7 @@ const GM_PROMPT_SCHEMA = z.object({
   title: z.string().min(3).max(80),
   difficulty: z.number().int().min(1).max(5),
   tags: z.array(z.string().min(1)).min(2).max(6),
-  prompt: z.string().min(30).max(500),
+  prompt: z.string().min(30).max(1000),
   negativePrompt: z.string().max(300).optional(),
   mustInclude: z.array(z.string().min(1)).max(5).default([]),
   mustAvoid: z.array(z.string().min(1)).max(5).default([]),
@@ -1117,9 +1117,9 @@ function coerceGmPromptCandidate(candidate) {
 
   const prompt =
     typeof record.prompt === "string"
-      ? normalizeText(record.prompt, 500)
+      ? normalizeText(record.prompt, 1000)
       : typeof record.text === "string"
-        ? normalizeText(record.text, 500)
+        ? normalizeText(record.text, 1000)
         : null;
 
   if (!prompt || prompt.length < 30) {

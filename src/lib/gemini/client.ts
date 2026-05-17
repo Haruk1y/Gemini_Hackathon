@@ -399,7 +399,7 @@ function promptKeywords(prompt: string): string[] {
 function extractPromptText(text: string): string | null {
   const fenced = text.match(/```(?:text)?\s*([\s\S]*?)```/i)?.[1] ?? text;
   const withoutPrefix = fenced.replace(/^prompt\s*:\s*/i, "").trim();
-  const normalized = normalizeText(withoutPrefix, 500);
+  const normalized = normalizeText(withoutPrefix, 1000);
   return normalized.length > 0 ? normalized : null;
 }
 
@@ -512,7 +512,7 @@ function buildGmPromptFromText(
             "no text",
             `aspect ratio ${aspectRatio}`,
           ].join(", "),
-          500,
+          1000,
         );
 
   const tags = uniqueStrings([
@@ -601,7 +601,7 @@ function buildChangeScenePromptFromText(
             "no logo",
             `aspect ratio ${aspectRatio}`,
           ].join(", "),
-          500,
+          1000,
         );
 
   const tags = uniqueStrings([
