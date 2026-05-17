@@ -1636,15 +1636,6 @@ export default function RoundPage() {
                         </p>
                       </div>
                     ) : null}
-                    {effectiveGeneratedImagePhase === "DONE" &&
-                    typeof latestAttempt?.score === "number" ? (
-                      <p className="absolute top-2 right-2 rounded-md border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 text-right font-mono text-sm font-black">
-                        <span className="mr-1 text-[10px] tracking-[0.12em] uppercase">
-                          {copy.common.round}
-                        </span>
-                        {latestAttempt.score}
-                      </p>
-                    ) : null}
                   </div>
                 ) : (
                   <div
