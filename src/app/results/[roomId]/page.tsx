@@ -829,10 +829,12 @@ export default function ResultsPage() {
       return null;
     }
 
-    if (liveRoomStatus === "RESULTS") {
-      return me?.isHost
-        ? copy.results.returnToLobbyHint
-        : copy.results.waitingHostReturn;
+    if (me && !me.isHost) {
+      return copy.results.waitingForHost;
+    }
+
+    if (liveRoomStatus === "RESULTS" && me?.isHost) {
+      return copy.results.returnToLobbyHint;
     }
 
     return null;
@@ -1016,11 +1018,6 @@ export default function ResultsPage() {
             </div>
             {lobbyHintMessage ? (
               <p className="text-xs font-semibold">{lobbyHintMessage}</p>
-            ) : null}
-            {!me?.isHost && !isFinalRound ? (
-              <p className="text-xs font-semibold">
-                {copy.results.hostOnlyNextStep}
-              </p>
             ) : null}
           </div>
         </header>
@@ -1631,11 +1628,6 @@ export default function ResultsPage() {
             </div>
             {lobbyHintMessage ? (
               <p className="text-xs font-semibold">{lobbyHintMessage}</p>
-            ) : null}
-            {!me?.isHost && !isFinalRound ? (
-              <p className="text-xs font-semibold">
-                {copy.results.hostOnlyNextStep}
-              </p>
             ) : null}
             {room.status === "GENERATING_ROUND" && !isFinalRound ? (
               <p className="flex items-center gap-2 text-xs font-semibold">
