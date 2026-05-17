@@ -1,8 +1,8 @@
 import type { CaptionSchema } from "@/lib/gemini/schemas";
 import type { GameMode } from "@/lib/types/game";
 
-export const MAX_STANDARD_CPU_PLAYERS = 3;
-export const MAX_IMPOSTOR_CPU_PLAYERS = 6;
+export const MAX_STANDARD_CPU_PLAYERS = 5;
+export const MAX_IMPOSTOR_CPU_PLAYERS = 5;
 
 const CPU_PROMPT_PROFILES = [
   {

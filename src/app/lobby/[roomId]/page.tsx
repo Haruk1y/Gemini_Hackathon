@@ -1,28 +1,36 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-  type WheelEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Bot,
   Brain,
   Check,
-  ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
   Copy,
   Eye,
+  EyeOff,
+  Gamepad2,
   Ghost,
+  ImageIcon,
+  ListChecks,
   LoaderCircle,
   LogOut,
+  Minus,
   Play,
-  Settings2,
+  Plus,
+  RotateCcw,
+  Send,
   Shuffle,
+  Sparkles,
+  Trophy,
+  type LucideIcon,
   Users,
+  Vote,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -52,6 +60,7 @@ import {
 } from "@/lib/game/modes";
 import { getMaxCpuPlayersForMode } from "@/lib/game/cpu";
 import type { GameMode } from "@/lib/types/game";
+import type { Language } from "@/lib/i18n/language";
 
 type ActionBusy = "ready" | "start" | "leave" | "shuffle" | null;
 type SettingsStatus = "idle" | "saving" | "saved" | "error";
@@ -64,35 +73,425 @@ interface PickerOption {
 
 interface SwipeValuePickerProps {
   label: string;
+  icon: LucideIcon;
   options: readonly PickerOption[];
   value: number;
   onChange: (value: number) => void;
   disabled?: boolean;
 }
 
-interface PlayerReadyChipProps {
-  ready: boolean;
-  pending: boolean;
+interface ModePreviewImages {
+  target: string;
+  generated: string;
 }
 
-const SWIPE_THRESHOLD = 28;
+const MODE_PREVIEW_IMAGES: Record<GameMode, ModePreviewImages> = {
+  classic: {
+    target: "/images/lobby/modes/classic-target.png",
+    generated: "/images/lobby/modes/classic-generated.png",
+  },
+  memory: {
+    target: "/images/lobby/modes/memory-target.png",
+    generated: "/images/lobby/modes/memory-generated.png",
+  },
+  change: {
+    target: "/images/lobby/modes/aha-before.png",
+    generated: "/images/lobby/modes/aha-after.png",
+  },
+  impostor: {
+    target: "/images/lobby/modes/impostor-relay.png",
+    generated: "/images/lobby/modes/impostor-generated.png",
+  },
+};
+
+const MODE_DEMO_IMAGES = {
+  changeBefore: MODE_PREVIEW_IMAGES.change.target,
+  changeAfter: MODE_PREVIEW_IMAGES.change.generated,
+} as const;
+
+const IMPOSTOR_RELAY_IMAGES = [
+  "/images/lobby/modes/impostor-target-card.png",
+  "/images/lobby/modes/impostor-crew-card.png",
+  "/images/lobby/modes/impostor-impostor-card.png",
+  "/images/lobby/modes/impostor-final-card.png",
+] as const;
+
+const MODE_DEMO_STEP_INTERVAL_MS = 3400;
+
+interface ModeGameplayStep {
+  badge: string;
+  stepLabel?: string;
+  title: string;
+  body: string;
+  prompt: string;
+  result: string;
+}
+
+interface ModeGameplayDemo {
+  stageLabel: string;
+  promptLabel: string;
+  outputLabel: string;
+  steps: readonly ModeGameplayStep[];
+}
+
+const MODE_GAMEPLAY_DEMOS: Record<
+  GameMode,
+  Record<Language, ModeGameplayDemo>
+> = {
+  classic: {
+    ja: {
+      stageLabel: "お題画像",
+      promptLabel: "プロンプト",
+      outputLabel: "生成結果",
+      steps: [
+        {
+          badge: "ESTIMATE",
+          title: "お題プロンプトを推定",
+          body: "形・色・配置を見て、AIに渡す説明文を頭の中で組み立てる。",
+          prompt:
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
+          result: "観察中",
+        },
+        {
+          badge: "TYPE",
+          title: "プロンプトを書く",
+          body: "見えている内容を、AIが再現しやすい言葉にする。",
+          prompt:
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
+          result: "入力中",
+        },
+        {
+          badge: "GENERATE",
+          title: "画像生成",
+          body: "入力したプロンプトから、AIが再現画像を生成する。",
+          prompt:
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
+          result: "生成中",
+        },
+        {
+          badge: "SCORE",
+          title: "スコアリング",
+          body: "生成画像が近いほど、高いスコアを獲得。",
+          prompt:
+            "赤いロケット、浮かぶ島々、滝、卓上のおもちゃジオラマ",
+          result: "92 pts",
+        },
+      ],
+    },
+    en: {
+      stageLabel: "Target Image",
+      promptLabel: "Prompt",
+      outputLabel: "Generated",
+      steps: [
+        {
+          badge: "ESTIMATE",
+          title: "Estimate Target Image Prompt",
+          body: "Read the target image and build the prompt you think created it.",
+          prompt:
+            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+          result: "Estimating",
+        },
+        {
+          badge: "TYPE",
+          title: "Writing Prompt",
+          body: "Turn what you see into words the image model can follow.",
+          prompt:
+            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+          result: "Typing",
+        },
+        {
+          badge: "GENERATE",
+          title: "Generate Image",
+          body: "The image model generates a new image from your estimated prompt.",
+          prompt:
+            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+          result: "Generating",
+        },
+        {
+          badge: "SCORE",
+          title: "Scoring",
+          body: "Compare the generated image with the target and score the match.",
+          prompt:
+            "red rocket, floating islands, waterfalls, tabletop toy diorama",
+          result: "92 pts",
+        },
+      ],
+    },
+  },
+  memory: {
+    ja: {
+      stageLabel: "記憶プレビュー",
+      promptLabel: "プロンプト",
+      outputLabel: "比較",
+      steps: [
+        {
+          badge: "10 SEC",
+          title: "お題画像を記憶",
+          body: "短い観察時間で、画像の配置や細部を記憶する。",
+          prompt:
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
+          result: "10 SEC",
+        },
+        {
+          badge: "TYPE",
+          title: "プロンプトを書く",
+          body: "ここからは記憶だけでプロンプトを作る。",
+          prompt:
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
+          result: "記憶中",
+        },
+        {
+          badge: "GENERATE",
+          title: "画像生成",
+          body: "覚えて入力したプロンプトから、AIが再現画像を生成する。",
+          prompt:
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
+          result: "生成中",
+        },
+        {
+          badge: "MATCH",
+          title: "スコアリング",
+          body: "覚えていた要素が多いほど、生成画像が近づく。",
+          prompt:
+            "城前の広場、青い噴水、黄色い風船、双塔、旗",
+          result: "81 pts",
+        },
+      ],
+    },
+    en: {
+      stageLabel: "Memory Preview",
+      promptLabel: "Prompt",
+      outputLabel: "Compare",
+      steps: [
+        {
+          badge: "10 SEC",
+          title: "Memorize Target Image",
+          body: "Use the short preview to remember the layout and visual details.",
+          prompt:
+            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+          result: "10 SEC",
+        },
+        {
+          badge: "TYPE",
+          title: "Writing Prompt",
+          body: "Write the prompt after the image is hidden.",
+          prompt:
+            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+          result: "Hidden",
+        },
+        {
+          badge: "GENERATE",
+          title: "Generate Image",
+          body: "The image model generates from the prompt you typed from memory.",
+          prompt:
+            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+          result: "Generating",
+        },
+        {
+          badge: "MATCH",
+          title: "Scoring",
+          body: "The closer your remembered details are, the better the score.",
+          prompt:
+            "castle plaza, blue fountain, yellow balloons, twin towers, flags",
+          result: "81 pts",
+        },
+      ],
+    },
+  },
+  change: {
+    ja: {
+      stageLabel: "変化画像",
+      promptLabel: "観察メモ",
+      outputLabel: "クリック",
+      steps: [
+        {
+          badge: "BEFORE",
+          title: "元画像を観察",
+          body: "変化前の元画像を見て、自然な状態を覚える。",
+          prompt: "バス停、ベンチ、赤いバッグ、右側の時刻表パネル",
+          result: "待機",
+        },
+        {
+          badge: "SHIFT",
+          title: "画像がだんだん変化",
+          body: "1か所だけがじわっと変わる様子を追う。",
+          prompt: "右側の時刻表パネルが砂時計形に変化",
+          result: "変化中",
+        },
+        {
+          badge: "POINT",
+          title: "変化した場所を指す",
+          body: "見つけた変化の場所をマーカーで示す。",
+          prompt: "砂時計形になった時刻表パネルを指す",
+          result: "発見",
+        },
+      ],
+    },
+    en: {
+      stageLabel: "Changing Image",
+      promptLabel: "Focus Note",
+      outputLabel: "Click",
+      steps: [
+        {
+          badge: "BEFORE",
+          title: "Observe Original Image",
+          body: "Lock in the original scene before anything moves.",
+          prompt: "bus stop, bench, red bag, right schedule panel",
+          result: "Waiting",
+        },
+        {
+          badge: "SHIFT",
+          title: "Image Gradually Changes",
+          body: "Watch one small object change while the scene stays still.",
+          prompt: "right schedule panel changes into an hourglass shape",
+          result: "Changing",
+        },
+        {
+          badge: "POINT",
+          title: "Point to Changed Spot",
+          body: "Mark the place where the image changed.",
+          prompt: "point to the hourglass-shaped schedule panel",
+          result: "Found",
+        },
+      ],
+    },
+  },
+  impostor: {
+    ja: {
+      stageLabel: "絵伝言",
+      promptLabel: "伝言プロンプト",
+      outputLabel: "投票",
+      steps: [
+        {
+          badge: "ROLE",
+          stepLabel: "STEP 1/5",
+          title: "自分の役職が表示される",
+          body: "CREWかIMPOSTERかを確認して、同じ画像リレーに参加する。",
+          prompt: "YOU ARE CREW / YOU ARE IMPOSTER",
+          result: "ROLE",
+        },
+        {
+          badge: "CREW",
+          stepLabel: "STEP 2/5",
+          title: "CREWは似た画像を生成",
+          body: "繋がれてきた画像とできるだけ似た画像を生成する。",
+          prompt: "同じロボット画家と青い風景を保つ",
+          result: "CREW",
+        },
+        {
+          badge: "IMPOSTER",
+          stepLabel: "STEP 2/5",
+          title: "IMPOSTERは少し変える",
+          body: "バレない程度に一部を変えた画像を生成する。",
+          prompt: "青い風景を少し不穏な紫の森へずらす",
+          result: "IMPOSTER",
+        },
+        {
+          badge: "RELAY",
+          stepLabel: "STEP 3/5",
+          title: "プレイヤーが順番に画像をつなぐ",
+          body: "IMPOSTER以降のCREWも、変化後の画像に引っ張られていく。",
+          prompt: "Player 1 → Player 2 → Player 3 → Final",
+          result: "RELAY",
+        },
+        {
+          badge: "VOTE",
+          stepLabel: "STEP 4/5",
+          title: "IMPOSTERに投票",
+          body: "リレー結果を見比べて、画像を変えたと思うプレイヤーに投票する。",
+          prompt: "IMPOSTERだと思うプレイヤーに投票",
+          result: "VOTE",
+        },
+        {
+          badge: "CREW",
+          stepLabel: "STEP 5/5",
+          title: "CREWの勝利条件",
+          body: "IMPOSTERを当てる、またはターゲット画像と最終画像の類似度が50pt以上ならCREW勝利。",
+          prompt: "Find IMPOSTER or keep similarity 50pt+",
+          result: "CREW WIN",
+        },
+        {
+          badge: "IMP",
+          stepLabel: "STEP 5/5",
+          title: "IMPOSTERの勝利条件",
+          body: "CREWに当てられず、ターゲット画像と最終画像の類似度を50pt未満にできればIMPOSTER勝利。",
+          prompt: "Avoid votes and drop similarity below 50pt",
+          result: "IMPOSTER WIN",
+        },
+      ],
+    },
+    en: {
+      stageLabel: "Image Relay",
+      promptLabel: "Relay Prompt",
+      outputLabel: "Vote",
+      steps: [
+        {
+          badge: "ROLE",
+          stepLabel: "STEP 1/5",
+          title: "Shown Your Role",
+          body: "Check whether you are CREW or IMPOSTER before the relay starts.",
+          prompt: "YOU ARE CREW / YOU ARE IMPOSTER",
+          result: "ROLE",
+        },
+        {
+          badge: "CREW",
+          stepLabel: "STEP 2/5",
+          title: "Crew Generates a Similar Image",
+          body: "Generate an image as similar as possible to the one passed to you.",
+          prompt: "keep the robot painter and blue landscape close",
+          result: "CREW",
+        },
+        {
+          badge: "IMPOSTER",
+          stepLabel: "STEP 2/5",
+          title: "Imposter Changes Part of It",
+          body: "Change part of the image just enough to avoid being caught.",
+          prompt: "nudge the blue landscape toward a strange purple forest",
+          result: "IMPOSTER",
+        },
+        {
+          badge: "RELAY",
+          stepLabel: "STEP 3/5",
+          title: "Players Pass Images Forward",
+          body: "After the imposter acts, later players are pulled toward the changed image.",
+          prompt: "Player 1 → Player 2 → Player 3 → Final",
+          result: "RELAY",
+        },
+        {
+          badge: "VOTE",
+          stepLabel: "STEP 4/5",
+          title: "Vote for the Imposter",
+          body: "Compare the relay results and vote for the player who changed the image.",
+          prompt: "Vote for the player you think is the imposter",
+          result: "VOTE",
+        },
+        {
+          badge: "CREW",
+          stepLabel: "STEP 5/5",
+          title: "Crew Win Condition",
+          body: "Crew wins by finding the imposter, or by keeping final similarity to the target at 50pt or higher.",
+          prompt: "Find IMPOSTER or keep similarity 50pt+",
+          result: "CREW WIN",
+        },
+        {
+          badge: "IMP",
+          stepLabel: "STEP 5/5",
+          title: "Imposter Win Condition",
+          body: "Imposter wins by not being caught and pushing final similarity below 50pt.",
+          prompt: "Avoid votes and drop similarity below 50pt",
+          result: "IMPOSTER WIN",
+        },
+      ],
+    },
+  },
+};
 
 const ROUND_OPTIONS: readonly PickerOption[] = [
-  {
-    value: 1,
-    label: "1",
-    unitLabel: "ROUND",
-  },
-  {
-    value: 2,
-    label: "2",
-    unitLabel: "ROUNDS",
-  },
-  {
-    value: 3,
-    label: "3",
-    unitLabel: "ROUNDS",
-  },
+  { value: 1, label: "1", unitLabel: "ROUND" },
+  { value: 2, label: "2", unitLabel: "ROUNDS" },
+  { value: 3, label: "3", unitLabel: "ROUNDS" },
+  { value: 4, label: "4", unitLabel: "ROUNDS" },
+  { value: 5, label: "5", unitLabel: "ROUNDS" },
 ];
 
 const STANDARD_ROUND_TIME_OPTIONS: readonly PickerOption[] =
@@ -123,6 +522,7 @@ function formatSettingsKey(
 
 function SwipeValuePicker({
   label,
+  icon: Icon,
   options,
   value,
   onChange,
@@ -134,89 +534,29 @@ function SwipeValuePicker({
     options.findIndex((option) => option.value === value),
   );
   const selectedOption = options[currentIndex] ?? options[0];
-  const previousOption = options[currentIndex - 1] ?? null;
-  const nextOption = options[currentIndex + 1] ?? null;
-  const currentIndexRef = useRef(currentIndex);
-  const dragStartYRef = useRef<number | null>(null);
-  const dragOffsetRef = useRef(0);
-  const movedRef = useRef(false);
-
-  useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
+  const canDecrease = currentIndex > 0;
+  const canIncrease = currentIndex < options.length - 1;
 
   const shiftIndex = (delta: number) => {
     if (disabled || delta === 0) return;
     const nextIndex = Math.max(
       0,
-      Math.min(options.length - 1, currentIndexRef.current + delta),
+      Math.min(options.length - 1, currentIndex + delta),
     );
-    if (nextIndex === currentIndexRef.current) return;
-    currentIndexRef.current = nextIndex;
+    if (nextIndex === currentIndex) return;
     onChange(options[nextIndex]!.value);
-  };
-
-  const finishDrag = (
-    event: PointerEvent<HTMLButtonElement>,
-    activateClickStep: boolean,
-  ) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    dragStartYRef.current = null;
-    dragOffsetRef.current = 0;
-
-    if (activateClickStep && !movedRef.current) {
-      shiftIndex(1);
-    }
-
-    movedRef.current = false;
-  };
-
-  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    dragStartYRef.current = event.clientY;
-    dragOffsetRef.current = 0;
-    movedRef.current = false;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (disabled || dragStartYRef.current == null) return;
-
-    dragOffsetRef.current += event.clientY - dragStartYRef.current;
-    dragStartYRef.current = event.clientY;
-
-    while (dragOffsetRef.current <= -SWIPE_THRESHOLD) {
-      movedRef.current = true;
-      dragOffsetRef.current += SWIPE_THRESHOLD;
-      shiftIndex(-1);
-    }
-
-    while (dragOffsetRef.current >= SWIPE_THRESHOLD) {
-      movedRef.current = true;
-      dragOffsetRef.current -= SWIPE_THRESHOLD;
-      shiftIndex(1);
-    }
-  };
-
-  const onWheel = (event: WheelEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    event.preventDefault();
-    shiftIndex(event.deltaY > 0 ? 1 : -1);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
 
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
       event.preventDefault();
       shiftIndex(-1);
       return;
     }
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
       event.preventDefault();
       shiftIndex(1);
       return;
@@ -235,24 +575,35 @@ function SwipeValuePicker({
   };
 
   return (
-    <div className="rounded-[16px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] p-2.5">
-      <p className="text-[11px] font-black tracking-[0.2em] uppercase">
-        {label}
+    <div className="grid grid-cols-[minmax(108px,0.2fr)_40px_minmax(0,1fr)_40px] items-center gap-2 py-1 sm:grid-cols-[minmax(120px,0.18fr)_42px_minmax(0,1fr)_42px]">
+      <p className="flex min-w-0 items-center gap-2 text-[15px] leading-none font-black tracking-[0.08em] uppercase md:text-base">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[2px_2px_0_var(--pmb-ink)]">
+          <Icon className="h-4 w-4 stroke-[3]" />
+        </span>
+        <span className="truncate">{label}</span>
       </p>
 
       <button
         type="button"
+        disabled={disabled || !canDecrease}
+        onClick={() => shiftIndex(-1)}
+        aria-label={`${label} -`}
+        className={[
+          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "shadow-[3px_3px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
+        ].join(" ")}
+      >
+        <Minus className="h-5 w-5 stroke-[3]" />
+      </button>
+
+      <button
+        type="button"
         disabled={disabled}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={(event) => finishDrag(event, true)}
-        onPointerCancel={(event) => finishDrag(event, false)}
-        onWheel={onWheel}
         onKeyDown={onKeyDown}
         className={[
-          "relative mt-2 h-[88px] w-full overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white text-center transition-transform duration-150",
-          "cursor-ns-resize touch-none shadow-[4px_4px_0_var(--pmb-ink)]",
-          "hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
+          "relative flex h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border-4 border-[var(--pmb-ink)] bg-[var(--pmb-base)] text-center transition-transform duration-150 sm:h-11",
+          "shadow-[4px_4px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--pmb-ink)]",
           "focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
           "disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
         ].join(" ")}
@@ -263,54 +614,963 @@ function SwipeValuePicker({
         aria-valuetext={`${selectedOption.label} ${selectedOption.unitLabel}`}
         role="spinbutton"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {previousOption
-            ? [previousOption.label, previousOption.unitLabel]
-                .filter(Boolean)
-                .join(" ")
-            : ""}
+        <span className="text-[1.55rem] leading-none font-black tracking-[-0.02em] sm:text-[1.8rem]">
+          {selectedOption.label}
         </span>
-
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2">
-          <ChevronsUpDown className="h-4 w-4 shrink-0" />
-          <span className="text-[2.55rem] leading-none font-black tracking-[-0.04em]">
-            {selectedOption.label}
+        {selectedOption.unitLabel ? (
+          <span className="text-[11px] font-black tracking-[0.2em] uppercase">
+            {selectedOption.unitLabel}
           </span>
-          {selectedOption.unitLabel ? (
-            <span className="text-[11px] font-black tracking-[0.2em] uppercase">
-              {selectedOption.unitLabel}
-            </span>
-          ) : null}
-        </span>
+        ) : null}
+      </button>
 
-        <span className="pointer-events-none absolute inset-x-0 bottom-0.5 text-[10px] font-black tracking-[0.16em] text-[color:color-mix(in_srgb,var(--pmb-ink)_40%,white)] uppercase">
-          {nextOption
-            ? [nextOption.label, nextOption.unitLabel].filter(Boolean).join(" ")
-            : ""}
-        </span>
+      <button
+        type="button"
+        disabled={disabled || !canIncrease}
+        onClick={() => shiftIndex(1)}
+        aria-label={`${label} +`}
+        className={[
+          "grid h-9 w-9 place-items-center rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white transition-transform duration-150 sm:h-10 sm:w-10",
+          "shadow-[3px_3px_0_var(--pmb-ink)] hover:translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_var(--pmb-ink)]",
+          "disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-[2px_2px_0_var(--pmb-ink)]",
+        ].join(" ")}
+      >
+        <Plus className="h-5 w-5 stroke-[3]" />
       </button>
     </div>
   );
 }
 
-function PlayerReadyChip({ ready, pending }: PlayerReadyChipProps) {
-  const { copy } = useLanguage();
-  const toneClass = ready
-    ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-    : "bg-[var(--pmb-red)] text-white";
-  const baseClass =
-    "inline-flex min-w-[92px] items-center justify-center rounded-full border-2 border-[var(--pmb-ink)] px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em]";
+function TypedPromptLine({
+  text,
+  isTyping,
+}: {
+  text: string;
+  isTyping: boolean;
+}) {
+  const [visibleText, setVisibleText] = useState(isTyping ? "" : text);
+
+  useEffect(() => {
+    if (!isTyping) {
+      setVisibleText(text);
+      return;
+    }
+
+    const durationMs = 1450;
+    let animationFrame = 0;
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const nextLength = Math.ceil(text.length * progress);
+      setVisibleText(text.slice(0, nextLength));
+
+      if (progress < 1) {
+        animationFrame = window.requestAnimationFrame(tick);
+      }
+    };
+
+    setVisibleText("");
+    animationFrame = window.requestAnimationFrame(tick);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [isTyping, text]);
 
   return (
-    <span className={[baseClass, toneClass].join(" ")}>
-      {pending ? (
-        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-      ) : ready ? (
-        copy.common.ready
-      ) : (
-        copy.common.wait
-      )}
+    <span className="relative inline-flex max-w-full items-center">
+      <span className="block truncate">{visibleText}</span>
+      {isTyping ? (
+        <motion.span
+          aria-hidden="true"
+          className="ml-0.5 h-4 w-1 rounded-full bg-[var(--pmb-ink)]"
+          animate={{ opacity: [0, 1, 1, 0] }}
+          transition={{ duration: 0.72, repeat: Infinity }}
+        />
+      ) : null}
     </span>
+  );
+}
+
+function ImpostorImageCard({
+  src,
+  label,
+  badge,
+  highlight = false,
+  delay = 0,
+}: {
+  src: string;
+  label: string;
+  badge?: string;
+  highlight?: boolean;
+  delay?: number;
+}) {
+  return (
+    <motion.div
+      initial={{ y: 10, opacity: 0, rotate: highlight ? -1.5 : 0.8 }}
+      animate={{ y: 0, opacity: 1, rotate: highlight ? -1 : 0 }}
+      transition={{ delay, duration: 0.24 }}
+      className={[
+        "relative h-full min-h-[134px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
+        highlight ? "bg-[var(--pmb-yellow)]" : "",
+      ].join(" ")}
+    >
+      <Image
+        src={src}
+        alt=""
+        fill
+        priority
+        unoptimized
+        sizes="(min-width: 1280px) 14vw, (min-width: 640px) 30vw, 90vw"
+        className="object-cover"
+      />
+      <div className="absolute inset-x-1.5 top-1.5 z-10 flex items-center justify-between gap-1">
+        <span className="truncate rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]">
+          {label}
+        </span>
+        {badge ? (
+          <span
+            className={[
+              "rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]",
+              highlight ? "bg-[var(--pmb-red)] text-white" : "bg-white",
+            ].join(" ")}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+    </motion.div>
+  );
+}
+
+function ImpostorRoleStage({ language }: { language: Language }) {
+  const roleCards = [
+    {
+      role: "CREW",
+      icon: Users,
+      body:
+        language === "ja"
+          ? "受け取った画像に寄せる。"
+          : "Match the passed image.",
+      className: "bg-[var(--pmb-green)]",
+      roleTextClassName: "text-[clamp(2rem,5vw,4.2rem)]",
+    },
+    {
+      role: "IMPOSTER",
+      icon: Ghost,
+      body:
+        language === "ja"
+          ? "バレずに少し変える。"
+          : "Shift it without getting caught.",
+      className: "bg-[var(--pmb-red)] text-white",
+      roleTextClassName: "text-[clamp(1.8rem,4.2vw,3.35rem)]",
+    },
+  ];
+
+  return (
+    <div className="grid min-h-[210px] gap-2 md:grid-cols-2">
+      {roleCards.map((card, index) => {
+        const Icon = card.icon;
+
+        return (
+          <motion.div
+            key={card.role}
+            initial={{
+              rotate: index === 0 ? -1.5 : 1.5,
+              scale: 0.94,
+              opacity: 0,
+            }}
+            animate={{
+              rotate: index === 0 ? -0.5 : 0.5,
+              scale: 1,
+              opacity: 1,
+            }}
+            transition={{ delay: index * 0.08, duration: 0.28 }}
+            className={[
+              "grid min-w-0 place-items-center overflow-hidden rounded-[16px] border-4 border-[var(--pmb-ink)] p-4 text-center shadow-[4px_4px_0_var(--pmb-ink)]",
+              card.className,
+            ].join(" ")}
+          >
+            <div className="grid min-w-0 max-w-full gap-2 px-1">
+              <Icon className="mx-auto h-8 w-8" />
+              <p className="text-[clamp(1.8rem,4vw,3.6rem)] leading-none font-black">
+                YOU ARE
+              </p>
+              <p
+                className={[
+                  "max-w-full overflow-hidden leading-none font-black whitespace-nowrap",
+                  card.roleTextClassName,
+                ].join(" ")}
+              >
+                {card.role}
+              </p>
+              <p className="mx-auto max-w-[20ch] text-sm leading-tight font-black md:text-base">
+                {card.body}
+              </p>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ImpostorGenerationStage({
+  language,
+  variant,
+}: {
+  language: Language;
+  variant: "crew" | "imposter";
+}) {
+  const isCrew = variant === "crew";
+  const incomingImage = isCrew
+    ? IMPOSTOR_RELAY_IMAGES[0]
+    : IMPOSTOR_RELAY_IMAGES[1];
+  const outputImage = isCrew
+    ? IMPOSTOR_RELAY_IMAGES[1]
+    : IMPOSTOR_RELAY_IMAGES[2];
+
+  return (
+    <div className="relative grid min-h-[210px] gap-2 md:grid-cols-2">
+      <ImpostorImageCard
+        src={incomingImage}
+        label={language === "ja" ? "受け取った画像" : "Incoming Image"}
+      />
+
+      <motion.div
+        aria-hidden="true"
+        initial={{ scale: 0.5, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ delay: 0.08, duration: 0.2 }}
+        className="absolute top-1/2 left-1/2 z-20 hidden h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-white text-base font-black shadow-[2px_2px_0_var(--pmb-ink)] md:grid"
+      >
+        →
+      </motion.div>
+
+      <ImpostorImageCard
+        src={outputImage}
+        label={language === "ja" ? "生成画像" : "Generated Image"}
+        badge={isCrew ? "CREW" : "IMPOSTER"}
+        highlight={!isCrew}
+      />
+    </div>
+  );
+}
+
+function ImpostorRelayStage({ language }: { language: Language }) {
+  const relayCards = [
+    {
+      label: language === "ja" ? "Target" : "Target",
+      src: IMPOSTOR_RELAY_IMAGES[0],
+      highlight: false,
+    },
+    {
+      label: "Player 1",
+      badge: "CREW",
+      src: IMPOSTOR_RELAY_IMAGES[1],
+      highlight: false,
+    },
+    {
+      label: "Player 2",
+      badge: "IMPOSTER",
+      src: IMPOSTOR_RELAY_IMAGES[2],
+      highlight: true,
+    },
+    {
+      label: "Player 3",
+      badge: "CREW",
+      src: IMPOSTOR_RELAY_IMAGES[3],
+      highlight: false,
+    },
+  ];
+
+  return (
+    <div className="grid min-h-[210px] grid-cols-2 gap-2 md:grid-cols-4">
+      {relayCards.map((card, index) => (
+        <div key={card.label} className="relative h-full min-w-0">
+          <ImpostorImageCard
+            src={card.src}
+            label={card.label}
+            badge={card.badge}
+            highlight={card.highlight}
+            delay={index * 0.12}
+          />
+          {index < relayCards.length - 1 ? (
+            <motion.div
+              aria-hidden="true"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: index * 0.12 + 0.1, duration: 0.2 }}
+              className="absolute top-1/2 right-[-13px] z-20 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-white text-sm font-black shadow-[2px_2px_0_var(--pmb-ink)] md:grid"
+            >
+              →
+            </motion.div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ImpostorVoteStage({ language }: { language: Language }) {
+  const voteCards = [
+    {
+      player: "Player 1",
+      voterMarks: [] as string[],
+      src: IMPOSTOR_RELAY_IMAGES[1],
+      suspect: false,
+    },
+    {
+      player: "Player 2",
+      voterMarks: ["1", "3"],
+      src: IMPOSTOR_RELAY_IMAGES[2],
+      suspect: true,
+    },
+    {
+      player: "Player 3",
+      voterMarks: ["2"],
+      src: IMPOSTOR_RELAY_IMAGES[3],
+      suspect: false,
+    },
+  ];
+  const voteRows = [
+    { voter: "Player 1", target: "Player 2" },
+    { voter: "Player 2", target: "Player 3" },
+    { voter: "Player 3", target: "Player 2" },
+  ];
+
+  return (
+    <div className="grid min-h-[210px] gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,0.24fr)]">
+      <div className="grid min-h-0 grid-cols-3 gap-2">
+        {voteCards.map((card, index) => (
+          <motion.div
+            key={card.player}
+            initial={{ y: 10, rotate: index % 2 === 0 ? -1.5 : 1.5 }}
+            animate={{ y: 0, rotate: card.suspect ? -2 : 0 }}
+            transition={{ delay: index * 0.05, duration: 0.22 }}
+            className={[
+              "relative min-h-[128px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]",
+              card.suspect ? "bg-[var(--pmb-yellow)]" : "",
+            ].join(" ")}
+          >
+            <Image
+              src={card.src}
+              alt=""
+              fill
+              priority
+              unoptimized
+              sizes="(min-width: 1280px) 12vw, (min-width: 640px) 22vw, 30vw"
+              className="object-cover"
+            />
+            <div className="absolute inset-x-1.5 top-1.5 z-10 flex items-center gap-1">
+              <span className="truncate rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]">
+                {card.player}
+              </span>
+            </div>
+            <div className="absolute right-2 bottom-2 z-10 flex flex-wrap justify-end gap-1">
+              {card.voterMarks.map((voterMark, voteIndex) => (
+                <motion.span
+                  key={voterMark}
+                  initial={{ scale: 0, y: 8, opacity: 0 }}
+                  animate={{ scale: 1, y: 0, opacity: 1 }}
+                  transition={{
+                    delay: card.suspect ? voteIndex * 0.28 + 0.18 : 0.18,
+                    duration: 0.2,
+                  }}
+                  className="grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] font-mono text-[10px] font-black shadow-[1px_1px_0_var(--pmb-ink)]"
+                >
+                  {voterMark}
+                </motion.span>
+              ))}
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid min-h-[128px] grid-rows-[auto_1fr_auto] gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+        <div className="flex items-center gap-1.5">
+          <Vote className="h-4 w-4" />
+          <p className="truncate text-sm font-black">
+            {language === "ja" ? "投票先" : "Votes"}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          {voteRows.map((voteRow, index) => (
+            <motion.div
+              key={voteRow.voter}
+              initial={{ x: 8, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: index * 0.08, duration: 0.2 }}
+              className={[
+                "flex items-center justify-between gap-2 rounded-[9px] border-2 border-[var(--pmb-ink)] px-2 py-1 text-[10px] font-black",
+                index === 0
+                  ? "bg-[var(--pmb-yellow)] shadow-[1px_1px_0_var(--pmb-ink)]"
+                  : "bg-[var(--pmb-base)]",
+              ].join(" ")}
+            >
+              <span className="truncate">{voteRow.voter}</span>
+              <span className="truncate">{voteRow.target}</span>
+            </motion.div>
+          ))}
+        </div>
+        <div className="rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-red)] px-2 py-1.5 text-center font-mono text-[12px] font-black text-white shadow-[2px_2px_0_var(--pmb-ink)]">
+          PLAYER 2: 2 / 3
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImpostorWinStage({
+  language,
+  winner,
+}: {
+  language: Language;
+  winner: "crew" | "imposter";
+}) {
+  const isCrew = winner === "crew";
+  const conditions = isCrew
+    ? [
+        language === "ja"
+          ? "IMPOSTERを当てる"
+          : "Find the imposter",
+        language === "ja"
+          ? "またはターゲット画像と最終画像の類似度が50pt以上"
+          : "or keep final similarity to the target at 50pt or higher",
+      ]
+    : [
+        language === "ja"
+          ? "CREWに当てられない"
+          : "Do not get caught by crew",
+        language === "ja"
+          ? "かつターゲット画像と最終画像の類似度を50pt未満にする"
+          : "and push final similarity below 50pt",
+      ];
+
+  return (
+    <div className="grid min-h-[210px] gap-2 md:grid-cols-[minmax(0,0.52fr)_minmax(0,0.48fr)]">
+      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-1">
+        {[
+          {
+            label: language === "ja" ? "最初の画像" : "Target Image",
+            src: IMPOSTOR_RELAY_IMAGES[0],
+          },
+          {
+            label: language === "ja" ? "最後の画像" : "Final Image",
+            src: IMPOSTOR_RELAY_IMAGES[3],
+          },
+        ].map((image, index) => (
+          <motion.div
+            key={image.label}
+            initial={{ x: -12, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: index * 0.08, duration: 0.22 }}
+            className="relative min-h-[98px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]"
+          >
+            <Image
+              src={image.src}
+              alt=""
+              fill
+              priority
+              unoptimized
+              sizes="(min-width: 1280px) 18vw, (min-width: 640px) 36vw, 90vw"
+              className="object-cover"
+            />
+            <span className="absolute top-1.5 left-1.5 z-10 rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black shadow-[1px_1px_0_var(--pmb-ink)]">
+              {image.label}
+            </span>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid gap-2">
+        <div
+          className={[
+            "grid place-items-center rounded-[14px] border-4 border-[var(--pmb-ink)] p-3 text-center shadow-[3px_3px_0_var(--pmb-ink)]",
+            isCrew
+              ? "bg-[var(--pmb-green)]"
+              : "bg-[var(--pmb-red)] text-white",
+          ].join(" ")}
+        >
+          <div>
+            {isCrew ? (
+              <Trophy className="mx-auto mb-1 h-7 w-7" />
+            ) : (
+              <Ghost className="mx-auto mb-1 h-7 w-7" />
+            )}
+            <p className="text-[10px] font-black tracking-[0.14em] uppercase">
+              {language === "ja" ? "勝利条件" : "Win Condition"}
+            </p>
+            <p className="text-[clamp(1.5rem,3vw,2.6rem)] leading-none font-black">
+              {isCrew ? "CREW" : "IMPOSTER"} WINS
+            </p>
+          </div>
+        </div>
+
+        {conditions.map((condition, index) => (
+          <motion.div
+            key={condition}
+            initial={{ x: 12, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: index * 0.1, duration: 0.22 }}
+            className="grid grid-cols-[auto_1fr] items-center gap-2 rounded-[14px] border-4 border-[var(--pmb-ink)] bg-white p-3 shadow-[3px_3px_0_var(--pmb-ink)]"
+          >
+            <span
+              className={[
+                "grid h-8 w-8 place-items-center rounded-full border-2 border-[var(--pmb-ink)]",
+                isCrew ? "bg-[var(--pmb-green)]" : "bg-[var(--pmb-red)] text-white",
+              ].join(" ")}
+            >
+              <Check className="h-5 w-5" />
+            </span>
+            <p className="min-w-0 text-xs leading-snug font-black">
+              {condition}
+            </p>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ImpostorDemoStage({
+  stepIndex,
+  language,
+}: {
+  stepIndex: number;
+  language: Language;
+}) {
+  if (stepIndex === 0) {
+    return <ImpostorRoleStage language={language} />;
+  }
+
+  if (stepIndex === 1) {
+    return <ImpostorGenerationStage language={language} variant="crew" />;
+  }
+
+  if (stepIndex === 2) {
+    return <ImpostorGenerationStage language={language} variant="imposter" />;
+  }
+
+  if (stepIndex === 3) {
+    return <ImpostorRelayStage language={language} />;
+  }
+
+  if (stepIndex === 4) {
+    return <ImpostorVoteStage language={language} />;
+  }
+
+  return (
+    <ImpostorWinStage
+      language={language}
+      winner={stepIndex === 5 ? "crew" : "imposter"}
+    />
+  );
+}
+
+function ModeGameplayPreview({
+  mode,
+  language,
+}: {
+  mode: GameMode;
+  language: Language;
+}) {
+  const demo = MODE_GAMEPLAY_DEMOS[mode][language];
+  const demoStepCount = demo.steps.length;
+  const [stepIndex, setStepIndex] = useState(0);
+  const [stepControlsVisible, setStepControlsVisible] = useState(false);
+  const step = demo.steps[stepIndex] ?? demo.steps[0];
+  const isPromptCompareMode = mode === "classic" || mode === "memory";
+  const previewTargetImage =
+    mode === "change"
+      ? MODE_DEMO_IMAGES.changeBefore
+      : MODE_PREVIEW_IMAGES[mode].target;
+  const previewGeneratedImage =
+    mode === "change"
+      ? MODE_DEMO_IMAGES.changeAfter
+      : MODE_PREVIEW_IMAGES[mode].generated;
+  const changeAfterOpacity = mode === "change" ? (stepIndex === 0 ? 0 : 1) : 0;
+  const changeAfterTransitionDuration =
+    mode === "change" && stepIndex === 1
+      ? MODE_DEMO_STEP_INTERVAL_MS / 1000
+      : 0.18;
+  const promptIsTyping = isPromptCompareMode && stepIndex === 1;
+  const targetLabel = language === "ja" ? "お題画像" : "Target Image";
+  const generatedLabel =
+    mode === "impostor"
+        ? language === "ja"
+          ? "リレー画像"
+          : "Relay Image"
+        : language === "ja"
+          ? "生成画像"
+          : "Generated Image";
+  const rankingLabel = language === "ja" ? "ランキング" : "Ranking";
+  const scoreValue =
+    mode === "memory"
+      ? "81 pts"
+      : mode === "change"
+        ? "HIT +120"
+        : "92 pts";
+  const secondaryScoreValue =
+    mode === "memory"
+      ? "67 pts"
+      : mode === "change"
+        ? "MISS 0"
+        : "74 pts";
+  const shouldHideTarget = mode === "memory" && stepIndex === 1;
+  const shouldRenderGeneratedImage =
+    !isPromptCompareMode || stepIndex >= 2;
+  const generatedImageOpacity = isPromptCompareMode
+    ? stepIndex >= 2
+      ? 1
+      : 0
+    : mode === "change"
+      ? 1
+      : stepIndex === 0
+        ? 0.35
+        : stepIndex === 1
+          ? 0.72
+          : 1;
+  const showScore = isPromptCompareMode
+    ? stepIndex === 3
+    : mode !== "impostor" && stepIndex === 2;
+  const showGeneratedPulse = isPromptCompareMode
+    ? stepIndex === 2
+    : mode !== "change" && stepIndex === 1;
+  const showRankingScores = isPromptCompareMode
+    ? stepIndex === 3
+    : stepIndex === 2;
+  const showSidePanel = mode !== "impostor";
+  const showPromptPanel = mode !== "change" && mode !== "impostor";
+  const promptText = isPromptCompareMode && stepIndex === 0 ? "" : step.prompt;
+  const impostorRoleBadge =
+    mode === "impostor"
+      ? stepIndex === 1 || stepIndex === 5
+        ? "CREW"
+        : stepIndex === 2 || stepIndex === 6
+          ? "IMPOSTER"
+          : null
+      : null;
+  const moveDemoStep = (delta: -1 | 1) => {
+    setStepIndex(
+      (current) => (current + delta + demoStepCount) % demoStepCount,
+    );
+  };
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setStepIndex((current) => (current + 1) % demoStepCount);
+    }, MODE_DEMO_STEP_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [demoStepCount, stepIndex]);
+
+  return (
+    <motion.div
+      key={mode}
+      initial={{ opacity: 0, x: 18, rotate: 0.4, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, rotate: 0, scale: 1 }}
+      exit={{ opacity: 0, x: -14, rotate: -0.4, scale: 0.98 }}
+      transition={{ type: "spring", bounce: 0.24, duration: 0.36 }}
+      onMouseEnter={() => setStepControlsVisible(true)}
+      onMouseLeave={() => setStepControlsVisible(false)}
+      onFocusCapture={() => setStepControlsVisible(true)}
+      onBlurCapture={(event) => {
+        const nextFocusedNode = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(nextFocusedNode)) {
+          setStepControlsVisible(false);
+        }
+      }}
+      className="relative isolate h-full min-h-[312px] overflow-hidden rounded-[18px] border-4 border-[var(--pmb-ink)] bg-[linear-gradient(135deg,#fff_0%,var(--pmb-base)_100%)] p-2 shadow-[5px_5px_0_var(--pmb-ink)]"
+    >
+      <div className="absolute inset-x-0 top-0 h-3 border-b-4 border-[var(--pmb-ink)] bg-[repeating-linear-gradient(90deg,var(--pmb-yellow)_0_18px,var(--pmb-blue)_18px_36px,var(--pmb-green)_36px_54px,var(--pmb-red)_54px_72px)]" />
+      <motion.div
+        className="absolute top-7 right-5 h-7 w-7 rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)]"
+        animate={{ y: [0, -7, 0], rotate: [0, 10, 0] }}
+        transition={{
+          duration: 2.6,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
+      />
+      <button
+        type="button"
+        aria-label={
+          language === "ja" ? "前の説明ステップ" : "Previous demo step"
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          moveDemoStep(-1);
+        }}
+        className={[
+          "absolute top-1/2 left-2 z-40 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--pmb-ink)] bg-white/95 shadow-[3px_3px_0_var(--pmb-ink)] transition-all duration-150",
+          stepControlsVisible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0",
+          "hover:scale-105",
+          "focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
+        ].join(" ")}
+      >
+        <ChevronLeft className="h-6 w-6 stroke-[4]" />
+      </button>
+      <button
+        type="button"
+        aria-label={
+          language === "ja" ? "次の説明ステップ" : "Next demo step"
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          moveDemoStep(1);
+        }}
+        className={[
+          "absolute top-1/2 right-2 z-40 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border-4 border-[var(--pmb-ink)] bg-white/95 shadow-[3px_3px_0_var(--pmb-ink)] transition-all duration-150",
+          stepControlsVisible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0",
+          "hover:scale-105",
+          "focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-4 focus-visible:ring-[color:color-mix(in_srgb,var(--pmb-blue)_55%,white)] focus-visible:outline-none",
+        ].join(" ")}
+      >
+        <ChevronRight className="h-6 w-6 stroke-[4]" />
+      </button>
+
+      <div
+        className={[
+          "relative z-10 grid h-full min-h-[292px] gap-2 pt-3",
+          showSidePanel
+            ? "md:grid-cols-[minmax(0,1fr)_minmax(116px,0.3fr)]"
+            : "md:grid-cols-1",
+        ].join(" ")}
+      >
+        <div
+          className={[
+            "grid min-h-0 gap-2",
+            showPromptPanel
+              ? "grid-rows-[42px_minmax(0,1fr)_64px]"
+              : "grid-rows-[42px_minmax(0,1fr)]",
+          ].join(" ")}
+        >
+          <div className="flex min-w-0 items-center justify-between gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white px-3 py-1.5 shadow-[3px_3px_0_var(--pmb-ink)]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="rounded-full border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-0.5 text-[10px] font-black tracking-[0.08em] uppercase">
+                {step.stepLabel ?? `STEP ${stepIndex + 1}/${demoStepCount}`}
+              </span>
+              {impostorRoleBadge ? (
+                <span
+                  className={[
+                    "rounded-full border-2 border-[var(--pmb-ink)] px-2 py-0.5 text-[10px] font-black tracking-[0.08em] uppercase shadow-[1px_1px_0_var(--pmb-ink)]",
+                    impostorRoleBadge === "CREW"
+                      ? "bg-[var(--pmb-green)]"
+                      : "bg-[var(--pmb-red)] text-white",
+                  ].join(" ")}
+                >
+                  {impostorRoleBadge}
+                </span>
+              ) : null}
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={`${mode}-${stepIndex}-title`}
+                  initial={{ y: 8, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -8, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="truncate text-sm font-black"
+                  data-testid="mode-demo-step-title"
+                >
+                  {step.title}
+                </motion.p>
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {mode === "impostor" ? (
+            <ImpostorDemoStage stepIndex={stepIndex} language={language} />
+          ) : mode === "change" ? (
+            <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+              <motion.div
+                className="absolute inset-0"
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.28 }}
+              >
+                <Image
+                  src={MODE_DEMO_IMAGES.changeBefore}
+                  alt=""
+                  fill
+                  priority
+                  unoptimized
+                  sizes="(min-width: 1280px) 38vw, (min-width: 640px) 72vw, 90vw"
+                  className="object-cover"
+                />
+              </motion.div>
+              <motion.div
+                className="absolute inset-0"
+                animate={{ opacity: changeAfterOpacity }}
+                transition={{
+                  duration: changeAfterTransitionDuration,
+                  ease: stepIndex === 1 ? "linear" : "easeOut",
+                }}
+              >
+                <Image
+                  src={MODE_DEMO_IMAGES.changeAfter}
+                  alt=""
+                  fill
+                  priority
+                  unoptimized
+                  sizes="(min-width: 1280px) 38vw, (min-width: 640px) 72vw, 90vw"
+                  className="object-cover"
+                />
+              </motion.div>
+              {stepIndex === 2 ? (
+                <motion.span
+                  data-testid="mode-demo-click-marker"
+                  initial={{ scale: 0.2, opacity: 0 }}
+                  animate={{ scale: [0.2, 1.18, 1], opacity: 1 }}
+                  transition={{ duration: 0.36 }}
+                  className="absolute top-[45%] left-[74%] z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-[var(--pmb-green)] bg-[var(--pmb-green)] shadow-[0_0_0_2px_white]"
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid min-h-0 gap-2 sm:grid-cols-2">
+              <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+                <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black tracking-[0.08em] uppercase shadow-[2px_2px_0_var(--pmb-ink)]">
+                  <ImageIcon className="h-3 w-3" />
+                  {targetLabel}
+                </div>
+                <Image
+                  src={previewTargetImage}
+                  alt=""
+                  fill
+                  priority
+                  unoptimized
+                  sizes="(min-width: 1280px) 18vw, (min-width: 640px) 36vw, 90vw"
+                  className="object-cover"
+                />
+                {shouldHideTarget ? (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="absolute inset-0 z-10 grid place-items-center bg-[linear-gradient(135deg,var(--pmb-base),white)]"
+                  >
+                    <div className="grid place-items-center gap-1 text-center">
+                      <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border-4 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[3px_3px_0_var(--pmb-ink)]">
+                        <EyeOff className="h-6 w-6" />
+                      </div>
+                      <p className="text-[11px] font-black uppercase">
+                        {step.result}
+                      </p>
+                    </div>
+                  </motion.div>
+                ) : null}
+              </div>
+
+              <div className="relative min-h-[130px] overflow-hidden rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white shadow-[3px_3px_0_var(--pmb-ink)]">
+                <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 rounded-full border-2 border-[var(--pmb-ink)] bg-white px-2 py-0.5 text-[9px] font-black tracking-[0.08em] uppercase shadow-[2px_2px_0_var(--pmb-ink)]">
+                  <Play className="h-3 w-3 fill-[var(--pmb-ink)]" />
+                  {generatedLabel}
+                </div>
+                {shouldRenderGeneratedImage ? (
+                  <motion.div
+                    className="absolute inset-0"
+                    initial={{ opacity: generatedImageOpacity }}
+                    animate={{ opacity: generatedImageOpacity }}
+                    transition={{ duration: 0.28 }}
+                  >
+                    <Image
+                      src={previewGeneratedImage}
+                      alt=""
+                      fill
+                      priority
+                      unoptimized
+                      sizes="(min-width: 1280px) 18vw, (min-width: 640px) 36vw, 90vw"
+                      className="object-cover"
+                    />
+                  </motion.div>
+                ) : null}
+                {showGeneratedPulse ? (
+                  <div className="absolute inset-0 z-10 grid place-items-center bg-black/30">
+                    <span className="flex items-center gap-2 rounded-[10px] border-2 border-[var(--pmb-ink)] bg-white px-3 py-2 text-[11px] font-black shadow-[2px_2px_0_var(--pmb-ink)]">
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      {step.result}
+                    </span>
+                  </div>
+                ) : null}
+                {showScore ? (
+                  <motion.p
+                    initial={{ scale: 0.7, rotate: -4 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    className="absolute top-2 right-2 z-20 rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1 font-mono text-sm font-black shadow-[2px_2px_0_var(--pmb-ink)]"
+                  >
+                    {scoreValue}
+                  </motion.p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {showPromptPanel ? (
+            <div className="grid min-h-0 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+              <div className="min-w-0">
+                <p className="mb-1 flex items-center gap-1 text-[9px] font-black tracking-[0.12em] uppercase">
+                  <Send className="h-3 w-3" />
+                  {demo.promptLabel}
+                </p>
+                <div className="min-h-[32px] px-1 py-1.5 font-mono text-[11px] font-black">
+                  <TypedPromptLine
+                    text={promptText}
+                    isTyping={promptIsTyping}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {showSidePanel ? (
+          <div className="grid min-h-[132px] grid-rows-[auto_1fr] gap-2 rounded-[12px] border-4 border-[var(--pmb-ink)] bg-white p-2 shadow-[3px_3px_0_var(--pmb-ink)]">
+            <div className="flex items-center gap-1.5">
+              <Trophy className="h-4 w-4" />
+              <p className="truncate text-sm font-black">{rankingLabel}</p>
+            </div>
+            <div className="space-y-1.5">
+              <motion.div
+                key={`${mode}-${showRankingScores ? "scored" : "pending"}-rank-main`}
+                initial={{ x: 10, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ duration: 0.22 }}
+                className="rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] px-2 py-1.5 shadow-[2px_2px_0_var(--pmb-ink)]"
+              >
+                <p className="truncate text-[11px] font-black">
+                  Player 1
+                </p>
+                <p className="font-mono text-base leading-none font-black">
+                  {showRankingScores ? scoreValue : "--"}
+                </p>
+              </motion.div>
+              <div className="rounded-[10px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-2 py-1.5">
+                <p className="truncate text-[11px] font-black">
+                  Player 2
+                </p>
+                <p className="font-mono text-sm leading-none font-black">
+                  {showRankingScores ? secondaryScoreValue : "--"}
+                </p>
+              </div>
+              <div className="hidden rounded-[10px] border-2 border-[var(--pmb-ink)] bg-white px-2 py-1.5 xl:block">
+                <p className="truncate text-[11px] font-black">
+                  Player 3
+                </p>
+                <p className="font-mono text-sm leading-none font-black">
+                  {showRankingScores ? "61 pts" : "--"}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </motion.div>
   );
 }
 
@@ -356,20 +1616,11 @@ export default function LobbyPage() {
   );
   const me = displayPlayers.find((player) => player.uid === user?.uid) ?? null;
   const currentGameMode = room?.settings?.gameMode ?? "classic";
-  const currentImageModel = room?.settings?.imageModel ?? "gemini";
   const currentTotalRounds = room?.settings?.totalRounds ?? 1;
   const currentRoundSeconds = room?.settings?.roundSeconds ?? 60;
   const currentCpuCount = room?.settings?.cpuCount ?? 0;
   const displayGameMode =
     me?.isHost && draftsReady ? draftGameMode : currentGameMode;
-  const displayTotalRounds =
-    me?.isHost && draftsReady ? draftTotalRounds : currentTotalRounds;
-  const displayRoundSeconds =
-    me?.isHost && draftsReady ? draftRoundSeconds : currentRoundSeconds;
-  const displayCpuCount =
-    me?.isHost && draftsReady ? draftCpuCount : currentCpuCount;
-  const displayChangeRepeatCount =
-    getChangeViewCountForRoundSeconds(displayRoundSeconds);
   const nextRoundPreparation = room?.nextRoundPreparation ?? null;
   const currentMode = getGameModeDefinition(displayGameMode, language);
   const gameModeOptions = getGameModeOptions(language);
@@ -377,10 +1628,6 @@ export default function LobbyPage() {
     draftGameMode === "change"
       ? CHANGE_ROUND_TIME_OPTIONS
       : STANDARD_ROUND_TIME_OPTIONS;
-  const imageModelLabel =
-    currentImageModel === "flux"
-      ? copy.lobby.fluxModel
-      : copy.lobby.geminiModel;
   const readyCount = displayPlayers.filter((player) => player.ready).length;
   const everyoneReady =
     displayPlayers.length > 0 && readyCount === displayPlayers.length;
@@ -749,7 +1996,7 @@ export default function LobbyPage() {
   }
 
   return (
-    <main className="page-enter mx-auto flex h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-hidden px-3 py-3 md:px-4 md:py-3">
+    <main className="page-enter mx-auto flex min-h-[100dvh] w-full max-w-7xl flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-3 md:px-4 md:py-3 lg:h-[100dvh] lg:overflow-hidden">
       <Card className="overflow-hidden bg-white p-0">
         <div className="flex flex-wrap items-start justify-between gap-2 bg-[var(--pmb-yellow)] px-4 py-3 md:px-5">
           <div>
@@ -809,65 +2056,44 @@ export default function LobbyPage() {
         </div>
       </Card>
 
-      <section className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)]">
-        <Card className="relative flex min-h-0 flex-col bg-white p-3 md:p-3.5">
+      <section className="grid flex-1 gap-2 lg:min-h-0 lg:grid-cols-[minmax(220px,250px)_minmax(0,1fr)] xl:grid-cols-[minmax(230px,260px)_minmax(0,1fr)]">
+        <Card className="relative flex flex-col bg-white p-3 md:p-3.5 lg:min-h-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
+            <h2 className="flex items-center gap-2 text-2xl font-black md:text-[1.7rem]">
               <Users className="h-5 w-5" /> {copy.lobby.players}
             </h2>
-            <Badge
-              className={
-                everyoneReady
-                  ? "bg-[var(--pmb-green)] text-[var(--pmb-ink)]"
-                  : "bg-[var(--pmb-base)] text-[var(--pmb-ink)]"
-              }
-            >
-              {displayPlayers.length > 0
-                ? copy.lobby.readyCount(readyCount, displayPlayers.length)
-                : copy.lobby.readyCount(0, 0)}
-            </Badge>
           </div>
 
           <div className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-            {displayPlayers.map((player) => (
-              <div
-                key={player.uid}
-                className="flex items-center justify-between gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] bg-[var(--pmb-base)] px-3 py-2"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-black md:text-[15px]">
-                    {player.displayName}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
+            {displayPlayers.map((player) => {
+              const isSelf = player.uid === user?.uid;
+
+              return (
+                <div
+                  key={player.uid}
+                  className={[
+                    "flex items-center gap-2 rounded-[14px] border-2 border-[var(--pmb-ink)] px-3 py-2",
+                    isSelf ? "bg-[var(--pmb-yellow)]" : "bg-[var(--pmb-base)]",
+                  ].join(" ")}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-black md:text-[15px]">
+                      {player.displayName}
+                    </span>
                     {player.kind === "cpu" ? (
-                      <Badge className="bg-[var(--pmb-base)] px-2 py-0 text-[10px]">
-                        <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
-                      </Badge>
-                    ) : null}
-                    {player.uid === user?.uid ? (
                       <Badge className="bg-white px-2 py-0 text-[10px]">
-                        {copy.common.you}
-                      </Badge>
-                    ) : null}
-                    {player.isHost ? (
-                      <Badge className="px-2 py-0 text-[10px]">
-                        {copy.common.host}
+                        <Bot className="mr-1 h-3 w-3" /> {copy.common.cpu}
                       </Badge>
                     ) : null}
                   </div>
                 </div>
-
-                <PlayerReadyChip
-                  ready={player.ready}
-                  pending={player.uid === user?.uid && actionBusy === "ready"}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="relative mt-3 border-t-4 border-[var(--pmb-ink)] pt-2">
             {me?.isHost ? (
-              <div className="absolute right-0 bottom-full mb-3">
+              <div className="mb-2 sm:absolute sm:right-0 sm:bottom-full sm:mb-3">
                 <Button
                   type="button"
                   variant="ghost"
@@ -937,37 +2163,11 @@ export default function LobbyPage() {
           </div>
         </Card>
 
-        <Card className="flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-2xl md:text-[1.7rem]">
-              <Settings2 className="h-5 w-5" /> {copy.lobby.gameSettings}
+        <Card className="relative flex min-w-0 flex-col overflow-x-hidden bg-white p-3 md:p-3.5 lg:min-h-0">
+          <div className="flex items-center gap-2">
+            <h2 className="flex items-center gap-2 text-3xl leading-none font-black md:text-[2.15rem]">
+              <Gamepad2 className="h-6 w-6" /> {copy.lobby.gameMode}
             </h2>
-            <div className="flex flex-wrap justify-end gap-1.5">
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {currentMode.label}
-              </Badge>
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {imageModelLabel}
-              </Badge>
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayTotalRounds} {copy.common.rounds}
-              </Badge>
-              <Badge className="bg-[var(--pmb-base)] px-2.5 py-0.5 text-[11px]">
-                {displayGameMode === "change"
-                  ? `${displayChangeRepeatCount} ${
-                      displayChangeRepeatCount === 1 ? "VIEW" : "VIEWS"
-                    }`
-                  : `${displayRoundSeconds} ${copy.common.seconds}`}
-              </Badge>
-              {displayGameMode !== "change" ? (
-                <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                  {displayCpuCount} {copy.common.cpu}
-                </Badge>
-              ) : null}
-              <Badge className="bg-white px-2.5 py-0.5 text-[11px]">
-                {displayPlayers.length} {copy.common.players}
-              </Badge>
-            </div>
           </div>
 
           {settingsStatusMessage ? (
@@ -981,14 +2181,8 @@ export default function LobbyPage() {
             </div>
           ) : null}
 
-          <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">
-              {copy.lobby.gameMode}
-            </h3>
-          </div>
-
-          <div className="-mx-1 mt-2 overflow-x-auto overflow-y-hidden px-1 pb-0.5">
-            <div className="flex min-w-max snap-x snap-mandatory gap-2 lg:min-w-0 lg:flex-wrap">
+          <div className="mt-3 grid items-stretch gap-3 xl:min-h-0 xl:grid-cols-[minmax(150px,0.24fr)_minmax(0,0.76fr)]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:min-h-0 xl:grid-cols-1">
               {gameModeOptions.map((mode) => {
                 const selected = draftGameMode === mode.mode;
                 const Icon =
@@ -996,12 +2190,15 @@ export default function LobbyPage() {
                     ? Eye
                     : mode.mode === "memory"
                       ? Brain
-                      : Ghost;
+                      : mode.mode === "change"
+                        ? Sparkles
+                        : Ghost;
 
                 return (
                   <button
                     key={mode.mode}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => {
                       if (!hostCanEdit) return;
                       const enteringChangeMode =
@@ -1022,44 +2219,53 @@ export default function LobbyPage() {
                     }}
                     disabled={!hostCanEdit}
                     className={[
-                      "flex min-h-[146px] w-[min(78vw,320px)] snap-start flex-col rounded-[16px] border-4 p-2.5 text-left transition-transform duration-150 lg:min-h-[138px] lg:min-w-[260px] lg:flex-1 lg:basis-[280px]",
+                      "group relative flex min-h-[58px] w-full items-center justify-between gap-2 overflow-hidden rounded-[16px] border-4 px-3 py-2 text-left transition-all duration-150 xl:min-h-[72px]",
                       "disabled:cursor-not-allowed disabled:opacity-70",
                       selected
                         ? "border-[var(--pmb-ink)] bg-[var(--pmb-yellow)] shadow-[5px_5px_0_var(--pmb-ink)]"
-                        : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)]",
+                        : "border-[var(--pmb-ink)] bg-[var(--pmb-base)] shadow-[3px_3px_0_var(--pmb-ink)] hover:-translate-y-0.5 hover:bg-white hover:shadow-[4px_4px_0_var(--pmb-ink)]",
                     ].join(" ")}
                   >
-                    <div className="flex min-h-[60px] items-start justify-between gap-3">
-                      <div className="flex min-h-[46px] flex-col justify-start">
-                        <p className="text-[11px] font-black tracking-[0.18em] uppercase">
-                          {mode.englishName}
-                        </p>
-                        <h3 className="mt-1 text-lg leading-tight font-black">
-                          {mode.label}
-                        </h3>
-                      </div>
-                      <div className="shrink-0 rounded-full border-2 border-[var(--pmb-ink)] bg-white p-1.5">
-                        <Icon className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <p className="mt-2 min-h-[2.45rem] text-[13px] leading-[1.3] font-semibold">
-                      {mode.description}
-                    </p>
+                    <span className="flex min-w-0 items-center">
+                      <span className="block truncate text-[0.98rem] leading-tight font-black">
+                        {mode.label}
+                      </span>
+                    </span>
+                    <span
+                      className={[
+                        "grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 border-[var(--pmb-ink)] bg-white transition-transform duration-150",
+                        selected ? "rotate-[-5deg]" : "group-hover:rotate-6",
+                      ].join(" ")}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </span>
                   </button>
                 );
               })}
             </div>
+
+            <div className="min-w-0" aria-live="polite">
+              <AnimatePresence mode="wait">
+                <ModeGameplayPreview
+                  key={`${currentMode.mode}-${language}`}
+                  mode={currentMode.mode}
+                  language={language}
+                />
+              </AnimatePresence>
+            </div>
           </div>
 
-          <div className="mt-3">
-            <h3 className="text-lg leading-none md:text-xl">
-              {copy.lobby.advancedSettings}
+          <div className="mt-4 border-t-4 border-[var(--pmb-ink)] pt-3 md:mt-5">
+            <h3 className="flex items-center gap-2 text-2xl leading-none md:text-[1.85rem]">
+              <ListChecks className="h-6 w-6" />
+              {language === "ja" ? "ゲームルール" : "Game Rule"}
             </h3>
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-2 space-y-2">
             <SwipeValuePicker
               label="Rounds"
+              icon={RotateCcw}
               options={ROUND_OPTIONS}
               value={draftTotalRounds}
               onChange={setDraftTotalRounds}
@@ -1070,6 +2276,7 @@ export default function LobbyPage() {
               label={
                 draftGameMode === "change" ? copy.lobby.repeatViews : "Time"
               }
+              icon={Clock3}
               options={roundTimeOptions}
               value={draftRoundSeconds}
               onChange={setDraftRoundSeconds}
@@ -1078,6 +2285,7 @@ export default function LobbyPage() {
             {draftGameMode !== "change" ? (
               <SwipeValuePicker
                 label="CPU"
+                icon={Bot}
                 options={cpuOptions}
                 value={draftCpuCount}
                 onChange={setDraftCpuCount}

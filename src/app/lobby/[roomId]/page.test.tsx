@@ -163,6 +163,7 @@ describe("LobbyPage", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -186,7 +187,7 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("shows READY as a static chip and exposes the language toggle", () => {
+  it("shows a compact players list and exposes the language toggle", () => {
     render(
       <LanguageProvider initialLanguage="en">
         <LobbyPage />
@@ -204,11 +205,136 @@ describe("LobbyPage", () => {
           '[role="group"][aria-label="Display language"]',
         ),
     ).not.toBeNull();
-    expect(screen.getAllByText("READY").length).toBeGreaterThan(0);
+    expect(screen.queryByText("2 PLAYERS")).toBeNull();
+    expect(screen.queryByText("READY")).toBeNull();
+    expect(screen.queryByText("YOU")).toBeNull();
+    expect(screen.queryByText("HOST")).toBeNull();
+    expect(
+      screen.getByText("Alice").parentElement?.parentElement?.className,
+    ).toContain("bg-[var(--pmb-yellow)]");
     expect(apiPostMock).not.toHaveBeenCalledWith("/api/rooms/ready", {
       roomId: "ROOM1",
       ready: false,
     });
+  });
+
+  it("shows all game modes without scroll controls", () => {
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Classic" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Memory Match" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Aha Moment" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Art Impostor" })).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Scroll game modes down" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Scroll game modes up" }),
+    ).toBeNull();
+  });
+
+  it("updates the mode detail panel after selecting a game mode", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    expect(
+      screen.queryByText(
+        "The standard mode where you create prompts while looking at the target image.",
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Estimate Target Image Prompt")).not.toBeNull();
+    expect(screen.getByText("STEP 1/4")).not.toBeNull();
+    expect(screen.getByText("Target Image")).not.toBeNull();
+    expect(screen.getByText("Generated Image")).not.toBeNull();
+    expect(screen.getByText("Ranking")).not.toBeNull();
+    expect(screen.queryByText("Best")).toBeNull();
+    expect(screen.getByText("Prompt")).not.toBeNull();
+    expect(screen.queryByText("Prompt Text")).toBeNull();
+    expect(
+      container.querySelector('img[src*="classic-generated"]'),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Next demo step" }));
+    await waitFor(() => {
+      expect(screen.getByText("Writing Prompt")).not.toBeNull();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Previous demo step" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Estimate Target Image Prompt")).not.toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Memory Match/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Memorize Target Image")).not.toBeNull();
+    });
+    expect(
+      container.querySelector('img[src*="memory-generated"]'),
+    ).toBeNull();
+    expect(screen.getAllByText("Memory Match").length).toBeGreaterThan(0);
+    expect(screen.getByText("STEP 1/4")).not.toBeNull();
+    expect(screen.getAllByText("Prompt").length).toBeGreaterThan(0);
+    expect(screen.getByText("Ranking")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Aha Moment/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Observe Original Image")).not.toBeNull();
+    });
+    expect(screen.queryByText("Action Stage")).toBeNull();
+    expect(screen.queryByText("Prompt Text")).toBeNull();
+    expect(screen.getByText("Ranking")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Art Impostor/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Shown Your Role")).not.toBeNull();
+    });
+    expect(screen.getByText("STEP 1/5")).not.toBeNull();
+    expect(screen.queryByText("Relay Image")).toBeNull();
+    expect(screen.queryByText("Generation")).toBeNull();
+    expect(screen.getAllByText("YOU ARE").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("IMPOSTER").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Vote Phase")).toBeNull();
+  });
+
+  it("registers the mode demo auto-advance without saving room settings", async () => {
+    const intervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation(
+        () => 1 as unknown as ReturnType<typeof window.setInterval>,
+      );
+
+    try {
+      render(
+        <LanguageProvider initialLanguage="en">
+          <LobbyPage />
+        </LanguageProvider>,
+      );
+
+      apiPostMock.mockClear();
+
+      await waitFor(() => {
+        expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 3400);
+      });
+      expect(apiPostMock).not.toHaveBeenCalledWith(
+        "/api/rooms/settings",
+        expect.anything(),
+      );
+    } finally {
+      intervalSpy.mockRestore();
+    }
   });
 
   it("auto-readies again when the lobby page is visited again later", async () => {
@@ -489,7 +615,7 @@ describe("LobbyPage", () => {
     );
 
     const repeatPicker = screen.getByRole("spinbutton", {
-      name: "Change Repeat",
+      name: "Change Views",
     });
     expect(repeatPicker.getAttribute("aria-valuetext")).toBe("1 VIEW");
 
@@ -507,7 +633,72 @@ describe("LobbyPage", () => {
     });
   });
 
-  it("allows classic mode to save up to three CPU players", async () => {
+  it("allows classic mode to save expanded round and time limits", async () => {
+    roomSyncState = {
+      ...roomSyncState,
+      snapshot: createLobbySnapshot({
+        meReady: true,
+        includeGuest: false,
+      }),
+    };
+
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="en">
+        <LobbyPage />
+      </LanguageProvider>,
+    );
+
+    const roundsPicker = screen.getByRole("spinbutton", {
+      name: "Change Rounds",
+    });
+    expect(roundsPicker.getAttribute("aria-valuemax")).toBe("5");
+
+    roundsPicker.focus();
+    await user.keyboard("{End}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          totalRounds: 5,
+        }),
+      });
+    });
+
+    const timePicker = screen.getByRole("spinbutton", {
+      name: "Change Time",
+    });
+    expect(timePicker.getAttribute("aria-valuemax")).toBe("120");
+
+    timePicker.focus();
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          roundSeconds: 75,
+        }),
+      });
+    });
+
+    await user.keyboard("{End}");
+
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith("/api/rooms/settings", {
+        roomId: "ROOM1",
+        settings: expect.objectContaining({
+          gameMode: "classic",
+          roundSeconds: 120,
+        }),
+      });
+    });
+  });
+
+  it("allows classic mode to save up to five CPU players", async () => {
     roomSyncState = {
       ...roomSyncState,
       snapshot: createLobbySnapshot({
@@ -526,7 +717,7 @@ describe("LobbyPage", () => {
     const cpuPicker = screen.getByRole("spinbutton", {
       name: "Change CPU",
     });
-    expect(cpuPicker.getAttribute("aria-valuemax")).toBe("3");
+    expect(cpuPicker.getAttribute("aria-valuemax")).toBe("5");
 
     cpuPicker.focus();
     await user.keyboard("{End}");
@@ -536,7 +727,7 @@ describe("LobbyPage", () => {
         roomId: "ROOM1",
         settings: expect.objectContaining({
           gameMode: "classic",
-          cpuCount: 3,
+          cpuCount: 5,
         }),
       });
     });

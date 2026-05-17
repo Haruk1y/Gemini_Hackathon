@@ -42,7 +42,9 @@ export const CHANGE_ROUND_SECONDS_OPTIONS = [
   getChangeRoundSecondsForViewCount(2),
   getChangeRoundSecondsForViewCount(3),
 ] as const;
-export const STANDARD_ROUND_SECONDS_OPTIONS = [30, 45, 60] as const;
+export const STANDARD_ROUND_SECONDS_OPTIONS = [
+  15, 30, 45, 60, 75, 90, 105, 120,
+] as const;
 export const STANDARD_DEFAULT_ROUND_SECONDS = 60;
 const SECOND_MS = 1000;
 
@@ -118,7 +120,7 @@ export const GAME_MODE_DEFINITIONS: Record<GameMode, GameModeDefinitionSource> =
     impostor: {
       mode: "impostor",
       englishName: "Impostor",
-      label: { ja: "Art Impostor", en: "Art Impostor" },
+      label: { ja: "ニセ画家を探せ", en: "Art Impostor" },
       shortLabel: { ja: "人狼", en: "Impostor" },
       description: {
         ja: "1人だけ人狼が紛れ込み、絵伝言の流れをこっそり壊すモード。",
