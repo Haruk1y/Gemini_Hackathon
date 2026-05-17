@@ -27,7 +27,7 @@ function applyCorsHeaders(headers: Headers, origin: string) {
   headers.append("Vary", "Origin");
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const origin = request.headers.get("origin");
 
   if (request.method === "OPTIONS") {
