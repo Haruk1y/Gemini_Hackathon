@@ -195,6 +195,7 @@ describe("LobbyPage", () => {
     );
 
     expect(screen.queryByRole("button", { name: "READY" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "PrompDojo" })).not.toBeNull();
     expect(
       screen.queryByRole("group", { name: "Display language" }),
     ).toBeNull();
