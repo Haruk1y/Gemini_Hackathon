@@ -29,7 +29,6 @@ import {
   cpuRewriteSystemPrompt,
   cpuRewriteUserPrompt,
   gmSystemPrompt,
-  gmUserPrompt,
   validateSingleChangePrompt,
 } from "@/lib/gemini/prompts";
 import {
@@ -400,7 +399,7 @@ function promptKeywords(prompt: string): string[] {
 function extractPromptText(text: string): string | null {
   const fenced = text.match(/```(?:text)?\s*([\s\S]*?)```/i)?.[1] ?? text;
   const withoutPrefix = fenced.replace(/^prompt\s*:\s*/i, "").trim();
-  const normalized = normalizeText(withoutPrefix, 500);
+  const normalized = normalizeText(withoutPrefix, 1000);
   return normalized.length > 0 ? normalized : null;
 }
 
@@ -513,7 +512,7 @@ function buildGmPromptFromText(
             "no text",
             `aspect ratio ${aspectRatio}`,
           ].join(", "),
-          500,
+          1000,
         );
 
   const tags = uniqueStrings([
@@ -602,7 +601,7 @@ function buildChangeScenePromptFromText(
             "no logo",
             `aspect ratio ${aspectRatio}`,
           ].join(", "),
-          500,
+          1000,
         );
 
   const tags = uniqueStrings([
@@ -813,15 +812,7 @@ export async function generateGmPrompt(params: {
           contents: [
             {
               role: "user",
-              parts: [
-                { text: gmSystemPrompt(params.settings, stylePreset) },
-                {
-                  text: gmUserPrompt({
-                    aspectRatio: params.settings.aspectRatio,
-                    stylePreset,
-                  }),
-                },
-              ],
+              parts: [{ text: gmSystemPrompt(params.settings, stylePreset) }],
             },
           ],
         }),
@@ -1337,7 +1328,10 @@ export async function scoreImageSimilarity(params: {
                 },
                 {
                   text: [
-                    "Scoring rubric: subject 35, composition 20, colors 15, background/props 20, style 10.",
+                    "Scoring rubric: subject 30, background/props 25, composition 20, colors 15, style 10.",
+                    "Use the full 0-100 integer scale. Do not round to the nearest 5 or 10.",
+                    "Small visual differences should affect the score by 1 to 4 points when appropriate.",
+                    "Only use multiples of 5 when the image quality genuinely lands on that exact value.",
                     "Return at most 6 matchedElements and at most 6 missingElements.",
                     `Write matchedElements, missingElements, and note in ${visualJudgeResponseLanguage(language)}.`,
                     "Return JSON only, and make score an integer.",

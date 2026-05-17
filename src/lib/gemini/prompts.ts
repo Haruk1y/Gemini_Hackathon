@@ -12,31 +12,26 @@ export function gmSystemPrompt(
   stylePreset: GmStylePreset,
 ): string {
   return [
-    "あなたは画像生成ゲームのゲームマスターです。",
-    `今回の画風テーマは "${stylePreset.label}" です。`,
-    "毎回同じビビッドなステッカー調に寄らず、指定された画風で遊び心のあるお題を作成してください。",
-    "著作権リスクを避けるため、有名キャラクター、ロゴ、実在ブランド文字列は避けてください。",
-    "出力は、画像生成にそのまま使える完成済みの英語プロンプト1本だけにしてください。",
-    "JSON、Markdown、説明文、前置き、箇条書きは不要です。",
-    "構図は複雑にしすぎず、主役は1つ、重要小物は2〜3個、背景は1シーンまでに抑えてください。",
-    "photoreal すぎる描写、群衆、細かすぎる情報量、文字要素は避けてください。",
-    `出力はアスペクト比 ${settings.aspectRatio} を想定した内容にしてください。`,
-  ].join("\n");
-}
-
-export function gmUserPrompt(params: {
-  aspectRatio: AspectRatio;
-  stylePreset: GmStylePreset;
-}): string {
-  return [
-    `アスペクト比 ${params.aspectRatio} で生成しやすいお題を1つ作成。`,
-    "被写体、背景、行動、構図、光、色、質感を具体化する。",
-    "テキストは画像内に入れない。",
-    `画風は ${params.stylePreset.label} に固定する。`,
-    `スタイル表現には "${params.stylePreset.promptStyle}", "${params.stylePreset.texture}", "${params.stylePreset.palette}" を反映する。`,
-    "ひと目でテーマが伝わる具体的な1シーンにする。",
-    "主役は1つ、重要小物は2〜3個まで、背景はシンプルに保つ。",
-    "返答は英語プロンプト1本のみ。",
+    "# Task",
+    "- Write one playful, readable, production-ready English prompt for generating a target image in an image-generation guessing game.",
+    "",
+    "# Style",
+    `- Visual style: ${stylePreset.label}.`,
+    `- Style details: ${stylePreset.promptStyle}; ${stylePreset.texture}; ${stylePreset.palette}.`,
+    "",
+    "# Content Requirements",
+    "- Follow the selected style precisely.",
+    "- Specify a concrete subject, setting, action, composition, lighting, colors, and material qualities.",
+    "- Keep the composition simple: one main subject, two or three important props, and one readable background scene.",
+    `- Make the prompt suitable for aspect ratio ${settings.aspectRatio}.`,
+    "",
+    "# Constraints",
+    "- Avoid copyright risk: no famous characters, logos, real brand names, trademarks, or readable text.",
+    "- Avoid photorealism, crowds, excessive detail, tiny unreadable elements, and text elements.",
+    "",
+    "# Output Format",
+    "- Return exactly one finished English image-generation prompt as plain text that can be sent directly to an image model.",
+    "- Do not return JSON, Markdown, explanation, preface, labels, or bullet points.",
   ].join("\n");
 }
 
@@ -66,9 +61,9 @@ export function changeSceneUserPrompt(params: {
 }
 
 export const captionPrompt = [
-  "この画像をゲーム採点用に説明してください。",
-  "主役・小物・配色・構図・スタイルを具体的に分解。",
-  "推測ではなく見えている内容を優先。",
+  "Describe this image for game scoring.",
+  "Break down the visible scene, main subjects, key objects, colors, composition, and visual style.",
+  "Prioritize what is actually visible over guesses or inferred context.",
 ].join("\n");
 
 export function changeEditPlanPrompt(caption: CaptionSchema): string {
