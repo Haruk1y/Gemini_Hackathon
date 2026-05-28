@@ -1,10 +1,6 @@
-import {
-  generateImage as generateGeminiImage,
-} from "@/lib/gemini/client";
-import { generateFluxImage } from "@/lib/images/flux-vertex";
-import {
-  type GeneratedImage,
-} from "@/lib/images/types";
+import { generateImage as generateGeminiImage } from "@/lib/gemini/client";
+import { generateFluxImage } from "@/lib/images/flux-fal";
+import { type GeneratedImage } from "@/lib/images/types";
 import {
   normalizeImageModel,
   type AspectRatio,
@@ -12,7 +8,11 @@ import {
 } from "@/lib/types/game";
 
 export type { GeneratedImage } from "@/lib/images/types";
-export { imageToBuffer, imageToPublicUrl, placeholderImageUrl } from "@/lib/images/types";
+export {
+  imageToBuffer,
+  imageToPublicUrl,
+  placeholderImageUrl,
+} from "@/lib/images/types";
 
 export async function generateImage(params: {
   prompt: string;

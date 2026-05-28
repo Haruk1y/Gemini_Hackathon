@@ -8,18 +8,16 @@
 - 本番ブランチは `main`
 - ローカル検証は `npm run test` と `npm run build` で済ませる
 - Gemini は `GEMINI_API_KEY` を使う
-- Flux は Vertex custom endpoint を使う
+- Flux は fal.ai を使う
 
-## 認証方針
+## Flux 認証方針
 
-このプロジェクトの Vertex 本番認証は、現時点では `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` を使います。
+このプロジェクトの Flux 本番認証は `FAL_KEY` を使います。Vertex custom endpoint は旧構成の fallback 扱いです。
 
 理由:
 
-- 対象 GCP project では、org policy により `https://oidc.vercel.com` を issuer にした Workload Identity Federation provider 作成が拒否される
-- そのため `Vercel OIDC + GCP WIF` をこの project では現時点で構成できない
-
-将来 org policy が変わったら、`GCP_*` を使う WIF 構成へ切り替え可能です。アプリ側のコードは両方に対応しています。
+- Vertex custom endpoint は ready / active な endpoint 維持コストが重い
+- fal.ai の Klein 4B endpoint は従量課金で、ハッカソン/個人運用に向く
 
 ## Vercel Production に入れる env
 
@@ -32,15 +30,13 @@
 - `UPSTASH_REDIS_REST_TOKEN`
 - `BLOB_READ_WRITE_TOKEN`
 - `CRON_SECRET`
-- `IMAGE_PROVIDER_DEFAULT=gemini`
+- `IMAGE_PROVIDER_DEFAULT=flux`
 - `MOCK_GEMINI=false`
 - `GEMINI_TEXT_MODEL=gemini-2.5-flash`
 - `GEMINI_IMAGE_MODEL=gemini-2.5-flash-image`
-- `VERTEX_PROJECT_ID`
-- `VERTEX_LOCATION`
-- `VERTEX_ENDPOINT_ID`
-- `VERTEX_ENDPOINT_HOST`
-- `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON`
+- `FAL_KEY`
+- `FLUX_MODEL=fal-ai/flux-2/klein/4b`
+- `FLUX_EDIT_MODEL=fal-ai/flux-2/klein/4b/edit`
 
 この project では Production に `GOOGLE_APPLICATION_CREDENTIALS` は設定しません。
 
@@ -57,14 +53,6 @@
 - asset の配信先だけ別にしたいときだけ `ASSET_PREFIX` を使う
 - クライアント向け origin を `APP_BASE_URL` と別にしたいときだけ `NEXT_PUBLIC_APP_ORIGIN` を使う
 
-## Google Cloud 側
-
-Flux 用の service account には、Vertex endpoint を持つ project で最低でも次の権限が必要です。
-
-- `roles/aiplatform.user`
-
-この service account の JSON key を発行し、その JSON 全体を `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` として Vercel Production に入れます。
-
 ## CLI 例
 
 Production env を確認:
@@ -78,14 +66,12 @@ Production 用 env を追加:
 
 ```bash
 echo "https://your-project.vercel.app" | npx vercel env add APP_BASE_URL production
-echo "gemini" | npx vercel env add IMAGE_PROVIDER_DEFAULT production
+echo "flux" | npx vercel env add IMAGE_PROVIDER_DEFAULT production
+echo "fal-ai/flux-2/klein/4b" | npx vercel env add FLUX_MODEL production
+echo "fal-ai/flux-2/klein/4b/edit" | npx vercel env add FLUX_EDIT_MODEL production
 ```
 
-service account JSON を Production に追加:
-
-```bash
-cat /path/to/vertex-ai-key.json | npx vercel env add GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON production
-```
+`FAL_KEY` と `GEMINI_API_KEY` は Vercel Dashboard か `npx vercel env add ... production` で secret として追加します。
 
 `SESSION_SECRET` を設定し直す:
 

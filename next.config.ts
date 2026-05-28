@@ -7,8 +7,9 @@ import {
   resolvePublicAppOrigin,
 } from "./src/lib/config/public-origin";
 
-const publicAppOrigin = resolvePublicAppOrigin(process.env);
-const assetPrefix = resolveAssetPrefix(process.env);
+const isLocalDev = process.env.NODE_ENV === "development";
+const publicAppOrigin = isLocalDev ? "" : resolvePublicAppOrigin(process.env);
+const assetPrefix = isLocalDev ? "" : resolveAssetPrefix(process.env);
 
 const nextConfig: NextConfig = {
   turbopack: {

@@ -64,6 +64,10 @@ Optional values:
 - `VERTEX_ENDPOINT_ID`
 - `VERTEX_ENDPOINT_HOST`
 - `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON`
+- `FAL_KEY`
+- `FLUX_MODEL`
+- `FLUX_EDIT_MODEL`
+- `FLUX_NUM_INFERENCE_STEPS`
 - `GCP_PROJECT_ID`
 - `GCP_PROJECT_NUMBER`
 - `GCP_SERVICE_ACCOUNT_EMAIL`
@@ -75,10 +79,8 @@ Notes:
 - `GEMINI_API_KEY` is still required even when room image generation uses Flux. GM prompt generation, CPU rewrite, captioning, and image judging remain on Gemini.
 - `IMAGE_PROVIDER_DEFAULT` controls the default Create Room image model on the home screen.
 - `GEMINI_PROMPT_MODEL_DEFAULT` and `GEMINI_JUDGE_MODEL_DEFAULT` control the default `Prompt Model` / `Judge Model` toggles on the home screen.
-- `VERTEX_PROJECT_ID` can fall back to `GCP_PROJECT_ID`, but setting both explicitly is the least confusing option.
-- Local Flux development uses `gcloud auth application-default login`.
-- Vercel production in this project currently uses `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` for Flux because the target GCP org blocks Vercel OIDC provider creation.
-- If your GCP org later allows `https://oidc.vercel.com`, the app still supports `Vercel OIDC + GCP Workload Identity Federation` via the full `GCP_*` block.
+- `FAL_KEY` enables Flux image generation through fal.ai. The default fal model is `fal-ai/flux-2/klein/4b`, with `fal-ai/flux-2/klein/4b/edit` used for image-to-image edits.
+- The `VERTEX_*` / `GCP_*` variables are legacy fallback settings for the old Vertex custom endpoint Flux provider.
 
 ## Local Development
 
@@ -91,13 +93,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-If you want to use Flux locally, set the `VERTEX_*` environment variables and authenticate Application Default Credentials before starting the app:
-
-```bash
-gcloud auth application-default login
-```
-
-The server prefers `Vercel OIDC + GCP Workload Identity Federation` when the WIF environment variables are present. If they are not present, it falls back to local ADC.
+If you want to use Flux locally, set `FAL_KEY`. `FLUX_MODEL` and `FLUX_EDIT_MODEL` are optional and default to the fal.ai Klein 4B endpoints.
 
 Gameplay note:
 
@@ -170,10 +166,9 @@ Deploy the Next.js app to Vercel Production only. Preview is not part of the sup
 - Set `SESSION_SECRET`, `CRON_SECRET`, and `GEMINI_API_KEY`
 - Set `IMAGE_PROVIDER_DEFAULT=flux` if you want new rooms to default to Flux
 - Set `GEMINI_PROMPT_MODEL_DEFAULT=flash-lite` and `GEMINI_JUDGE_MODEL_DEFAULT=flash-lite` if you want the debug toggles to default to Flash-Lite
-- Set `VERTEX_PROJECT_ID`, `VERTEX_LOCATION`, `VERTEX_ENDPOINT_ID`, and `VERTEX_ENDPOINT_HOST`
-- Set `GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY_JSON` to a service account JSON for a principal that already has `roles/aiplatform.user` on the Vertex project
-- Do not set `GOOGLE_APPLICATION_CREDENTIALS` on Vercel
-- If org policy later allows Vercel OIDC providers, you can replace the JSON secret with `GCP_PROJECT_ID`, `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`
+- Set `FAL_KEY` for Flux image generation through fal.ai
+- Optionally set `FLUX_MODEL=fal-ai/flux-2/klein/4b` and `FLUX_EDIT_MODEL=fal-ai/flux-2/klein/4b/edit`
+- The old Vertex custom endpoint env block is no longer required for the default Flux path
 - `vercel.json` runs cleanup once per day against `/api/maintenance/cleanup`
 - The round creation routes use `runtime = "nodejs"` plus explicit `maxDuration` so `after()` can finish prewarming and CPU continuation work on Vercel
 

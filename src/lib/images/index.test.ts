@@ -9,7 +9,7 @@ vi.mock("@/lib/gemini/client", () => ({
   generateImage: mockGenerateGeminiImage,
 }));
 
-vi.mock("@/lib/images/flux-vertex", () => ({
+vi.mock("@/lib/images/flux-fal", () => ({
   generateFluxImage: mockGenerateFluxImage,
 }));
 
@@ -42,7 +42,7 @@ describe("images.generateImage", () => {
     expect(result.base64Data).toBe("gemini-image");
   });
 
-  it("routes flux requests to the Vertex Flux provider", async () => {
+  it("routes flux requests to the fal Flux provider", async () => {
     mockGenerateFluxImage.mockResolvedValue({
       mimeType: "image/png",
       base64Data: "flux-image",
